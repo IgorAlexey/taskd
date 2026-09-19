@@ -938,6 +938,8 @@ Environment variables:
 Keyboard shortcuts:
   j, Down        Move selection down
   k, Up          Move selection up
+  g              Jump to first task
+  G              Jump to last task
   Tab, Backtab   Switch focus between task table and task body
   /              Filter tasks by keyword
   0              Show all tasks
@@ -948,12 +950,14 @@ Keyboard shortcuts:
   + / =          Raise task priority (lower number)
   -              Lower task priority (higher number)
   n              Create new task
+  e              Edit selected task
   c              Claim selected pending task
   u              Release selected leased task back to pending
   D              Delete selected task
   x              Complete selected task
   z              Zoom task body to full screen
   y              Copy task ID to clipboard
+  r, R           Refresh task queue
   q              Quit
 `)
 }

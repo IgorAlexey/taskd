@@ -1056,6 +1056,10 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 			"TASKD_URL",
 			"TASKD_PROJECT",
 			"T",
+			"Edit selected task",
+			"Refresh task queue",
+			"Jump to first task",
+			"Jump to last task",
 		} {
 			if !strings.Contains(out, want) {
 				t.Fatalf("help output missing %q:\n%s", want, out)
