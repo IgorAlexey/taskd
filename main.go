@@ -266,6 +266,7 @@ func (t *taskItem) normalize(now int64) {
 }
 
 const maxTaskIDLen = 128
+const maxProjectLen = 64
 
 func validTaskID(id string) bool {
 	if id == "" || len(id) > maxTaskIDLen || id == "." || id == ".." {
@@ -279,6 +280,10 @@ func validTaskID(id string) bool {
 		return false
 	}
 	return true
+}
+
+func validProject(p string) bool {
+	return p != "" && p != "*" && len(p) <= maxProjectLen
 }
 
 //go:embed index.html
@@ -336,8 +341,8 @@ FROM tasks`
 			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
 			return
 		}
-		if req.Project == "" || req.Project == "*" {
-			http.Error(w, "missing project", http.StatusBadRequest)
+		if !validProject(req.Project) {
+			http.Error(w, "invalid project", http.StatusBadRequest)
 			return
 		}
 		if req.Priority < 0 {
@@ -760,7 +765,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			http.Error(w, "invalid priority", http.StatusBadRequest)
 			return
 		}
-		if req.Project != nil && (*req.Project == "" || *req.Project == "*") {
+		if req.Project != nil && !validProject(*req.Project) {
 			http.Error(w, "invalid project", http.StatusBadRequest)
 			return
 		}

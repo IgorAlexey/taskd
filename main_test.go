@@ -4044,3 +4044,64 @@ func TestPatchEmptyBodyAndAssetPath(t *testing.T) {
 		t.Fatalf("PATCH asset clear with non-empty body expected 204, got %d: %s", code, body)
 	}
 }
+
+func TestProjectMaxLength(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	p65 := strings.Repeat("a", 65)
+	p64 := strings.Repeat("a", 64)
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "test",
+		"project": p65,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with 65-char project expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "test",
+		"project": p64,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks with 64-char project expected 201, got %d: %s", code, body)
+	}
+
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal response failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"project": p65,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH with 65-char project expected 400, got %d: %s", code, body)
+	}
+
+	p64b := strings.Repeat("b", 64)
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"project": p64b,
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH with 64-char project expected 204, got %d: %s", code, body)
+	}
+
+	var pVal string
+	err = db.QueryRow("SELECT project FROM tasks WHERE id = ?", res.ID).Scan(&pVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if pVal != p64b {
+		t.Fatalf("expected project %q, got %q", p64b, pVal)
+	}
+}
