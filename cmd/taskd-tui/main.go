@@ -147,6 +147,7 @@ func lease(t task, now int64) string {
 
 func (u *ui) render(all []task) {
 	keep, _ := u.selected()
+	prevRow, _ := u.table.GetSelection()
 	u.all, u.shown = all, u.shown[:0]
 	counts := map[string]int{}
 	for _, t := range all {
@@ -160,7 +161,7 @@ func (u *ui) render(all []task) {
 		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false))
 	}
 	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
-	now, row := time.Now().Unix(), 1
+	now, row := time.Now().Unix(), min(max(1, prevRow), len(u.shown))
 	for i, t := range u.shown {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
 		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}

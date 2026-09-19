@@ -653,6 +653,11 @@ func TestDeleteConfirm(t *testing.T) {
 		t.Fatalf("expected force=true in delete call for done task, got %q", lastCall)
 	}
 
+	eventually(t, func() bool {
+		var count int
+		query(func() { count = len(u.all) })
+		return count == 2
+	})
 	u.app.QueueUpdateDraw(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
 	})
@@ -1072,4 +1077,73 @@ func TestNerdFontIcons(t *testing.T) {
 			t.Fatalf("priority cell = %q, want %q", got, "\uf06d 5")
 		}
 	})
+}
+
+func TestSelectionClamping(t *testing.T) {
+	u := newUI("http://localhost:8080", "", false)
+	t1 := task{ID: "task-1", Status: "pending", Priority: 1, Body: "first"}
+	t2 := task{ID: "task-2", Status: "pending", Priority: 2, Body: "second"}
+	t3 := task{ID: "task-3", Status: "pending", Priority: 3, Body: "third"}
+	t4 := task{ID: "task-4", Status: "pending", Priority: 4, Body: "fourth"}
+	t5 := task{ID: "task-5", Status: "pending", Priority: 5, Body: "fifth"}
+
+	u.render([]task{t1, t2, t3, t4, t5})
+	r, _ := u.table.GetSelection()
+	if r != 1 {
+		t.Fatalf("expected initial row 1, got %d", r)
+	}
+
+	u.table.Select(3, 0)
+	if sel, _ := u.selected(); sel.ID != "task-3" {
+		t.Fatalf("expected task-3 selected, got %s", sel.ID)
+	}
+
+	u.render([]task{t1, t2, t4, t5})
+	r, _ = u.table.GetSelection()
+	if r != 3 {
+		t.Fatalf("expected cursor to remain at row 3 after middle task deleted, got %d", r)
+	}
+	if sel, _ := u.selected(); sel.ID != "task-4" {
+		t.Fatalf("expected task-4 at clamped row 3, got %s", sel.ID)
+	}
+
+	u.table.Select(4, 0)
+	if sel, _ := u.selected(); sel.ID != "task-5" {
+		t.Fatalf("expected task-5 selected, got %s", sel.ID)
+	}
+
+	u.render([]task{t1, t2, t4})
+	r, _ = u.table.GetSelection()
+	if r != 3 {
+		t.Fatalf("expected cursor clamped to row 3 after last task deleted, got %d", r)
+	}
+	if sel, _ := u.selected(); sel.ID != "task-4" {
+		t.Fatalf("expected task-4 at clamped row 3, got %s", sel.ID)
+	}
+
+	u.filter = "pending"
+	claimedT2 := task{ID: "task-2", Status: "leased", Priority: 2, Body: "second"}
+	u.table.Select(2, 0)
+	u.render([]task{t1, claimedT2, t4})
+	r, _ = u.table.GetSelection()
+	if r != 2 {
+		t.Fatalf("expected cursor clamped to row 2 after task claimed, got %d", r)
+	}
+	if sel, _ := u.selected(); sel.ID != "task-4" {
+		t.Fatalf("expected task-4 at row 2, got %s", sel.ID)
+	}
+
+	u.filter = ""
+	u.render([]task{t1, claimedT2, t4})
+	u.table.Select(3, 0)
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '3', 0))
+	r, _ = u.table.GetSelection()
+	if r != 0 {
+		t.Fatalf("expected row 0 for empty filtered view, got %d", r)
+	}
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
+	r, _ = u.table.GetSelection()
+	if r != 1 {
+		t.Fatalf("expected row 1 after restoring filter from empty, got %d", r)
+	}
 }
