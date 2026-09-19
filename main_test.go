@@ -2774,6 +2774,16 @@ func TestListPriorityFilter(t *testing.T) {
 	if code != http.StatusBadRequest {
 		t.Fatalf("GET /tasks?priority=invalid expected 400, got %d", code)
 	}
+
+	for _, q := range []string{"priority=-1", "priority=-100", "project=p-filter&priority=-1"} {
+		code, body = do(t, http.MethodGet, srv.URL+"/tasks?"+q, nil)
+		if code != http.StatusBadRequest {
+			t.Fatalf("GET /tasks?%s expected 400, got %d: %s", q, code, body)
+		}
+		if got := strings.TrimSpace(string(body)); got != "invalid priority" {
+			t.Fatalf("GET /tasks?%s expected body %q, got %q", q, "invalid priority", got)
+		}
+	}
 }
 
 func TestClaimByID(t *testing.T) {

@@ -622,7 +622,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		var priorityFilter *int
 		if q.Has("priority") {
 			v, err := strconv.Atoi(q.Get("priority"))
-			if err != nil {
+			if err != nil || v < 0 {
 				http.Error(w, "invalid priority", http.StatusBadRequest)
 				return
 			}
