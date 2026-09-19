@@ -1074,6 +1074,14 @@ func parseFlags(args []string) (config, error) {
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
+	cfg.dbPath = strings.TrimSpace(cfg.dbPath)
+	if cfg.dbPath == "" {
+		return cfg, errors.New("database path cannot be empty")
+	}
+	cfg.addr = strings.TrimSpace(cfg.addr)
+	if cfg.addr == "" {
+		return cfg, errors.New("listen address cannot be empty")
+	}
 	if cfg.lease <= 0 {
 		return cfg, fmt.Errorf("lease duration must be greater than 0: got %d", cfg.lease)
 	}

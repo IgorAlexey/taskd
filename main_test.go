@@ -1533,6 +1533,37 @@ func TestValidatePositiveLease(t *testing.T) {
 	}
 }
 
+func TestValidateEmptyDBAndAddr(t *testing.T) {
+	for _, val := range []string{"", " ", "\t", " \n "} {
+		_, err := parseFlags([]string{"-db", val})
+		if err == nil {
+			t.Fatalf("expected -db %q to fail, but got nil error", val)
+		}
+		if !strings.Contains(err.Error(), "database path cannot be empty") {
+			t.Fatalf("expected error for -db %q to be 'database path cannot be empty', got: %v", val, err)
+		}
+
+		_, err = parseFlags([]string{"-addr", val})
+		if err == nil {
+			t.Fatalf("expected -addr %q to fail, but got nil error", val)
+		}
+		if !strings.Contains(err.Error(), "listen address cannot be empty") {
+			t.Fatalf("expected error for -addr %q to be 'listen address cannot be empty', got: %v", val, err)
+		}
+	}
+
+	cfg, err := parseFlags([]string{"-db", "  custom.db  ", "-addr", "  :9090  "})
+	if err != nil {
+		t.Fatalf("unexpected error for valid flags: %v", err)
+	}
+	if cfg.dbPath != "custom.db" {
+		t.Fatalf("expected trimmed dbPath 'custom.db', got %q", cfg.dbPath)
+	}
+	if cfg.addr != ":9090" {
+		t.Fatalf("expected trimmed addr ':9090', got %q", cfg.addr)
+	}
+}
+
 func TestOpenDBCreateParentDir(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "sub", "nested", "taskd.db")
 	db, err := openDB(dbPath)
