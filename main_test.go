@@ -1199,4 +1199,15 @@ func TestListProjectFilter(t *testing.T) {
 	if strings.TrimSpace(string(body)) != "[]" {
 		t.Fatalf("expected [], got %q", string(body))
 	}
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=*", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=* expected 200, got %d: %s", code, body)
+	}
+	var tasksWildcard []taskItem
+	if err := json.Unmarshal(body, &tasksWildcard); err != nil {
+		t.Fatalf("unmarshal wildcard tasks failed: %v: %s", err, body)
+	}
+	if len(tasksWildcard) != 3 {
+		t.Fatalf("expected 3 tasks for project *, got %d", len(tasksWildcard))
+	}
 }

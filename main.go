@@ -252,7 +252,7 @@ WHERE id = (
 			where = append(where, "status = ?")
 			args = append(args, status)
 		}
-		if project != "" {
+		if project != "" && project != "*" {
 			where = append(where, "project = ?")
 			args = append(args, project)
 		}
