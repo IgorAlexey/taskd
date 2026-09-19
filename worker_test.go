@@ -12,11 +12,17 @@ import (
 	"time"
 )
 
-func TestWorkerScriptCLI(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
+func workerScript(t *testing.T) string {
+	t.Helper()
+	path, err := filepath.Abs(filepath.Join("contrib", "worker"))
 	if err != nil {
 		t.Fatalf("filepath.Abs failed: %v", err)
 	}
+	return path
+}
+
+func TestWorkerScriptCLI(t *testing.T) {
+	workerPath := workerScript(t)
 	if _, err := os.Stat(workerPath); err != nil {
 		t.Fatalf("worker script not found at %s: %v", workerPath, err)
 	}
@@ -208,10 +214,7 @@ func TestWorkerScriptCLI(t *testing.T) {
 }
 
 func TestWorkerBranchDetection(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	masterRepo, err := os.MkdirTemp("", "outside-master-")
 	if err != nil {
@@ -236,10 +239,7 @@ func TestWorkerBranchDetection(t *testing.T) {
 	}
 }
 func TestWorkerStatus(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	rundir := t.TempDir()
 	username := "teststatus"
@@ -341,10 +341,7 @@ func TestWorkerStatus(t *testing.T) {
 }
 
 func TestWorkerPreserveUnpushedCommits(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	originRepo := t.TempDir()
 	cmd := exec.Command("git", "-C", originRepo, "init", "-b", "main", "-q")
@@ -431,10 +428,7 @@ func TestWorkerPreserveUnpushedCommits(t *testing.T) {
 }
 
 func TestWorkerExportTaskdWorker(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tasks" {
@@ -504,10 +498,7 @@ func TestWorkerExportTaskdWorker(t *testing.T) {
 	}
 }
 func TestWorkerPreserveExecutionLogsAcrossIterations(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tasks" {
@@ -605,10 +596,7 @@ fi
 	}
 }
 func TestWorkerHonorTaskdProjectEnv(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tasks" {
@@ -736,10 +724,7 @@ func TestWorkerHonorTaskdProjectEnv(t *testing.T) {
 	}
 }
 func TestWorkerOnceExecution(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tasks" {
@@ -924,10 +909,7 @@ func TestWorkerOnceExecution(t *testing.T) {
 }
 
 func TestWorkerSlotContention(t *testing.T) {
-	workerPath, err := filepath.Abs("worker")
-	if err != nil {
-		t.Fatalf("filepath.Abs failed: %v", err)
-	}
+	workerPath := workerScript(t)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/tasks" {

@@ -15,3 +15,6 @@ local git worktrees, fifty servers on a LAN, or actual humans.
 
 A worker claims a task, holds a lease, and either finishes or lets it expire.
 Just simple SQL and UI that works.
+
+An operator runner for local worktree slots lives in `contrib/worker`; see
+[contrib/README.md](contrib/README.md).
