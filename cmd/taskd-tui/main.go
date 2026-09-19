@@ -73,6 +73,7 @@ func (u *ui) copySelectedBody() {
 
 type ui struct {
 	url                   string
+	origin                string
 	app                   *tview.Application
 	table                 *tview.Table
 	body                  *tview.TextView
@@ -388,6 +389,21 @@ func truncWidth(s string, maxWidth int) string {
 	return s[:end] + suffix
 }
 
+func daemonOrigin(rawURL string) string {
+	raw := strings.TrimSpace(rawURL)
+	if raw == "" {
+		return ""
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.TrimSpace(rawURL)
+	}
+	return u.Host
+}
+
 func (u *ui) renderStatus() {
 	cols := u.width
 	if cols <= 0 {
@@ -395,16 +411,36 @@ func (u *ui) renderStatus() {
 	}
 	if u.zoomed {
 		line := " [z/Esc] unzoom [j/k] scroll [y] copy [q] quit"
-		if u.msg != "" {
-			line = truncWidth(" "+u.msg, cols)
+		if u.origin != "" {
+			line = fmt.Sprintf(" %s  [z/Esc] unzoom [j/k] scroll [y] copy [q] quit", u.origin)
 		}
-		u.status.SetText(line)
+		if u.msg != "" {
+			if u.origin != "" {
+				line = fmt.Sprintf(" %s  %s", u.origin, u.msg)
+			} else {
+				line = " " + u.msg
+			}
+		}
+		u.status.SetText(truncWidth(line, cols))
 		return
 	}
 	proj := truncWidth(cmp.Or(u.project, "all"), 20)
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
-	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
-		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), cols-uniseg.StringWidth(idx)) + idx
+	var prefix string
+	if u.origin != "" {
+		prefix = fmt.Sprintf(" %s  %s  project %s  pending %d  leased %d  done %d",
+			u.origin, cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done)
+	} else {
+		prefix = fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
+			cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done)
+	}
+	avail := cols - uniseg.StringWidth(idx)
+	var line1 string
+	if avail > 0 {
+		line1 = truncWidth(prefix, avail) + idx
+	} else {
+		line1 = truncWidth(prefix, cols)
+	}
 	line2 := " [j/k] [0-4] filt [p] proj [n] new [e] edit [+/-] pri [D] del [z] zoom [q] quit"
 	if u.searching {
 		line2 = truncWidth("/"+u.query, cols)
@@ -1142,6 +1178,7 @@ func parseFlags(args []string) (config, error) {
 func newUI(url, project string, icons bool) *ui {
 	u := &ui{
 		url:     strings.TrimRight(url, "/"),
+		origin:  daemonOrigin(url),
 		project: project,
 		icons:   icons,
 		worker:  defaultWorker(),
@@ -1179,6 +1216,7 @@ func newUI(url, project string, icons bool) *ui {
 	u.flex = flex
 	u.pages = tview.NewPages().AddPage("main", flex, true, true)
 	u.app.SetRoot(u.pages, true)
+	u.renderStatus()
 	return u
 }
 

@@ -164,3 +164,34 @@ func TestStatusBarWidth(t *testing.T) {
 		}
 	}
 }
+
+func TestDaemonOriginInStatusBar(t *testing.T) {
+	u := newUI("http://127.0.0.1:18842", "", false)
+	all := []task{
+		{ID: "t1", Status: "pending", Body: "task 1"},
+	}
+	u.render(all)
+	st := u.status.GetText(true)
+	if !strings.Contains(st, "18842") {
+		t.Fatalf("expected daemon origin port 18842 in status, got: %q", st)
+	}
+
+	u.toggleZoom()
+	zoomSt := u.status.GetText(true)
+	if !strings.Contains(zoomSt, "18842") {
+		t.Fatalf("expected daemon origin port 18842 in zoomed status, got: %q", zoomSt)
+	}
+	u.toggleZoom()
+}
+
+func TestDaemonOriginSurvives40Columns(t *testing.T) {
+	u := newUI("http://127.0.0.1:18842", "", false)
+	u.width = 40
+	u.render([]task{
+		{ID: "t1", Status: "pending", Project: "very-long-project-name", Body: "task 1"},
+	})
+	st := u.status.GetText(true)
+	if !strings.Contains(st, "18842") {
+		t.Fatalf("status at 40 columns missing 18842:\n%s", st)
+	}
+}
