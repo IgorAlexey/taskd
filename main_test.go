@@ -4218,3 +4218,61 @@ func TestRejectWhitespacePayloads(t *testing.T) {
 		t.Fatalf("expected project 'p2', got %q", task.Project)
 	}
 }
+
+func TestGetTasksUnknownQueryParam(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	invalidCases := []struct {
+		param string
+		query string
+	}{
+		{"stat", "stat=pending"},
+		{"proj", "proj=myproject"},
+		{"filter", "filter=leased"},
+		{"unknown", "unknown=1"},
+		{"foo", "foo=bar&limit=10"},
+		{"bar", "status=pending&bar=baz"},
+	}
+
+	for _, tc := range invalidCases {
+		code, body := do(t, http.MethodGet, srv.URL+"/tasks?"+tc.query, nil)
+		if code != http.StatusBadRequest {
+			t.Fatalf("GET /tasks?%s expected 400, got %d: %s", tc.query, code, body)
+		}
+		if !strings.Contains(string(body), tc.param) {
+			t.Fatalf("GET /tasks?%s expected error mentioning %q, got: %s", tc.query, tc.param, body)
+		}
+	}
+
+	validQueries := []string{
+		"",
+		"status=pending",
+		"status=leased",
+		"status=done",
+		"project=p1",
+		"worker=w1",
+		"priority=1",
+		"limit=10",
+		"offset=0",
+		"asset_path=foo.glb",
+		"status=pending&project=p1&worker=w1&priority=1&limit=10&offset=0&asset_path=foo.glb",
+	}
+
+	for _, q := range validQueries {
+		url := srv.URL + "/tasks"
+		if q != "" {
+			url += "?" + q
+		}
+		code, body := do(t, http.MethodGet, url, nil)
+		if code != http.StatusOK {
+			t.Fatalf("GET %s expected 200, got %d: %s", url, code, body)
+		}
+	}
+}

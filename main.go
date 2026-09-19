@@ -601,6 +601,14 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		for k := range q {
+			switch k {
+			case "status", "project", "worker", "priority", "limit", "offset", "asset_path":
+			default:
+				http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
+				return
+			}
+		}
 		status := q.Get("status")
 		if q.Has("status") && status != "pending" && status != "leased" && status != "done" {
 			http.Error(w, "invalid status", http.StatusBadRequest)
