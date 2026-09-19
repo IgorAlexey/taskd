@@ -51,6 +51,10 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4}
+
+const schemaVersion = len(migrations) + 1
+
 func openDB(path string) (*sql.DB, error) {
 	if dir := dbDir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -74,7 +78,6 @@ func openDB(path string) (*sql.DB, error) {
 		u = &url.URL{Scheme: "file", Path: abs}
 	}
 	q := u.Query()
-	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "busy_timeout(5000)")
 	u.RawQuery = q.Encode()
 	db, err := sql.Open("sqlite", u.String())
@@ -84,6 +87,14 @@ func openDB(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version < 0 || version > schemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("database %s has schema version %d, this binary supports %d", path, version, schemaVersion)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -98,7 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 			return nil, err
 		}
 		if tableExists == 0 {
-			if _, err := db.Exec(fullSchema + "\nPRAGMA user_version = 4;"); err != nil {
+			if _, err := db.Exec(fullSchema + fmt.Sprintf("\nPRAGMA user_version = %d;", schemaVersion)); err != nil {
 				db.Close()
 				return nil, err
 			}
@@ -119,20 +130,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 			return nil, err
 		}
 	}
-	if version < 2 {
-		if err := migrateV2(db); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	if version < 3 {
-		if err := migrateV3(db); err != nil {
-			db.Close()
-			return nil, err
-		}
-	}
-	if version < 4 {
-		if err := migrateV4(db); err != nil {
+	for i := max(0, version-1); i < len(migrations); i++ {
+		if err := migrations[i](db); err != nil {
 			db.Close()
 			return nil, err
 		}
