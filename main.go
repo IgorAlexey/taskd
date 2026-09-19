@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"modernc.org/sqlite"
@@ -25,13 +26,16 @@ func openDB(path string) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	const schema = `CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
-  asset_path TEXT NOT NULL,
+  asset_path TEXT NOT NULL DEFAULT '',
   status TEXT DEFAULT 'pending',
   worker TEXT,
   lease_expires INTEGER,
-  primitives JSON
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_tasks_claim ON tasks (status, lease_expires);`
+DROP INDEX IF EXISTS idx_tasks_claim;
+CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);`
 	if _, err := db.Exec(schema); err != nil {
 		db.Close()
 		return nil, err
@@ -53,6 +57,12 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	}
 	return true
 }
+
+func internalError(w http.ResponseWriter, err error) {
+	log.Print(err)
+	http.Error(w, "internal error", http.StatusInternalServerError)
+}
+
 func newHandler(db *sql.DB, lease int) http.Handler {
 	mux := http.NewServeMux()
 
@@ -60,30 +70,32 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 		var req struct {
 			ID        string `json:"id"`
 			AssetPath string `json:"asset_path"`
+			Body      string `json:"body"`
+			Priority  int    `json:"priority"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.AssetPath == "" {
-			http.Error(w, "missing asset_path", http.StatusBadRequest)
+		if req.AssetPath == "" && req.Body == "" {
+			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
 			return
 		}
 		if req.ID == "" {
 			var b [16]byte
 			if _, err := rand.Read(b[:]); err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				internalError(w, err)
 				return
 			}
 			req.ID = hex.EncodeToString(b[:])
 		}
-		_, err := db.Exec("INSERT INTO tasks (id, asset_path) VALUES (?, ?)", req.ID, req.AssetPath)
+		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority) VALUES (?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, req.Priority)
 		if err != nil {
 			var se *sqlite.Error
 			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
 				http.Error(w, "duplicate id", http.StatusConflict)
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -106,23 +118,33 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 WHERE id = (
   SELECT id FROM tasks
   WHERE status='pending' OR (status='leased' AND lease_expires < unixepoch())
-  ORDER BY rowid ASC
+  ORDER BY priority DESC, rowid ASC
   LIMIT 1
-) RETURNING id, asset_path`
-		var id, assetPath string
-		err := db.QueryRow(query, req.Worker, lease).Scan(&id, &assetPath)
+) RETURNING id, asset_path, body, priority`
+		var (
+			id, assetPath, body string
+			priority            int
+		)
+		err := db.QueryRow(query, req.Worker, lease).Scan(&id, &assetPath, &body, &priority)
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{
-			"id":         id,
-			"asset_path": assetPath,
+		json.NewEncoder(w).Encode(struct {
+			ID        string `json:"id"`
+			AssetPath string `json:"asset_path"`
+			Body      string `json:"body"`
+			Priority  int    `json:"priority"`
+		}{
+			ID:        id,
+			AssetPath: assetPath,
+			Body:      body,
+			Priority:  priority,
 		})
 	})
 
@@ -144,16 +166,119 @@ WHERE id = (
 		}
 		res, err := db.Exec("UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=?", prim, r.PathValue("id"), req.Worker)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		n, err := res.RowsAffected()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			internalError(w, err)
 			return
 		}
 		if n == 0 {
 			http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
+		status := r.URL.Query().Get("status")
+		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil || limit <= 0 {
+			limit = 100
+		}
+		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives FROM tasks"
+		args := []any{limit}
+		if status != "" {
+			query += " WHERE status = ?"
+			args = []any{status, limit}
+		}
+		rows, err := db.Query(query+" ORDER BY priority DESC, rowid ASC LIMIT ?", args...)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer rows.Close()
+
+		type taskItem struct {
+			ID           string          `json:"id"`
+			AssetPath    string          `json:"asset_path"`
+			Status       string          `json:"status"`
+			Worker       string          `json:"worker"`
+			LeaseExpires int64           `json:"lease_expires"`
+			Priority     int             `json:"priority"`
+			Body         string          `json:"body"`
+			Primitives   json.RawMessage `json:"primitives"`
+		}
+
+		tasks := make([]taskItem, 0)
+		for rows.Next() {
+			var (
+				item         taskItem
+				worker       sql.NullString
+				leaseExpires sql.NullInt64
+				prim         []byte
+			)
+			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim); err != nil {
+				internalError(w, err)
+				return
+			}
+			item.Worker = worker.String
+			item.LeaseExpires = leaseExpires.Int64
+			item.Primitives = prim
+			tasks = append(tasks, item)
+		}
+		if err := rows.Err(); err != nil {
+			internalError(w, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(tasks)
+	})
+
+	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Body     *string `json:"body"`
+			Priority *int    `json:"priority"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.Body == nil && req.Priority == nil {
+			http.Error(w, "missing fields to update", http.StatusBadRequest)
+			return
+		}
+		res, err := db.Exec("UPDATE tasks SET body = COALESCE(?, body), priority = COALESCE(?, priority) WHERE id = ?", req.Body, req.Priority, r.PathValue("id"))
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if n == 0 {
+			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	mux.HandleFunc("DELETE /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		res, err := db.Exec("DELETE FROM tasks WHERE id = ?", r.PathValue("id"))
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if n == 0 {
+			http.Error(w, "task not found", http.StatusNotFound)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
