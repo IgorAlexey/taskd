@@ -1,6 +1,7 @@
 .*
 !.gitignore
 /taskd
+/taskd-tui
 /taskd.db
 /taskd.db-shm
 /taskd.db-wal
