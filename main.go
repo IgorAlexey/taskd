@@ -207,8 +207,14 @@ func migrateV3(db *sql.DB) error {
 	}
 	defer tx.Rollback()
 
-	if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN claim_count INTEGER NOT NULL DEFAULT 0;"); err != nil {
+	var hasClaimCount int
+	if err := tx.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
 		return err
+	}
+	if hasClaimCount == 0 {
+		if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN claim_count INTEGER NOT NULL DEFAULT 0;"); err != nil {
+			return err
+		}
 	}
 	if _, err := tx.Exec("PRAGMA user_version = 3;"); err != nil {
 		return err

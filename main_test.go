@@ -3825,3 +3825,103 @@ func TestDoneNotFoundVsConflict(t *testing.T) {
 		t.Fatalf("done already-done task expected 409, got %d: %s", code, body)
 	}
 }
+
+func TestMigrationV3DuplicateColumn(t *testing.T) {
+	if envDB := os.Getenv("DB"); envDB != "" {
+		db, err := openDB(envDB)
+		if err != nil {
+			t.Fatalf("openDB on DB=%s failed: %v", envDB, err)
+		}
+		var userVersion int
+		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+			db.Close()
+			t.Fatalf("query user_version: %v", err)
+		}
+		if userVersion != 3 {
+			db.Close()
+			t.Fatalf("expected user_version 3, got %d", userVersion)
+		}
+		var hasClaimCount int
+		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+			db.Close()
+			t.Fatalf("query claim_count: %v", err)
+		}
+		if hasClaimCount != 1 {
+			db.Close()
+			t.Fatalf("expected claim_count column, got %d", hasClaimCount)
+		}
+		db.Close()
+	}
+
+	t.Run("UserVersion2", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "v2-dup.db")
+		db0, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatalf("setup open: %v", err)
+		}
+		setup := `CREATE TABLE tasks (id TEXT PRIMARY KEY, claim_count INT, project TEXT); PRAGMA user_version = 2;`
+		if _, err := db0.Exec(setup); err != nil {
+			db0.Close()
+			t.Fatalf("setup exec: %v", err)
+		}
+		db0.Close()
+
+		db, err := openDB(dbPath)
+		if err != nil {
+			t.Fatalf("openDB failed: %v", err)
+		}
+		defer db.Close()
+
+		var userVersion int
+		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+			t.Fatalf("query user_version: %v", err)
+		}
+		if userVersion != 3 {
+			t.Fatalf("expected user_version 3, got %d", userVersion)
+		}
+
+		var hasClaimCount int
+		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+			t.Fatalf("query claim_count: %v", err)
+		}
+		if hasClaimCount != 1 {
+			t.Fatalf("expected claim_count column, got %d", hasClaimCount)
+		}
+	})
+
+	t.Run("UserVersion0", func(t *testing.T) {
+		dbPath := filepath.Join(t.TempDir(), "v0-dup.db")
+		db0, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatalf("setup open: %v", err)
+		}
+		setup := `CREATE TABLE tasks (id TEXT PRIMARY KEY, claim_count INT, project TEXT);`
+		if _, err := db0.Exec(setup); err != nil {
+			db0.Close()
+			t.Fatalf("setup exec: %v", err)
+		}
+		db0.Close()
+
+		db, err := openDB(dbPath)
+		if err != nil {
+			t.Fatalf("openDB failed: %v", err)
+		}
+		defer db.Close()
+
+		var userVersion int
+		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+			t.Fatalf("query user_version: %v", err)
+		}
+		if userVersion != 3 {
+			t.Fatalf("expected user_version 3, got %d", userVersion)
+		}
+
+		var hasClaimCount int
+		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+			t.Fatalf("query claim_count: %v", err)
+		}
+		if hasClaimCount != 1 {
+			t.Fatalf("expected claim_count column, got %d", hasClaimCount)
+		}
+	})
+}
