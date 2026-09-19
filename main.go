@@ -336,7 +336,7 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
 			return false
 		}
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
 	return true
