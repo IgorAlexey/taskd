@@ -1579,6 +1579,16 @@ func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease int, corsO
 	}
 }
 
+func backupDB(db *sql.DB, path string) error {
+	if dir := dbDir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+	}
+	_, err := db.Exec("VACUUM INTO ?", path)
+	return err
+}
+
 func main() {
 	cfg, err := parseFlags(os.Args[1:])
 	if err != nil {
@@ -1595,7 +1605,7 @@ func main() {
 	defer db.Close()
 
 	if cfg.backupPath != "" {
-		if _, err := db.Exec("VACUUM INTO ?", cfg.backupPath); err != nil {
+		if err := backupDB(db, cfg.backupPath); err != nil {
 			log.Fatal(err)
 		}
 		return
