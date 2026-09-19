@@ -1548,3 +1548,52 @@ func TestOpenDBInMemoryURI(t *testing.T) {
 		t.Fatalf("in-memory database should not create parent directory")
 	}
 }
+
+func TestGetTasksLimitValidation(t *testing.T) {
+	db, err := openDB(":memory:")
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	for _, invalid := range []string{"0", "-1", "-10", "invalid", "abc", "1001", "1000000", ""} {
+		code, _ := do(t, http.MethodGet, srv.URL+"/tasks?limit="+invalid, nil)
+		if code != http.StatusBadRequest {
+			t.Fatalf("GET /tasks?limit=%s expected 400, got %d", invalid, code)
+		}
+	}
+
+	for _, valid := range []string{"1", "500", "1000"} {
+		code, _ := do(t, http.MethodGet, srv.URL+"/tasks?limit="+valid, nil)
+		if code != http.StatusOK {
+			t.Fatalf("GET /tasks?limit=%s expected 200, got %d", valid, code)
+		}
+	}
+
+	code, _ := do(t, http.MethodGet, srv.URL+"/tasks", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks without limit expected 200, got %d", code)
+	}
+
+	for i := 0; i < 5; i++ {
+		post(t, srv.URL+"/tasks", map[string]any{
+			"asset_path": fmt.Sprintf("task-%d.gltf", i),
+			"project":    "test",
+		})
+	}
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?limit=2", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?limit=2 expected 200, got %d", code)
+	}
+	var tasks []taskItem
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v", err)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+}

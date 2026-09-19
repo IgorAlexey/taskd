@@ -288,11 +288,17 @@ WHERE id = (
 	})
 
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
-		status := r.URL.Query().Get("status")
-		project := r.URL.Query().Get("project")
-		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
-		if err != nil || limit <= 0 {
-			limit = 100
+		q := r.URL.Query()
+		status := q.Get("status")
+		project := q.Get("project")
+		limit := 100
+		if q.Has("limit") {
+			v, err := strconv.Atoi(q.Get("limit"))
+			if err != nil || v < 1 || v > 1000 {
+				http.Error(w, "invalid limit", http.StatusBadRequest)
+				return
+			}
+			limit = v
 		}
 		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks"
 		var where []string
