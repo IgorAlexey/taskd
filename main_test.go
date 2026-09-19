@@ -2663,3 +2663,107 @@ func TestListTasksValidateStatus(t *testing.T) {
 		}
 	}
 }
+func TestListPriorityFilter(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code1, body1 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "prio-3",
+		"priority": 3,
+		"project":  "p-filter",
+	})
+	if code1 != http.StatusCreated {
+		t.Fatalf("create task 1 failed: %d: %s", code1, body1)
+	}
+
+	code2, body2 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "prio-0",
+		"priority": 0,
+		"project":  "p-filter",
+	})
+	if code2 != http.StatusCreated {
+		t.Fatalf("create task 2 failed: %d: %s", code2, body2)
+	}
+
+	code3, body3 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "prio-3-other",
+		"priority": 3,
+		"project":  "other",
+	})
+	if code3 != http.StatusCreated {
+		t.Fatalf("create task 3 failed: %d: %s", code3, body3)
+	}
+
+	type taskItem struct {
+		ID       string `json:"id"`
+		Body     string `json:"body"`
+		Priority int    `json:"priority"`
+		Project  string `json:"project"`
+	}
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?project=p-filter&priority=3", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=p-filter&priority=3 expected 200, got %d: %s", code, body)
+	}
+	var filtered []taskItem
+	if err := json.Unmarshal(body, &filtered); err != nil {
+		t.Fatalf("unmarshal filtered tasks failed: %v: %s", err, body)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 task with priority 3 and project p-filter, got %d", len(filtered))
+	}
+	if filtered[0].Priority != 3 || filtered[0].Project != "p-filter" || filtered[0].Body != "prio-3" {
+		t.Fatalf("unexpected task item: %+v", filtered[0])
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=p-filter&priority=0", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=p-filter&priority=0 expected 200, got %d: %s", code, body)
+	}
+	var filtered0 []taskItem
+	if err := json.Unmarshal(body, &filtered0); err != nil {
+		t.Fatalf("unmarshal filtered0 tasks failed: %v: %s", err, body)
+	}
+	if len(filtered0) != 1 {
+		t.Fatalf("expected 1 task with priority 0 and project p-filter, got %d", len(filtered0))
+	}
+	if filtered0[0].Priority != 0 || filtered0[0].Project != "p-filter" || filtered0[0].Body != "prio-0" {
+		t.Fatalf("unexpected task item: %+v", filtered0[0])
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?priority=3", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?priority=3 expected 200, got %d: %s", code, body)
+	}
+	var prio3All []taskItem
+	if err := json.Unmarshal(body, &prio3All); err != nil {
+		t.Fatalf("unmarshal prio3All tasks failed: %v: %s", err, body)
+	}
+	if len(prio3All) != 2 {
+		t.Fatalf("expected 2 tasks with priority 3, got %d", len(prio3All))
+	}
+	for _, item := range prio3All {
+		if item.Priority != 3 {
+			t.Fatalf("expected priority 3, got %d", item.Priority)
+		}
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?priority=2", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?priority=2 expected 200, got %d: %s", code, body)
+	}
+	if strings.TrimSpace(string(body)) != "[]" {
+		t.Fatalf("expected empty list for priority 2, got %q", string(body))
+	}
+
+	code, _ = do(t, http.MethodGet, srv.URL+"/tasks?priority=invalid", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("GET /tasks?priority=invalid expected 400, got %d", code)
+	}
+}

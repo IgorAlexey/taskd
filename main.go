@@ -395,6 +395,15 @@ WHERE id = (
 		}
 		project := q.Get("project")
 		worker := q.Get("worker")
+		var priorityFilter *int
+		if q.Has("priority") {
+			v, err := strconv.Atoi(q.Get("priority"))
+			if err != nil {
+				http.Error(w, "invalid priority", http.StatusBadRequest)
+				return
+			}
+			priorityFilter = &v
+		}
 		limit := 100
 		if q.Has("limit") {
 			v, err := strconv.Atoi(q.Get("limit"))
@@ -434,6 +443,10 @@ WHERE id = (
 		if worker != "" {
 			where = append(where, "worker = ?")
 			args = append(args, worker)
+		}
+		if priorityFilter != nil {
+			where = append(where, "priority = ?")
+			args = append(args, *priorityFilter)
 		}
 		if len(where) > 0 {
 			query += " WHERE " + strings.Join(where, " AND ")
