@@ -667,3 +667,164 @@ func TestWebUIRowSummaryFirstLine(t *testing.T) {
 		t.Errorf("markup summary cell was not escaped: %q", got.RowHTML["markup"])
 	}
 }
+
+func TestWebUISubmitFieldValidation(t *testing.T) {
+	ui := string(uiHTML)
+
+	if !strings.Contains(ui, `id="form-id-error"`) {
+		t.Fatal("expected a field error span with id=\"form-id-error\" in web/index.html")
+	}
+	idInput := regexp.MustCompile(`<input[^>]*id="form-id"[^>]*>`).FindString(ui)
+	if !strings.Contains(idInput, `aria-describedby="form-id-error"`) || !strings.Contains(idInput, `aria-invalid=`) {
+		t.Fatalf("expected aria-invalid and aria-describedby on #form-id, got %q", idInput)
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+
+	corpus := []string{
+		"", "p1", "PROJ", "proj.1_x-Y", "-", "_", ".", "..", "...",
+		"claim", "CLAIM", "Claim", "purge", "Purge",
+		"a b", "a/b", "a\\b", "a@b", "a\tb", "a\nb", "a\x00b", "*",
+		"\u00e9", "\u00e9\u00e9", "caf\u00e9",
+		strings.Repeat("\u00e9", 33), strings.Repeat("a", 64), strings.Repeat("a", 65),
+		strings.Repeat("a", 128), strings.Repeat("a", 129),
+	}
+	bodyCorpus := [][2]string{
+		{"", ""}, {"a body", ""}, {"", "/tmp/asset"}, {"a body", "/tmp/asset"},
+		{" ", ""}, {" ", "/tmp/asset"}, {"\n\t ", "/tmp/asset"},
+		{"", "   "}, {" leading", ""}, {"x", "   "},
+	}
+	dir := t.TempDir()
+	write := func(name string, v any) string {
+		blob, err := json.Marshal(v)
+		if err != nil {
+			t.Fatalf("marshal %s failed: %v", name, err)
+		}
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, blob, 0o600); err != nil {
+			t.Fatalf("write %s failed: %v", name, err)
+		}
+		return path
+	}
+	corpusFile := write("corpus.json", corpus)
+	bodyFile := write("bodies.json", bodyCorpus)
+
+	out, err := exec.Command(node, "testdata/submit.js", "web/index.html", corpusFile, bodyFile).Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	type attempt struct {
+		Posted         int    `json:"posted"`
+		ProjectError   string `json:"projectError"`
+		BodyError      string `json:"bodyError"`
+		IDError        string `json:"idError"`
+		ProjectInvalid string `json:"projectInvalid"`
+		IDInvalid      string `json:"idInvalid"`
+		AssetInvalid   string `json:"assetInvalid"`
+	}
+	var got struct {
+		Cases    map[string]attempt `json:"cases"`
+		Verdicts []struct {
+			Project bool `json:"project"`
+			ID      bool `json:"id"`
+		} `json:"verdicts"`
+		BodyVerdicts []bool `json:"bodyVerdicts"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if len(got.Verdicts) != len(corpus) {
+		t.Fatalf("harness returned %d verdicts for %d corpus entries", len(got.Verdicts), len(corpus))
+	}
+	for i, s := range corpus {
+		if got.Verdicts[i].Project != validProject(s) {
+			t.Errorf("projectError(%q) accepts=%v, validProject says %v", s, got.Verdicts[i].Project, validProject(s))
+		}
+		if got.Verdicts[i].ID != validTaskID(s) {
+			t.Errorf("customIdError(%q) accepts=%v, validTaskID says %v", s, got.Verdicts[i].ID, validTaskID(s))
+		}
+	}
+
+	if len(got.BodyVerdicts) != len(bodyCorpus) {
+		t.Fatalf("harness returned %d body verdicts for %d pairs", len(got.BodyVerdicts), len(bodyCorpus))
+	}
+	db, err := openDB(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+	for i, pair := range bodyCorpus {
+		code, _ := post(t, srv.URL+"/tasks", map[string]string{
+			"project":    "p1",
+			"body":       pair[0],
+			"asset_path": pair[1],
+		})
+		if got.BodyVerdicts[i] != (code == http.StatusCreated) {
+			t.Errorf("bodyError(%q, %q) accepts=%v, POST /tasks answered %d", pair[0], pair[1], got.BodyVerdicts[i], code)
+		}
+	}
+
+	pick := func(name string) attempt {
+		a, ok := got.Cases[name]
+		if !ok {
+			t.Fatalf("harness produced no %s case", name)
+		}
+		return a
+	}
+
+	for _, name := range []string{"spacedProject", "slashProject", "longProject", "emptyProject"} {
+		a := pick(name)
+		if a.Posted != 0 {
+			t.Errorf("%s: expected no POST /tasks, got %d", name, a.Posted)
+		}
+		if a.ProjectError == "" {
+			t.Errorf("%s: expected an inline project error", name)
+		}
+		if a.ProjectInvalid != "true" {
+			t.Errorf("%s: expected aria-invalid=true on #form-project, got %q", name, a.ProjectInvalid)
+		}
+	}
+
+	for _, name := range []string{"spacedId", "reservedId", "dotId", "longId"} {
+		a := pick(name)
+		if a.Posted != 0 {
+			t.Errorf("%s: expected no POST /tasks, got %d", name, a.Posted)
+		}
+		if a.IDError == "" {
+			t.Errorf("%s: expected an inline custom ID error", name)
+		}
+		if a.IDInvalid != "true" {
+			t.Errorf("%s: expected aria-invalid=true on #form-id, got %q", name, a.IDInvalid)
+		}
+		if a.ProjectError != "" {
+			t.Errorf("%s: expected no project error, got %q", name, a.ProjectError)
+		}
+	}
+
+	if a := pick("blankBody"); a.Posted != 0 || a.BodyError == "" || a.AssetInvalid != "false" {
+		t.Errorf("blankBody: expected a body-only error and no POST, got %+v", a)
+	}
+	if a := pick("noBodyNoAsset"); a.Posted != 0 || a.BodyError == "" || a.AssetInvalid != "true" {
+		t.Errorf("noBodyNoAsset: expected body and asset flagged and no POST, got %+v", a)
+	}
+	if a := pick("bothBad"); a.ProjectError == "" || a.IDError == "" || a.Posted != 0 {
+		t.Errorf("bothBad: expected both fields flagged and no POST, got %+v", a)
+	}
+	if a := pick("valid"); a.Posted != 1 || a.ProjectError != "" || a.IDError != "" {
+		t.Errorf("valid: expected one clean POST /tasks, got %+v", a)
+	}
+}

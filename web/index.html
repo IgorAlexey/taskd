@@ -485,7 +485,8 @@
             </div>
             <div class="field">
               <label for="form-id">Custom ID (optional)</label>
-              <input type="text" id="form-id" placeholder="auto-generated if empty">
+              <span class="field-error" id="form-id-error"></span>
+              <input type="text" id="form-id" placeholder="auto-generated if empty" aria-invalid="false" aria-describedby="form-id-error">
             </div>
             <button type="submit" class="primary" style="width: 100%;">Submit Task</button>
           </form>
@@ -1323,6 +1324,51 @@
       }
     }
 
+    // The daemon's validProject and validTaskID accept the same byte set, so
+    // the form refuses what POST /tasks would answer with a bare 400.
+    const NAME_RE = /^[A-Za-z0-9._-]+$/;
+
+    function projectError(proj) {
+      if (!proj) {
+        return { fieldId: 'form-project', message: 'Project name is required' };
+      }
+      if (proj.length > 64 || !NAME_RE.test(proj)) {
+        return {
+          fieldId: 'form-project',
+          message: 'Project must be 1-64 characters: letters, digits, dot, underscore or hyphen'
+        };
+      }
+      return null;
+    }
+
+    function customIdError(id) {
+      if (!id || id.length > 128 || !NAME_RE.test(id)) {
+        return {
+          fieldId: 'form-id',
+          message: 'Custom ID must be 1-128 characters: letters, digits, dot, underscore or hyphen'
+        };
+      }
+      if (id === '.' || id === '..' || /^(claim|purge)$/i.test(id)) {
+        return { fieldId: 'form-id', message: 'Custom ID "' + id + '" is reserved, pick another one' };
+      }
+      return null;
+    }
+
+    // Each field is trimmed where the daemon trims it: asset_path yes, body no.
+    function bodyError(body, asset) {
+      if (body !== '' && body.trim() === '') {
+        return { fieldId: 'form-body', message: 'Body cannot be only whitespace' };
+      }
+      if (body === '' && asset.trim() === '') {
+        return {
+          fieldId: 'form-body',
+          fieldIds: ['form-body', 'form-asset'],
+          message: 'Either Body or Asset Path must be provided'
+        };
+      }
+      return null;
+    }
+
     async function submitTask(e) {
       if (e && e.preventDefault) e.preventDefault();
       clearFormErrors();
@@ -1340,18 +1386,22 @@
       const customId = idEl ? idEl.value.trim() : '';
 
       const errors = [];
-      if (!proj || proj === '*') {
-        errors.push({ fieldId: 'form-project', message: 'Project name is required' });
+      const projErr = projectError(proj);
+      if (projErr) {
+        errors.push(projErr);
       }
-      if (!body.trim() && !asset) {
-        errors.push({
-          fieldId: 'form-body',
-          fieldIds: ['form-body', 'form-asset'],
-          message: 'Either Body or Asset Path must be provided'
-        });
+      const bodyErr = bodyError(body, asset);
+      if (bodyErr) {
+        errors.push(bodyErr);
       }
       if (prio !== null && (!Number.isInteger(prio) || prio < 0)) {
         errors.push({ fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' });
+      }
+      if (customId !== '') {
+        const idErr = customIdError(customId);
+        if (idErr) {
+          errors.push(idErr);
+        }
       }
 
       if (errors.length > 0) {
