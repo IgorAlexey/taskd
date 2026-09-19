@@ -534,6 +534,33 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /tasks/{id}/release", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.Worker == "" {
+			http.Error(w, "missing worker", http.StatusBadRequest)
+			return
+		}
+		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=?", r.PathValue("id"), req.Worker)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if n == 0 {
+			http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()

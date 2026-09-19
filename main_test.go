@@ -3604,3 +3604,105 @@ func TestCORS(t *testing.T) {
 		t.Fatalf("get expected Access-Control-Allow-Headers: Content-Type, got %q", got)
 	}
 }
+func TestReleaseTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "to release",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("release on unleased task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
+		"worker":  "w1",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("release without worker expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{
+		"worker":  "w1",
+		"unknown": "field",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("release with unknown field expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{
+		"worker": "w2",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("release by wrong worker expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/nonexistent/release", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("release on nonexistent task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("release expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=p1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks expected 200, got %d: %s", code, body)
+	}
+	var tasks []taskItem
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasks) != 1 || tasks[0].Status != "pending" || tasks[0].Worker != "" || tasks[0].LeaseExpires != 0 {
+		t.Fatalf("unexpected task state after release: %+v", tasks)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
+		"worker":  "w2",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("second claim expected 200, got %d: %s", code, body)
+	}
+	var claimResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &claimResp); err != nil {
+		t.Fatalf("unmarshal second claim failed: %v", err)
+	}
+	if claimResp.ID != res.ID {
+		t.Fatalf("expected claim to return released task %q, got %q", res.ID, claimResp.ID)
+	}
+}
