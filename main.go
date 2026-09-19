@@ -267,18 +267,33 @@ WHERE id = (
 	})
 
 	mux.HandleFunc("DELETE /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		res, err := db.Exec("DELETE FROM tasks WHERE id = ?", r.PathValue("id"))
+		tx, err := db.Begin()
 		if err != nil {
 			internalError(w, err)
 			return
 		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if n == 0 {
+		defer tx.Rollback()
+
+		var status string
+		err = tx.QueryRow("SELECT status FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&status)
+		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if status == "leased" {
+			http.Error(w, "task is leased", http.StatusConflict)
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", r.PathValue("id")); err != nil {
+			internalError(w, err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			internalError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
