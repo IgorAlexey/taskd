@@ -10,6 +10,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,8 @@ type ui struct {
 	table   *tview.Table
 	body    *tview.TextView
 	status  *tview.TextView
+	root    tview.Primitive
+	form    *tview.Form
 	filter  string
 	project string
 	all     []task
@@ -121,7 +124,7 @@ func (u *ui) render(all []task) {
 	}
 	u.table.Select(row, 0)
 	u.showBody()
-	u.status.SetText(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [p] project  [+/-] priority  [D] delete  [q] quit   %s",
+	u.status.SetText(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [p] project  [n] new  [+/-] priority  [D] delete  [q] quit   %s",
 		cmp.Or(u.filter, "all"), cmp.Or(u.project, "all"), counts["pending"], counts["leased"], counts["done"], u.msg))
 }
 
@@ -150,20 +153,48 @@ func (u *ui) refresh() {
 	})
 }
 
+func (u *ui) act(method, path string, body any) {
+	go func() {
+		err := u.call(method, path, body)
+		u.app.QueueUpdateDraw(func() {
+			u.msg = ""
+			if err != nil {
+				u.msg = err.Error()
+			}
+		})
+		u.refresh()
+	}()
+}
+
+func (u *ui) showCreateForm() {
+	f := tview.NewForm()
+	f.SetBorder(true).SetTitle(" new task ")
+	f.AddInputField("Project", cmp.Or(u.project, "taskd"), 20, nil, nil)
+	f.AddInputField("Priority", "0", 10, tview.InputFieldInteger, nil)
+	f.AddInputField("Body", "", 40, nil, nil)
+	proj := f.GetFormItem(0).(*tview.InputField)
+	pri := f.GetFormItem(1).(*tview.InputField)
+	body := f.GetFormItem(2).(*tview.InputField)
+	close := func() {
+		u.form = nil
+		u.app.SetRoot(u.root, true).SetFocus(u.table)
+	}
+	submit := func() {
+		close()
+		p, _ := strconv.Atoi(pri.GetText())
+		u.act("POST", "/tasks", map[string]any{
+			"project":  proj.GetText(),
+			"priority": p,
+			"body":     body.GetText(),
+		})
+	}
+	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
+	u.form = f
+	u.app.SetRoot(f, true)
+}
+
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	t, ok := u.selected()
-	act := func(method, path string, body any) {
-		go func() {
-			err := u.call(method, path, body)
-			u.app.QueueUpdateDraw(func() {
-				u.msg = ""
-				if err != nil {
-					u.msg = err.Error()
-				}
-			})
-			u.refresh()
-		}()
-	}
 	switch ev.Rune() {
 	case 'q':
 		u.app.Stop()
@@ -199,12 +230,14 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case '+', '=', '-':
 		if ok {
 			d := map[rune]int{'+': 1, '=': 1, '-': -1}[ev.Rune()]
-			act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": t.Priority + d})
+			u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": t.Priority + d})
 		}
 	case 'D':
 		if ok {
-			act("DELETE", "/tasks/"+t.ID, nil)
+			u.act("DELETE", "/tasks/"+t.ID, nil)
 		}
+	case 'n':
+		u.showCreateForm()
 	default:
 		return ev
 	}
@@ -222,6 +255,7 @@ func main() {
 	u.status = tview.NewTextView()
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 1, 0, false)
+	u.root = flex
 	go func() {
 		for ; ; time.Sleep(time.Second) {
 			u.refresh()
