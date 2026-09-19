@@ -430,7 +430,8 @@
   <script>
     let selectedTaskId = null;
     let refreshTimer = null;
-
+    let shownTaskId = null;
+    let shownTaskRaw = '';
     // The project filter, the status filter and the selected task are the
     // state a reader can see, so they live in the URL: a link reproduces
     // the view and a reload keeps it. Filters replace the history entry,
@@ -583,6 +584,8 @@
     }
 
     function resetTaskDetails() {
+      shownTaskId = null;
+      shownTaskRaw = '';
       const pane = document.getElementById('task-details-content');
       if (pane) {
         pane.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>';
@@ -749,6 +752,7 @@
       const pane = document.getElementById('task-details-content');
       if (!pane) return;
       let t;
+      const sameTask = (id === shownTaskId);
       try {
         const res = await fetch('/tasks/' + encodeURIComponent(id));
         if (id !== selectedTaskId) return;
@@ -759,9 +763,13 @@
           resetTaskDetails();
           return;
         }
-        if (!res.ok) throw new Error(await res.text() || res.statusText);
-        t = await res.json();
+        const raw = await res.text();
         if (id !== selectedTaskId) return;
+        if (!res.ok) throw new Error(raw || res.statusText);
+        if (sameTask && raw === shownTaskRaw) return;
+        t = JSON.parse(raw);
+        shownTaskId = id;
+        shownTaskRaw = raw;
         showError(null);
       } catch (e) {
         if (id !== selectedTaskId) return;
@@ -790,6 +798,7 @@
           leaseExpStr = String(t.lease_expires);
         }
       }
+      const prevScrollTop = sameTask ? pane.scrollTop : 0;
       pane.innerHTML = `
         <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
         <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
@@ -802,6 +811,7 @@
         <div class="field"><span class="field-label">Body</span><pre>${escapeHTML(t.body || '')}</pre></div>
         ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
       `;
+      if (sameTask) pane.scrollTop = prevScrollTop;
     }
 
     function clearFormErrors() {

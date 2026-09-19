@@ -247,3 +247,18 @@ func TestWebUIURLState(t *testing.T) {
 			got.ProjectsDown.List)
 	}
 }
+func TestWebUITaskDetailsGuard(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+
+	cmd := exec.Command(node, "testdata/details.js", "web/index.html")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("task details guard harness failed: %v\n%s", err, out)
+	}
+}
