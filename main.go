@@ -318,7 +318,10 @@ WHERE id = (
 			http.Error(w, "missing fields to update", http.StatusBadRequest)
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET body = COALESCE(?, body), priority = COALESCE(?, priority) WHERE id = ?", req.Body, req.Priority, r.PathValue("id"))
+		res, err := db.Exec(`UPDATE tasks
+SET body = COALESCE(?, body), priority = COALESCE(?, priority)
+WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
+			req.Body, req.Priority, r.PathValue("id"))
 		if err != nil {
 			internalError(w, err)
 			return
@@ -329,7 +332,17 @@ WHERE id = (
 			return
 		}
 		if n == 0 {
-			http.Error(w, "task not found", http.StatusNotFound)
+			var exists int
+			err := db.QueryRow("SELECT 1 FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&exists)
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			http.Error(w, "task is leased", http.StatusConflict)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

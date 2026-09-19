@@ -846,6 +846,112 @@ func TestPatchTask(t *testing.T) {
 	}
 }
 
+func TestPatchLeasedTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "orig",
+		"project":  "p1",
+		"priority": 1,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"body": "mutated",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("PATCH on leased task expected 409, got %d: %s", code, body)
+	}
+
+	var bodyVal string
+	var priorityVal int
+	err = db.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if bodyVal != "orig" || priorityVal != 1 {
+		t.Fatalf("task was mutated while leased: body=%q, priority=%d", bodyVal, priorityVal)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/done", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("done failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"body": "mutated after done",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH on done task expected 204, got %d: %s", code, body)
+	}
+
+	err = db.QueryRow("SELECT body FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if bodyVal != "mutated after done" {
+		t.Fatalf("expected body %q, got %q", "mutated after done", bodyVal)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "expired task",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var resExpired struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &resExpired); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w2",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", resExpired.ID); err != nil {
+		t.Fatalf("set expired lease failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+resExpired.ID, map[string]any{
+		"body": "updated after expired lease",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH on expired lease task expected 204, got %d: %s", code, body)
+	}
+}
+
 func TestDeleteTask(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
