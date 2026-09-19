@@ -101,27 +101,20 @@ preserve_unpushed_commits() {
     return 0
 }
 
-if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
-    run_slot="$2"
-    run_wt="$3"
-    run_project="$4"
-    run_branch="$5"
-    run_verbose="$6"
-    run_prompt="$7"
-    run_once="${8:-0}"
+# Runs in the shell that holds the slot lock on fd 9, so ownership needs
+# no proof and there is no argv entrypoint to forge.
+run_locked() {
+    run_slot="$1"
+    run_wt="$2"
+    run_project="$3"
+    run_branch="$4"
+    run_verbose="$5"
+    run_prompt="$6"
+    run_once="${7:-0}"
     export TASKD_PROJECT="$run_project"
     export TASKD_WORKER="$run_project-$run_slot"
     export TASKD_WORKER_ACTIVE=1
     export TASKD_URL="$taskd_url"
-
-    case "$run_wt" in
-        "$wtbase"/*|/tmp/taskd-*)
-            ;;
-        *)
-            echo "Error: invalid worktree path: $run_wt" >&2
-            exit 2
-            ;;
-    esac
 
     root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
         echo "Error: worker must be run inside a git repository." >&2
@@ -223,7 +216,7 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
         fi
     done
     exit 0
-fi
+}
 
 show_worker_status() {
     filter_project="${1:-}"
@@ -305,6 +298,9 @@ Examples:
   worker "/fulfill" --once
   worker "fix the build" --project taskd --slot 1
   worker status
+
+--run-locked, once an internal re-exec target, was removed; there is no
+way to enter the locked region except by acquiring a slot.
 USAGE_EOF
     exit "${1:-0}"
 }
@@ -441,8 +437,6 @@ if [ -n "$slot" ]; then
     target_slots="$slot"
 fi
 
-script_path="$(readlink -f "$0" 2>/dev/null || echo "$0")"
-
 for s in $target_slots; do
     lockfile="$lockdir/$project-$s.lock"
     wt="$wtbase/wt-$project-$s"
@@ -457,7 +451,7 @@ for s in $target_slots; do
         continue
     fi
 
-    exec "$script_path" --run-locked "$s" "$wt" "$project" "$default_branch" "$verbose" "$prompt" "$once"
+    run_locked "$s" "$wt" "$project" "$default_branch" "$verbose" "$prompt" "$once"
 done
 
 echo "Error: all worker slots are currently in use!" >&2

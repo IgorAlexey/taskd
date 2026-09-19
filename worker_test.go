@@ -472,10 +472,10 @@ func TestWorkerExportTaskdWorker(t *testing.T) {
 	}
 
 	wtBase := t.TempDir()
-	wtPath := filepath.Join(wtBase, "wt-test-export-5")
+	wtPath := filepath.Join(wtBase, "wt-customproj-5")
 	runDir := t.TempDir()
 
-	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "5", wtPath, "customproj", "main", "0", "test prompt")
+	cmd := exec.Command("/bin/sh", workerPath, "test prompt", "--project", "customproj", "--slot", "5")
 	cmd.Dir = repoDir
 	cmd.Env = []string{
 		"PATH=" + binDir + ":" + os.Getenv("PATH"),
@@ -490,7 +490,7 @@ func TestWorkerExportTaskdWorker(t *testing.T) {
 	if !strings.Contains(outStr, "CHILD_TASKD_WORKER=customproj-5") {
 		t.Fatalf("expected child process to have TASKD_WORKER=customproj-5, got: %s", outStr)
 	}
-	if !strings.Contains(outStr, "Worker customproj-5 running in") {
+	if !strings.Contains(outStr, "Worker customproj-5 running in "+wtPath) {
 		t.Fatalf("expected startup log to contain 'Worker customproj-5 running in', got: %s", outStr)
 	}
 	if !strings.Contains(outStr, "slot 5") {
@@ -561,10 +561,9 @@ fi
 	}
 
 	wtBase := t.TempDir()
-	wtPath := filepath.Join(wtBase, "wt-test-log-7")
 	runDir := t.TempDir()
 
-	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "7", wtPath, "logproj", "main", "0", "test prompt")
+	cmd := exec.Command("/bin/sh", workerPath, "test prompt", "--project", "logproj", "--slot", "7")
 	cmd.Dir = repoDir
 	cmd.Env = []string{
 		"PATH=" + binDir + ":" + os.Getenv("PATH"),
@@ -775,10 +774,9 @@ func TestWorkerOnceExecution(t *testing.T) {
 	}
 
 	wtBase := t.TempDir()
-	wtPath := filepath.Join(wtBase, "wt-test-once-1")
 	runDir := t.TempDir()
 
-	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "1", wtPath, "onceproj", "main", "0", "test prompt", "1")
+	cmd := exec.Command("/bin/sh", workerPath, "test prompt", "--once", "--project", "onceproj", "--slot", "1")
 	cmd.Dir = repoDir
 	cmd.Env = []string{
 		"PATH=" + binDir + ":" + os.Getenv("PATH"),
@@ -881,12 +879,11 @@ func TestWorkerOnceExecution(t *testing.T) {
 		t.Fatalf("expected exactly 4 iterations without slot cascade, got %s", strings.TrimSpace(string(cntBytes)))
 	}
 
-	fetchWt := filepath.Join(wtBase, "wt-test-once-fetch")
-	if out, err := exec.Command("git", "-C", repoDir, "worktree", "add", "--detach", "--force", fetchWt, "main").CombinedOutput(); err != nil {
-		t.Fatalf("git worktree add: %v: %s", err, out)
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "set-url", "origin", filepath.Join(wtBase, "no-such-repo")).CombinedOutput(); err != nil {
+		t.Fatalf("git remote set-url: %v: %s", err, out)
 	}
 
-	cmd = exec.Command("/bin/sh", workerPath, "--run-locked", "1", fetchWt, "onceproj", "nonexistent-branch-xyz", "0", "test prompt", "1")
+	cmd = exec.Command("/bin/sh", workerPath, "test prompt", "--once", "--project", "onceproj", "--slot", "1")
 	cmd.Dir = repoDir
 	cmd.Env = []string{
 		"PATH=" + binDir + ":" + os.Getenv("PATH"),
@@ -1008,5 +1005,56 @@ func TestWorkerSlotContention(t *testing.T) {
 	}
 	if !strings.Contains(string(cascadeOut), "slot 2") {
 		t.Fatalf("expected cascade worker to take slot 2, got: %s", string(cascadeOut))
+	}
+}
+
+func TestWorkerRunLockedIsNotAnEntrypoint(t *testing.T) {
+	workerPath := workerScript(t)
+
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "main", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+
+	wtBase := t.TempDir()
+	wtPath := filepath.Join(wtBase, "wt-handproj-1")
+	runDir := t.TempDir()
+
+	// The full argv a worker used to publish in ps: the removed branch
+	// dispatched on seven or more arguments, ahead of the parser.
+	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "1", wtPath,
+		"handproj", "main", "0", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=http://127.0.0.1:1",
+	}
+	out, err := cmd.CombinedOutput()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected --run-locked to fail, got %v: %s", err, string(out))
+	}
+	if exitErr.ExitCode() != 1 {
+		t.Fatalf("expected exit code 1, got %d: %s", exitErr.ExitCode(), string(out))
+	}
+	if !strings.Contains(string(out), "Error: unknown option") {
+		t.Fatalf("expected unknown option error, got: %s", string(out))
+	}
+	if _, statErr := os.Stat(wtPath); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no worktree at %s, stat err: %v", wtPath, statErr)
+	}
+
+	// The task this patch fulfils requires -h to name the removed flag,
+	// so an operator who pasted it out of a running worker's ps line can
+	// find out where it went.
+	help, err := exec.Command("/bin/sh", workerPath, "-h").CombinedOutput()
+	if err != nil {
+		t.Fatalf("worker -h failed: %v: %s", err, string(help))
+	}
+	if !strings.Contains(string(help), "--run-locked") {
+		t.Fatalf("expected usage to say --run-locked was removed, got: %s", string(help))
 	}
 }
