@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1512,5 +1513,38 @@ func TestValidatePositiveLease(t *testing.T) {
 	}
 	if cfg.lease != 60 {
 		t.Fatalf("expected lease 60, got %d", cfg.lease)
+	}
+}
+
+func TestOpenDBCreateParentDir(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "sub", "nested", "taskd.db")
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB failed on nested path: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := os.Stat(filepath.Dir(dbPath)); err != nil {
+		t.Fatalf("expected parent dir to exist: %v", err)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("failed to query tasks table: %v", err)
+	}
+}
+
+func TestOpenDBInMemoryURI(t *testing.T) {
+	tempDir := t.TempDir()
+	nestedMem := filepath.Join(tempDir, "nested_mem", "db1")
+	memURI := "file:" + nestedMem + "?mode=memory&cache=shared"
+	db, err := openDB(memURI)
+	if err != nil {
+		t.Fatalf("openDB failed on memory URI: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := os.Stat(filepath.Dir(nestedMem)); !os.IsNotExist(err) {
+		t.Fatalf("in-memory database should not create parent directory")
 	}
 }

@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -18,8 +20,42 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
+func dbDir(path string) string {
+	if path == "" || path == ":memory:" {
+		return ""
+	}
+	if !strings.HasPrefix(path, "file:") {
+		return filepath.Dir(path)
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return ""
+	}
+	if u.Query().Get("mode") == "memory" {
+		return ""
+	}
+	p := u.Path
+	if p == "" {
+		p = u.Opaque
+	}
+	if p == "" || p == ":memory:" {
+		return ""
+	}
+	return filepath.Dir(p)
+}
+
 func openDB(path string) (*sql.DB, error) {
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", strings.TrimPrefix(path, "file:"))
+	if dir := dbDir(path); dir != "" && dir != "." {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return nil, err
+		}
+	}
+	clean := strings.TrimPrefix(path, "file:")
+	sep := "?"
+	if strings.Contains(clean, "?") {
+		sep = "&"
+	}
+	dsn := fmt.Sprintf("file:%s%s_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", clean, sep)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
