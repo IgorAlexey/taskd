@@ -4835,3 +4835,145 @@ func TestBackupOnline(t *testing.T) {
 		t.Fatalf("expected integrity_check 'ok', got %q", integrity)
 	}
 }
+
+func TestDoneRejectsExpiredLease(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{"body": "task1", "project": "p1"})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "z", "project": "p1"})
+	if code != http.StatusOK {
+		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]string{"worker": "z"})
+	if code != http.StatusConflict {
+		t.Fatalf("done with expired lease expected 409, got %d: %s", code, body)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]string{"worker": "z"})
+	if code != http.StatusConflict {
+		t.Fatalf("touch with expired lease expected 409, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	var item taskItem
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if item.Status != "pending" || item.Worker != "" {
+		t.Fatalf("expected status pending and empty worker, got %+v", item)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "z", "project": "p1"})
+	if code != http.StatusOK {
+		t.Fatalf("reclaim expected 200, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]string{"worker": "z"})
+	if code != http.StatusNoContent {
+		t.Fatalf("done inside live lease expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if item.Status != "done" || item.Worker != "z" {
+		t.Fatalf("expected status done and worker z, got %+v", item)
+	}
+}
+
+func TestReleaseRejectsExpiredLease(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{"body": "task2", "project": "p2"})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "z", "project": "p2"})
+	if code != http.StatusOK {
+		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/release", map[string]string{"worker": "z"})
+	if code != http.StatusConflict {
+		t.Fatalf("release with expired lease expected 409, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	var item taskItem
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if item.Status != "pending" || item.Worker != "" {
+		t.Fatalf("expected status pending and empty worker, got %+v", item)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "z", "project": "p2"})
+	if code != http.StatusOK {
+		t.Fatalf("reclaim expected 200, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/release", map[string]string{"worker": "z"})
+	if code != http.StatusNoContent {
+		t.Fatalf("release inside live lease expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if item.Status != "pending" || item.Worker != "" {
+		t.Fatalf("expected status pending and empty worker after release, got %+v", item)
+	}
+}

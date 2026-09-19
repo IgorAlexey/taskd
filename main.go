@@ -645,7 +645,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		res, err := db.Exec("UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=?", prim, r.PathValue("id"), req.Worker)
+		res, err := db.Exec("UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", prim, r.PathValue("id"), req.Worker)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -697,7 +697,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=?", r.PathValue("id"), worker)
+		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", r.PathValue("id"), worker)
 		if err != nil {
 			internalError(w, err)
 			return
