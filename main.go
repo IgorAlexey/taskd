@@ -385,6 +385,8 @@ func writeTaskStateError(w http.ResponseWriter, db *sql.DB, id string) {
 		http.Error(w, "task is leased", http.StatusConflict)
 	case "pending":
 		http.Error(w, "task is pending", http.StatusConflict)
+	case "buried":
+		http.Error(w, "task is buried", http.StatusConflict)
 	default:
 		http.Error(w, "task state conflict", http.StatusConflict)
 	}
@@ -532,7 +534,7 @@ func (t *taskItem) normalize(now int64) {
 	if t.Status == "leased" && t.LeaseExpires < now {
 		t.Status = "pending"
 	}
-	if t.Status == "pending" {
+	if t.Status == "pending" || t.Status == "buried" {
 		t.Worker = ""
 		t.LeaseExpires = 0
 	}
@@ -614,6 +616,7 @@ func newHandlerWithCORS(db *sql.DB, lease int, corsOrigin string) http.Handler {
   COUNT(CASE WHEN status = 'pending' OR (status = 'leased' AND lease_expires < ?) THEN 1 END),
   COUNT(CASE WHEN status = 'leased' AND lease_expires >= ? THEN 1 END),
   COUNT(CASE WHEN status = 'done' THEN 1 END),
+  COUNT(CASE WHEN status = 'buried' THEN 1 END),
   COUNT(*)
 FROM tasks`
 		var args []any
@@ -622,8 +625,8 @@ FROM tasks`
 			query += " WHERE project = ?"
 			args = append(args, project)
 		}
-		var pending, leased, done, total int
-		if err := db.QueryRow(query, args...).Scan(&pending, &leased, &done, &total); err != nil {
+		var pending, leased, done, buried, total int
+		if err := db.QueryRow(query, args...).Scan(&pending, &leased, &done, &buried, &total); err != nil {
 			internalError(w, err)
 			return
 		}
@@ -632,6 +635,7 @@ FROM tasks`
 			"pending": pending,
 			"leased":  leased,
 			"done":    done,
+			"buried":  buried,
 			"total":   total,
 		})
 	})
@@ -897,11 +901,79 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /tasks/{id}/bury", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker   string `json:"worker"`
+			Priority *int   `json:"priority"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		worker, ok := cleanWorker(req.Worker)
+		if !ok {
+			http.Error(w, "missing worker", http.StatusBadRequest)
+			return
+		}
+		if req.Priority != nil && *req.Priority < 0 {
+			http.Error(w, "invalid priority", http.StatusBadRequest)
+			return
+		}
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		res, err := db.Exec("UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority) WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", req.Priority, id, worker)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if n == 0 {
+			taskNotFoundOrConflict(w, db, id)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /tasks/{id}/kick", func(w http.ResponseWriter, r *http.Request) {
+		for k := range r.URL.Query() {
+			http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
+			return
+		}
+		var buf [1]byte
+		n, err := r.Body.Read(buf[:])
+		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+			http.Error(w, "unexpected request body", http.StatusBadRequest)
+			return
+		}
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='buried'", id)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		aff, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if aff == 0 {
+			writeTaskStateError(w, db, id)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
 
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
 		status := q.Get("status")
-		if q.Has("status") && status != "pending" && status != "leased" && status != "done" {
+		if q.Has("status") && status != "pending" && status != "leased" && status != "done" && status != "buried" {
 			http.Error(w, "invalid status", http.StatusBadRequest)
 			return
 		}
@@ -1335,6 +1407,8 @@ HTTP Endpoints:
   POST   /tasks/{id}/close   close task without result
   POST   /tasks/{id}/touch   extend task lease duration
   POST   /tasks/{id}/release release leased task back to pending
+  POST   /tasks/{id}/bury    park a blocked task
+  POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task
   GET    /projects           list active projects
   GET    /stats              task queue statistics

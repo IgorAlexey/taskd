@@ -5684,3 +5684,144 @@ func TestProjectNameValidation(t *testing.T) {
 		t.Fatalf("expected project %q, got %q", "valid-updated_proj.2", pVal)
 	}
 }
+
+func TestBuryAndKick(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 60))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{"body": "x", "project": "b"})
+	if code != http.StatusCreated {
+		t.Fatalf("create task expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created task: %v", err)
+	}
+	id := created.ID
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{"worker": "w1", "project": "b"})
+	if code != http.StatusOK {
+		t.Fatalf("claim expected 200, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+id+"/bury", map[string]any{"worker": "w1"})
+	if code != http.StatusNoContent {
+		t.Fatalf("bury expected 204, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{"worker": "w2", "project": "b"})
+	if code != http.StatusNoContent {
+		t.Fatalf("claim after bury expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?status=buried&project=b", nil)
+	if code != http.StatusOK {
+		t.Fatalf("get buried tasks expected 200, got %d: %s", code, body)
+	}
+	var buriedTasks []taskItem
+	if err := json.Unmarshal(body, &buriedTasks); err != nil {
+		t.Fatalf("unmarshal buried tasks: %v", err)
+	}
+	if len(buriedTasks) != 1 {
+		t.Fatalf("expected 1 buried task, got %d", len(buriedTasks))
+	}
+	if buriedTasks[0].ID != id || buriedTasks[0].Status != "buried" {
+		t.Fatalf("unexpected buried task item: %+v", buriedTasks[0])
+	}
+	if buriedTasks[0].Worker != "" || buriedTasks[0].LeaseExpires != 0 {
+		t.Fatalf("buried task has worker or lease_expires: %+v", buriedTasks[0])
+	}
+
+	resp, err := http.Get(srv.URL + "/stats?project=b")
+	if err != nil {
+		t.Fatalf("get stats failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get stats expected 200, got %d", resp.StatusCode)
+	}
+	var stats map[string]int
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode stats failed: %v", err)
+	}
+	if stats["pending"] != 0 {
+		t.Fatalf("expected pending == 0 in stats, got %+v", stats)
+	}
+	if stats["buried"] != 1 {
+		t.Fatalf("expected buried == 1 in stats, got %+v", stats)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+id+"/kick", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("kick expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+id, nil)
+	if code != http.StatusOK {
+		t.Fatalf("get kicked task expected 200, got %d: %s", code, body)
+	}
+	var kicked taskItem
+	if err := json.Unmarshal(body, &kicked); err != nil {
+		t.Fatalf("unmarshal kicked task: %v", err)
+	}
+	if kicked.Status != "pending" {
+		t.Fatalf("expected status pending after kick, got %q", kicked.Status)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{"worker": "w2", "project": "b"})
+	if code != http.StatusOK {
+		t.Fatalf("claim after kick expected 200, got %d: %s", code, body)
+	}
+
+	pri := 1
+	code, body = post(t, srv.URL+"/tasks/"+id+"/bury", map[string]any{"worker": "w2", "priority": pri})
+	if code != http.StatusNoContent {
+		t.Fatalf("bury with priority expected 204, got %d: %s", code, body)
+	}
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+id, nil)
+	if code != http.StatusOK {
+		t.Fatalf("get reprioritized task expected 200, got %d: %s", code, body)
+	}
+	var reprioritized taskItem
+	if err := json.Unmarshal(body, &reprioritized); err != nil {
+		t.Fatalf("unmarshal reprioritized task: %v", err)
+	}
+	if reprioritized.Priority != 1 || reprioritized.Status != "buried" {
+		t.Fatalf("expected priority 1 and status buried, got %+v", reprioritized)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+id+"/bury", map[string]any{"worker": "w1"})
+	if code != http.StatusConflict {
+		t.Fatalf("bury unleased task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+id+"/kick", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("kick expected 204, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+id+"/kick", nil)
+	if code != http.StatusConflict {
+		t.Fatalf("kick pending task expected 409, got %d: %s", code, body)
+	}
+	if !strings.Contains(string(body), "task is pending") {
+		t.Fatalf("expected 'task is pending' in conflict message, got %s", body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/nonexistent-id/kick", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("kick missing id expected 404, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/nonexistent-id/bury", map[string]any{"worker": "w1"})
+	if code != http.StatusNotFound {
+		t.Fatalf("bury missing id expected 404, got %d: %s", code, body)
+	}
+}
