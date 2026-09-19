@@ -1,0 +1,312 @@
+#!/bin/sh
+set -u
+
+USER="${USER:-$(id -un 2>/dev/null || echo "uid$$")}"
+rundir="${XDG_RUNTIME_DIR:-/tmp}"
+lockdir="$rundir/taskd-$USER"
+wtbase="/tmp/taskd-$USER"
+taskd_url="${TASKD_URL:-${T:-http://localhost:8080}}"
+
+check_prerequisites() {
+    if ! command -v omp >/dev/null 2>&1; then
+        echo "Error: omp is not installed or not found in PATH." >&2
+        exit 127
+    fi
+
+    if ! curl -sf --connect-timeout 2 "$taskd_url/tasks" >/dev/null 2>&1; then
+        echo "Error: taskd is not reachable at $taskd_url." >&2
+        exit 1
+    fi
+}
+
+idle_sleep() {
+    sleep "$1" || {
+        s=$?
+        [ "$s" -gt 128 ] && exit "$s"
+    }
+}
+
+detect_default_branch() {
+    b="$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')"
+    if [ -n "$b" ]; then
+        echo "$b"
+        return
+    fi
+
+    b="$(git branch --show-current 2>/dev/null || true)"
+    if [ -n "$b" ]; then
+        echo "$b"
+        return
+    fi
+
+    b="$(git config --get init.defaultBranch 2>/dev/null || true)"
+    if [ -n "$b" ] && (git show-ref --verify --quiet "refs/heads/$b" 2>/dev/null || git show-ref --verify --quiet "refs/remotes/origin/$b" 2>/dev/null); then
+        echo "$b"
+        return
+    fi
+
+    for candidate in main master trunk; do
+        if git show-ref --verify --quiet "refs/remotes/origin/$candidate" 2>/dev/null || git show-ref --verify --quiet "refs/heads/$candidate" 2>/dev/null; then
+            echo "$candidate"
+            return
+        fi
+    done
+
+    b="$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ 2>/dev/null | grep -v '^origin$' | grep -v '/HEAD$' | head -n1 | sed 's|^origin/||')"
+    if [ -n "$b" ]; then
+        echo "$b"
+        return
+    fi
+
+    b="$(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null | head -n1)"
+    if [ -n "$b" ]; then
+        echo "$b"
+        return
+    fi
+
+    echo "main"
+}
+
+if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
+    run_slot="$2"
+    run_wt="$3"
+    run_project="$4"
+    run_branch="$5"
+    run_verbose="$6"
+    run_prompt="$7"
+
+    export TASKD_PROJECT="$run_project"
+    export TASKD_WORKER_ACTIVE=1
+    export TASKD_URL="$taskd_url"
+
+    case "$run_wt" in
+        "$wtbase"/*|/tmp/taskd-*)
+            ;;
+        *)
+            echo "Error: invalid worktree path: $run_wt" >&2
+            exit 2
+            ;;
+    esac
+
+    root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+        echo "Error: worker must be run inside a git repository." >&2
+        exit 1
+    }
+
+    check_prerequisites
+
+    if [ ! -e "$run_wt/.git" ]; then
+        rm -rf "$run_wt"
+        git -C "$root" worktree prune >/dev/null 2>&1 || true
+        git -C "$root" worktree add --detach --force "$run_wt" "$run_branch" || {
+            echo "Error: failed to create git worktree in $run_wt" >&2
+            exit 2
+        }
+    fi
+
+    echo "Worker running in $run_wt (slot $run_slot, project $run_project)..."
+    echo "Prompt: $run_prompt"
+    cd "$run_wt"
+
+    runlog="$lockdir/worker-$run_project-$run_slot.log"
+    fifo="$lockdir/worker-$run_project-$run_slot.fifo"
+    rm -f "$fifo"
+    mkfifo "$fifo" 2>/dev/null || true
+
+    trap 'rm -f "$fifo"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    omp_flags="-p --no-session"
+    if [ "$run_verbose" = "1" ]; then
+        omp_flags="$omp_flags --print-thoughts"
+    fi
+
+    while true; do
+        if ! git fetch origin "$run_branch" -q; then
+            echo "Warning: git fetch failed, retrying in 5s..." >&2
+            idle_sleep 5
+            continue
+        fi
+        git reset --hard "origin/$run_branch" -q
+        git clean -fdx -q
+
+        if [ -d "$root/.omp" ]; then
+            cp -r "$root/.omp" "$run_wt/"
+        fi
+
+        if [ -p "$fifo" ]; then
+            tee "$runlog" < "$fifo" &
+            tee_pid=$!
+            omp $omp_flags "$run_prompt" > "$fifo" 2>&1
+            omp_status=$?
+            wait "$tee_pid" 2>/dev/null || true
+        else
+            omp $omp_flags "$run_prompt" > "$runlog" 2>&1
+            omp_status=$?
+            cat "$runlog"
+        fi
+
+        if [ "$omp_status" -gt 128 ]; then
+            echo "Worker received termination signal ($omp_status), exiting loop." >&2
+            exit "$omp_status"
+        fi
+
+        if [ "$omp_status" -eq 127 ]; then
+            echo "Error: omp command not found (status 127)." >&2
+            exit 127
+        fi
+
+        if [ "$omp_status" -ne 0 ]; then
+            echo "Agent run exited with status $omp_status. Recovering worktree and continuing..." >&2
+            idle_sleep 3
+            continue
+        fi
+
+        if grep -qE "IDLE:|CLEAN:" "$runlog" 2>/dev/null; then
+            echo "Nothing to do. Sleeping 60s..."
+            idle_sleep 60
+        else
+            idle_sleep 2
+        fi
+    done
+    exit 0
+fi
+
+usage() {
+    cat << 'USAGE_EOF'
+Usage: worker "<prompt_or_command>" [--verbose|-v] [--project <name>] [--slot <n>]
+
+Launches an agent in an isolated, reusable worktree slot.
+Slots are locked via flock(1) and automatically acquired.
+
+Options:
+  -v, --verbose    Stream internal agent thinking and reasoning tokens
+  -p, --project    Project queue name (default: repository name)
+  -s, --slot       Explicit worker slot number (default: first free)
+
+Examples:
+  worker "/fulfill"
+  worker "/fulfill" --verbose
+  worker "fix the build" --project taskd --slot 1
+USAGE_EOF
+    exit "${1:-0}"
+}
+
+prompt=""
+project=""
+slot=""
+verbose=0
+
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --detect-branch)
+            detect_default_branch
+            exit 0
+            ;;
+        -h|--help|help)
+            usage 0
+            ;;
+        -v|--verbose)
+            verbose=1
+            shift
+            ;;
+        -p|--project)
+            if [ "$#" -lt 2 ]; then
+                echo "Error: option '$1' requires an argument" >&2
+                exit 1
+            fi
+            project="$2"
+            shift 2
+            ;;
+        -s|--slot)
+            if [ "$#" -lt 2 ]; then
+                echo "Error: option '$1' requires an argument" >&2
+                exit 1
+            fi
+            slot="$2"
+            shift 2
+            ;;
+        --)
+            shift
+            while [ "$#" -gt 0 ]; do
+                prompt="${prompt:+$prompt }$1"
+                shift
+            done
+            break
+            ;;
+        -*)
+            echo "Error: unknown option '$1'. See worker -h." >&2
+            exit 1
+            ;;
+        *)
+            prompt="${prompt:+$prompt }$1"
+            shift
+            ;;
+    esac
+done
+
+if [ -z "$prompt" ]; then
+    echo "Error: prompt or command is required." >&2
+    echo "Usage: worker \"<prompt_or_command>\"" >&2
+    exit 1
+fi
+
+if [ -n "${TASKD_WORKER_ACTIVE:-}" ]; then
+    echo "Error: worker is already running in this environment; refusing to nest." >&2
+    exit 1
+fi
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || {
+    echo "Error: worker must be run inside a git repository." >&2
+    exit 1
+}
+
+case "$root" in
+    "$wtbase"/*|/tmp/taskd-*)
+        echo "Error: refusing to start inside a worker worktree ($root)." >&2
+        echo "Run worker from the main checkout." >&2
+        exit 1
+        ;;
+esac
+
+check_prerequisites
+
+default_branch="$(detect_default_branch)"
+
+mkdir -p -m 0700 "$lockdir"
+mkdir -p -m 0700 "$wtbase"
+
+if [ -z "$project" ]; then
+    project="$(basename "$root")"
+fi
+
+target_slots="$(seq 1 64)"
+if [ -n "$slot" ]; then
+    target_slots="$slot"
+fi
+
+script_path="$(readlink -f "$0" 2>/dev/null || echo "$0")"
+
+for s in $target_slots; do
+    lockfile="$lockdir/$project-$s.lock"
+    wt="$wtbase/wt-$project-$s"
+
+    flock -n -E 99 "$lockfile" "$script_path" --run-locked "$s" "$wt" "$project" "$default_branch" "$verbose" "$prompt"
+    res=$?
+
+    if [ "$res" -eq 0 ]; then
+        exit 0
+    elif [ "$res" -eq 99 ]; then
+        if [ -n "$slot" ]; then
+            echo "Error: slot $slot is already locked by another worker!" >&2
+            exit 1
+        fi
+        continue
+    else
+        exit "$res"
+    fi
+done
+
+echo "Error: all worker slots are currently in use!" >&2
+exit 1
