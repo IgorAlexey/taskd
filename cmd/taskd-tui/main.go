@@ -1076,6 +1076,9 @@ func parseFlags(args []string) (config, error) {
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
+	if fs.NArg() > 0 {
+		return cfg, fmt.Errorf("unexpected argument: %s", fs.Arg(0))
+	}
 	return cfg, nil
 }
 
@@ -1128,6 +1131,7 @@ func main() {
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
 		}
+		fmt.Fprintf(os.Stderr, "taskd-tui: %v\n", err)
 		os.Exit(2)
 	}
 	u := newUI(cfg.url, cfg.project, cfg.icons)
