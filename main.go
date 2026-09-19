@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -676,9 +677,12 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			where = append(where, "asset_path = ?")
 			args = append(args, q.Get("asset_path"))
 		}
+		var whereSQL string
 		if len(where) > 0 {
-			query += " WHERE " + strings.Join(where, " AND ")
+			whereSQL = " WHERE " + strings.Join(where, " AND ")
 		}
+		countArgs := slices.Clone(args)
+		query += whereSQL
 		query += " ORDER BY priority DESC, rowid ASC LIMIT ?"
 		args = append(args, limit)
 		if offset > 0 {
@@ -715,7 +719,20 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			return
 		}
 
+		// A short page means the query reached the end of the set, so the
+		// rows in hand already give the total; only a full page can hide
+		// more. An empty page behind an offset says nothing about what it
+		// skipped, so that case still has to count.
+		total := offset + len(tasks)
+		if len(tasks) == limit || (offset > 0 && len(tasks) == 0) {
+			if err := db.QueryRow("SELECT COUNT(*) FROM tasks"+whereSQL, countArgs...).Scan(&total); err != nil {
+				internalError(w, err)
+				return
+			}
+		}
+
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Total-Count", strconv.Itoa(total))
 		json.NewEncoder(w).Encode(tasks)
 	})
 
@@ -903,6 +920,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
