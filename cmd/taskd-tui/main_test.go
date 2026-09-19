@@ -1865,6 +1865,7 @@ func TestClearErrorOnReconnect(t *testing.T) {
 		return count == 1 && msg == "" && !strings.Contains(status, "daemon unavailable")
 	})
 }
+
 func TestCreateFormAssetPath(t *testing.T) {
 	u, tasks, mu := stub(t)
 	ts, err := u.fetch()
@@ -2078,4 +2079,90 @@ func TestRefreshSurfacesProjectsError(t *testing.T) {
 		})
 		return strings.Contains(msg, "503") && shown == 1
 	})
+}
+
+func TestShowBodyMetadata(t *testing.T) {
+	u, _, _ := stub(t)
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 3 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	ts[0].ID = "b5c58809d37082e304d2232cdce6b436"
+	u.render(ts)
+
+	text := u.body.GetText(true)
+	for _, want := range []string{
+		"ID:      b5c58809d37082e304d2232cdce6b436",
+		"Project: proj-b",
+		"Status:  pending",
+		"first task",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("detail pane missing %q: %q", want, text)
+		}
+	}
+	if strings.Contains(text, "Worker:") {
+		t.Fatalf("pending task must not show worker line: %q", text)
+	}
+	if strings.Contains(text, "Asset:") {
+		t.Fatalf("task without asset must not show asset line: %q", text)
+	}
+	head, body, ok := strings.Cut(text, "\n"+strings.Repeat("-", 60)+"\n")
+	if !ok {
+		t.Fatalf("detail pane missing separator: %q", text)
+	}
+	if strings.Contains(head, "first task") {
+		t.Fatalf("body leaked into header: %q", head)
+	}
+	if !strings.HasPrefix(body, "first task") {
+		t.Fatalf("body must follow separator: %q", body)
+	}
+
+	u.table.Select(2, 0)
+	text = u.body.GetText(true)
+	if !strings.Contains(text, "Worker:  w1") {
+		t.Fatalf("leased task missing worker line: %q", text)
+	}
+	if !strings.Contains(text, "Status:  leased") {
+		t.Fatalf("leased task missing status line: %q", text)
+	}
+
+	u.table.Select(3, 0)
+	text = u.body.GetText(true)
+	if !strings.Contains(text, `result: {"commit":"x"}`) {
+		t.Fatalf("done task missing result: %q", text)
+	}
+	if !strings.Contains(text, "ID:      ccccccc3") {
+		t.Fatalf("done task missing id line: %q", text)
+	}
+
+	u.shown = nil
+	u.showBody()
+	if got := u.body.GetText(true); got != "" {
+		t.Fatalf("empty selection must clear pane, got %q", got)
+	}
+}
+
+func TestShowBodyAssetPath(t *testing.T) {
+	u, _, _ := stub(t)
+	u.render([]task{{
+		ID:        "ddddddd4",
+		Project:   "proj-c",
+		Status:    "pending",
+		AssetPath: "models/car.glb",
+	}})
+
+	text := u.body.GetText(true)
+	if !strings.Contains(text, "Asset:   models/car.glb") {
+		t.Fatalf("detail pane missing asset line: %q", text)
+	}
+	if !strings.Contains(text, "ID:      ddddddd4") {
+		t.Fatalf("detail pane missing id line: %q", text)
+	}
+	if strings.TrimSpace(text) == "" {
+		t.Fatalf("asset-only task must not render a blank pane")
+	}
+	if strings.Contains(text, strings.Repeat("-", 60)) {
+		t.Fatalf("task without body must not draw a separator: %q", text)
+	}
 }

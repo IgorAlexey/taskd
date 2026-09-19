@@ -295,6 +295,20 @@ func (u *ui) setMsg(msg string) {
 	}
 }
 
+func metaHeader(t task) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "ID:      %s\n", t.ID)
+	fmt.Fprintf(&b, "Project: %s\n", t.Project)
+	fmt.Fprintf(&b, "Status:  %s\n", t.Status)
+	if t.Worker != "" {
+		fmt.Fprintf(&b, "Worker:  %s\n", t.Worker)
+	}
+	if t.AssetPath != "" {
+		fmt.Fprintf(&b, "Asset:   %s\n", t.AssetPath)
+	}
+	return b.String()
+}
+
 func (u *ui) showBody() {
 	t, ok := u.selected()
 	if !ok {
@@ -306,6 +320,10 @@ func (u *ui) showBody() {
 	if len(t.Primitives) > 0 && string(t.Primitives) != "null" {
 		text += "\n\nresult: " + string(t.Primitives)
 	}
+	if text != "" {
+		text = strings.Repeat("-", 60) + "\n" + text
+	}
+	text = metaHeader(t) + text
 	if t.ID != u.shownID || text != u.shownBody {
 		u.shownID, u.shownBody = t.ID, text
 		u.body.SetText(text).ScrollToBeginning()
