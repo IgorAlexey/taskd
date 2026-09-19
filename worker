@@ -145,6 +145,7 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
 
     mkdir -p -m 0700 "$lockdir"
     runlog="$lockdir/worker-$run_project-$run_slot.log"
+    prevlog="$lockdir/worker-$run_project-$run_slot.prev.log"
     fifo="$lockdir/worker-$run_project-$run_slot.fifo"
     rm -f "$fifo"
     mkfifo "$fifo" 2>/dev/null || true
@@ -173,6 +174,9 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
         if [ -d "$root/.omp" ]; then
             cp -r "$root/.omp" "$run_wt/"
         fi
+        if [ -f "$runlog" ]; then
+            mv -f "$runlog" "$prevlog"
+        fi
 
         if [ -p "$fifo" ]; then
             tee "$runlog" < "$fifo" &
@@ -185,7 +189,6 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
             omp_status=$?
             cat "$runlog"
         fi
-
         if [ "$omp_status" -gt 128 ]; then
             echo "Worker received termination signal ($omp_status), exiting loop." >&2
             exit "$omp_status"
@@ -242,9 +245,19 @@ show_worker_status() {
         fi
 
         runlog="$lockdir/worker-$proj-$slot.log"
+        prevlog="$lockdir/worker-$proj-$slot.prev.log"
+        target_log=""
+        if [ -s "$runlog" ]; then
+            target_log="$runlog"
+        elif [ -s "$prevlog" ]; then
+            target_log="$prevlog"
+        elif [ -f "$runlog" ]; then
+            target_log="$runlog"
+        fi
+
         summary="-"
-        if [ -f "$runlog" ]; then
-            line="$(awk 'NF {line=$0} END {gsub(/^[ \t]+|[ \t]+$/, "", line); gsub(/[\t\r\n]+/, " ", line); print line}' "$runlog" 2>/dev/null)"
+        if [ -n "$target_log" ]; then
+            line="$(awk 'NF {line=$0} END {gsub(/^[ \t]+|[ \t]+$/, "", line); gsub(/[\t\r\n]+/, " ", line); print line}' "$target_log" 2>/dev/null)"
             if [ -n "$line" ]; then
                 summary="$line"
             fi

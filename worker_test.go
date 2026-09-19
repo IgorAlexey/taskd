@@ -415,3 +415,104 @@ func TestWorkerExportTaskdWorker(t *testing.T) {
 		t.Fatalf("expected startup log to contain 'slot 5', got: %s", outStr)
 	}
 }
+func TestWorkerPreserveExecutionLogsAcrossIterations(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	counterFile := filepath.Join(binDir, "iteration.txt")
+	_ = os.WriteFile(counterFile, []byte("0"), 0o644)
+
+	ompScript := filepath.Join(binDir, "omp")
+	scriptContent := `#!/bin/sh
+cnt=$(cat "` + counterFile + `" 2>/dev/null || echo 0)
+cnt=$((cnt + 1))
+echo "$cnt" > "` + counterFile + `"
+if [ "$cnt" -eq 1 ]; then
+    echo "ITERATION_1_FAILURE_DIAGNOSTICS"
+    exit 1
+else
+    echo "ITERATION_2_SUCCESS_OUTPUT"
+    exit 130
+fi
+`
+	if err := os.WriteFile(ompScript, []byte(scriptContent), 0o755); err != nil {
+		t.Fatalf("write omp script: %v", err)
+	}
+
+	sleepScript := filepath.Join(binDir, "sleep")
+	if err := os.WriteFile(sleepScript, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write sleep script: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "main", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "test").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "test@test.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v: %s", err, out)
+	}
+	dummyFile := filepath.Join(repoDir, "file.txt")
+	if err := os.WriteFile(dummyFile, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write dummy file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "add", "file.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "commit", "-m", "test: initial commit", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "add", "origin", repoDir).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v: %s", err, out)
+	}
+
+	wtBase := t.TempDir()
+	wtPath := filepath.Join(wtBase, "wt-test-log-7")
+	runDir := t.TempDir()
+
+	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "7", wtPath, "logproj", "main", "0", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	_, _ = cmd.CombinedOutput()
+
+	lockDir := filepath.Join(runDir, "taskd-testuser")
+	prevLog := filepath.Join(lockDir, "worker-logproj-7.prev.log")
+	curLog := filepath.Join(lockDir, "worker-logproj-7.log")
+
+	prevBytes, err := os.ReadFile(prevLog)
+	if err != nil {
+		t.Fatalf("expected prev.log to exist at %s: %v", prevLog, err)
+	}
+	if !strings.Contains(string(prevBytes), "ITERATION_1_FAILURE_DIAGNOSTICS") {
+		t.Fatalf("expected prev.log to contain iteration 1 failure trace, got: %s", string(prevBytes))
+	}
+
+	curBytes, err := os.ReadFile(curLog)
+	if err != nil {
+		t.Fatalf("expected runlog to exist at %s: %v", curLog, err)
+	}
+	if !strings.Contains(string(curBytes), "ITERATION_2_SUCCESS_OUTPUT") {
+		t.Fatalf("expected runlog to contain iteration 2 output, got: %s", string(curBytes))
+	}
+}
