@@ -388,3 +388,102 @@ func TestPriorityClamp(t *testing.T) {
 		return patches == 2 && tasks[0].Priority == 1
 	})
 }
+
+func TestBodyFocusAndScroll(t *testing.T) {
+	u, _, _ := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.root, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	eventually(t, func() bool {
+		var has bool
+		query(func() { has = u.table.HasFocus() })
+		return has
+	})
+
+	sim.InjectKey(tcell.KeyTab, 0, 0)
+	eventually(t, func() bool {
+		var has bool
+		query(func() { has = u.body.HasFocus() })
+		return has
+	})
+
+	ch := make(chan struct{})
+	u.app.QueueUpdateDraw(func() {
+		u.body.SetText(strings.Repeat("line\n", 50)).ScrollToBeginning()
+		close(ch)
+	})
+	<-ch
+
+	sim.InjectKey(tcell.KeyRune, 'j', 0)
+	sim.InjectKey(tcell.KeyRune, 'j', 0)
+	eventually(t, func() bool {
+		var row int
+		query(func() { row, _ = u.body.GetScrollOffset() })
+		return row > 0
+	})
+	sim.InjectKey(tcell.KeyRune, 'k', 0)
+	sim.InjectKey(tcell.KeyRune, 'k', 0)
+	eventually(t, func() bool {
+		var row int
+		query(func() { row, _ = u.body.GetScrollOffset() })
+		return row == 0
+	})
+
+	sim.InjectKey(tcell.KeyRune, 'j', 0)
+	sim.InjectKey(tcell.KeyRune, 'j', 0)
+	eventually(t, func() bool {
+		var row int
+		query(func() { row, _ = u.body.GetScrollOffset() })
+		return row > 0
+	})
+	sim.InjectKey(tcell.KeyEscape, 0, 0)
+	eventually(t, func() bool {
+		var has bool
+		query(func() { has = u.table.HasFocus() })
+		return has
+	})
+
+	sim.InjectKey(tcell.KeyTab, 0, 0)
+	eventually(t, func() bool {
+		var has bool
+		query(func() { has = u.body.HasFocus() })
+		return has
+	})
+
+	sim.InjectKey(tcell.KeyTab, 0, 0)
+	eventually(t, func() bool {
+		var has bool
+		query(func() { has = u.table.HasFocus() })
+		return has
+	})
+}

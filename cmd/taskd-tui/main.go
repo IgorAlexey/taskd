@@ -33,18 +33,20 @@ type task struct {
 var client = &http.Client{Timeout: 3 * time.Second}
 
 type ui struct {
-	url     string
-	app     *tview.Application
-	table   *tview.Table
-	body    *tview.TextView
-	status  *tview.TextView
-	root    tview.Primitive
-	form    *tview.Form
-	filter  string
-	project string
-	all     []task
-	shown   []task
-	msg     string
+	url       string
+	app       *tview.Application
+	table     *tview.Table
+	body      *tview.TextView
+	status    *tview.TextView
+	root      tview.Primitive
+	form      *tview.Form
+	filter    string
+	project   string
+	all       []task
+	shown     []task
+	msg       string
+	shownID   string
+	shownBody string
 }
 
 func (u *ui) fetch() ([]task, error) {
@@ -131,6 +133,7 @@ func (u *ui) render(all []task) {
 func (u *ui) showBody() {
 	t, ok := u.selected()
 	if !ok {
+		u.shownID, u.shownBody = "", ""
 		u.body.SetText("")
 		return
 	}
@@ -138,7 +141,10 @@ func (u *ui) showBody() {
 	if len(t.Primitives) > 0 && string(t.Primitives) != "null" {
 		text += "\n\nresult: " + string(t.Primitives)
 	}
-	u.body.SetText(text).ScrollToBeginning()
+	if t.ID != u.shownID || text != u.shownBody {
+		u.shownID, u.shownBody = t.ID, text
+		u.body.SetText(text).ScrollToBeginning()
+	}
 }
 
 func (u *ui) refresh() {
@@ -194,6 +200,11 @@ func (u *ui) showCreateForm() {
 }
 
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
+	switch ev.Key() {
+	case tcell.KeyTab, tcell.KeyBacktab:
+		u.app.SetFocus(u.body)
+		return nil
+	}
 	t, ok := u.selected()
 	switch ev.Rune() {
 	case 'q':
@@ -246,12 +257,25 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
+func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
+	switch ev.Key() {
+	case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyEscape:
+		u.app.SetFocus(u.table)
+		return nil
+	}
+	if ev.Rune() == 'q' {
+		u.app.Stop()
+		return nil
+	}
+	return ev
+}
+
 func newUI(url string) *ui {
 	u := &ui{url: strings.TrimRight(url, "/"), app: tview.NewApplication().EnableMouse(true)}
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
-	u.body.SetBorder(true).SetTitle(" task ")
+	u.body.SetBorder(true).SetTitle(" task ").SetInputCapture(u.bodyKeys)
 	u.status = tview.NewTextView()
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 1, 0, false)
