@@ -2211,3 +2211,154 @@ func TestPatchDoneTask(t *testing.T) {
 		t.Fatalf("expected status done, got %q", check.Status)
 	}
 }
+func TestListWorkerFilter(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "w-filter",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w-special",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d", code)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w-special", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w-special expected 200, got %d: %s", code, body)
+	}
+	var tasksSpecial []taskItem
+	if err := json.Unmarshal(body, &tasksSpecial); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksSpecial) != 1 || tasksSpecial[0].ID != created.ID || tasksSpecial[0].Worker != "w-special" {
+		t.Fatalf("unexpected tasks for w-special: %+v", tasksSpecial)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w-other", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w-other expected 200, got %d: %s", code, body)
+	}
+	var tasksOther []taskItem
+	if err := json.Unmarshal(body, &tasksOther); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksOther) != 0 {
+		t.Fatalf("expected 0 tasks for w-other, got %d", len(tasksOther))
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task-w2",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task-w2 failed: %d: %s", code, body)
+	}
+	var createdW2 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &createdW2); err != nil {
+		t.Fatalf("unmarshal createdW2 failed: %v", err)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w-other",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim w-other failed: %d", code)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task-pending",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task-pending failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w-other", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w-other expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &tasksOther); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksOther) != 1 || tasksOther[0].ID != createdW2.ID || tasksOther[0].Worker != "w-other" {
+		t.Fatalf("unexpected tasks for w-other: %+v", tasksOther)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w-special&status=leased", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w-special&status=leased expected 200, got %d: %s", code, body)
+	}
+	var tasksSpecialLeased []taskItem
+	if err := json.Unmarshal(body, &tasksSpecialLeased); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksSpecialLeased) != 1 || tasksSpecialLeased[0].ID != created.ID {
+		t.Fatalf("unexpected tasks for w-special leased: %+v", tasksSpecialLeased)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w-special&status=done", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w-special&status=done expected 200, got %d: %s", code, body)
+	}
+	var tasksSpecialDone []taskItem
+	if err := json.Unmarshal(body, &tasksSpecialDone); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksSpecialDone) != 0 {
+		t.Fatalf("expected 0 done tasks for w-special, got %d", len(tasksSpecialDone))
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker": "w-special",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("done w-special failed: %d", code)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w-special&status=done", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w-special&status=done expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &tasksSpecialDone); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksSpecialDone) != 1 || tasksSpecialDone[0].ID != created.ID {
+		t.Fatalf("expected 1 done task for w-special, got %d", len(tasksSpecialDone))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks expected 200, got %d: %s", code, body)
+	}
+	var allTasks []taskItem
+	if err := json.Unmarshal(body, &allTasks); err != nil {
+		t.Fatalf("unmarshal all tasks failed: %v: %s", err, body)
+	}
+	if len(allTasks) != 3 {
+		t.Fatalf("expected 3 tasks in total, got %d", len(allTasks))
+	}
+}

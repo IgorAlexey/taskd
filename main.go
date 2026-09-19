@@ -359,6 +359,7 @@ WHERE id = (
 		q := r.URL.Query()
 		status := q.Get("status")
 		project := q.Get("project")
+		worker := q.Get("worker")
 		limit := 100
 		if q.Has("limit") {
 			v, err := strconv.Atoi(q.Get("limit"))
@@ -387,6 +388,10 @@ WHERE id = (
 		if project != "" && project != "*" {
 			where = append(where, "project = ?")
 			args = append(args, project)
+		}
+		if worker != "" {
+			where = append(where, "worker = ?")
+			args = append(args, worker)
 		}
 		if len(where) > 0 {
 			query += " WHERE " + strings.Join(where, " AND ")
