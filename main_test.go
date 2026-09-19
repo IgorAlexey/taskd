@@ -2949,3 +2949,40 @@ func TestClaimByIDConcurrency(t *testing.T) {
 		t.Fatalf("expected %d conflicts, got %d", workers-1, conflictCount)
 	}
 }
+
+func TestValidateNonNegativePriority(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{"body": "neg-test", "project": "p1", "priority": -1})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks negative priority expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{"body": "good-test", "project": "p1", "priority": 0})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks zero priority expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+created.ID, map[string]any{"priority": -5})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH /tasks negative priority expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+created.ID, map[string]any{"priority": 0})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH /tasks zero priority expected 204, got %d: %s", code, body)
+	}
+}

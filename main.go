@@ -270,6 +270,10 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 			http.Error(w, "missing project", http.StatusBadRequest)
 			return
 		}
+		if req.Priority < 0 {
+			http.Error(w, "invalid priority", http.StatusBadRequest)
+			return
+		}
 		if req.ID == "" {
 			var b [16]byte
 			if _, err := rand.Read(b[:]); err != nil {
@@ -605,6 +609,10 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		}
 		if req.Body == nil && req.Priority == nil && req.Project == nil && req.AssetPath == nil {
 			http.Error(w, "missing fields to update", http.StatusBadRequest)
+			return
+		}
+		if req.Priority != nil && *req.Priority < 0 {
+			http.Error(w, "invalid priority", http.StatusBadRequest)
 			return
 		}
 		if req.Project != nil && (*req.Project == "" || *req.Project == "*") {

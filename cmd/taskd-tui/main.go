@@ -230,7 +230,9 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case '+', '=', '-':
 		if ok {
 			d := map[rune]int{'+': 1, '=': 1, '-': -1}[ev.Rune()]
-			u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": t.Priority + d})
+			if pri := max(0, t.Priority+d); pri != t.Priority {
+				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri})
+			}
 		}
 	case 'D':
 		if ok {

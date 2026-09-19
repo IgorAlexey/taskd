@@ -332,3 +332,59 @@ func TestMouseSupport(t *testing.T) {
 		return row == 0
 	})
 }
+
+func TestPriorityClamp(t *testing.T) {
+	var patches int
+	var mu sync.Mutex
+	tasks := []task{
+		{ID: "t1", Project: "p1", Status: "pending", Priority: 1, Body: "task 1"},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		json.NewEncoder(w).Encode(tasks)
+	})
+	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var p struct{ Priority int }
+		json.NewDecoder(r.Body).Decode(&p)
+		if p.Priority < 0 {
+			t.Errorf("server received negative priority: %d", p.Priority)
+		}
+		mu.Lock()
+		patches++
+		tasks[0].Priority = p.Priority
+		mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := newUI(srv.URL)
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 1 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	u.render(ts)
+	u.table.Select(1, 0)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return patches == 1 && tasks[0].Priority == 0
+	})
+
+	ts, _ = u.fetch()
+	u.render(ts)
+	u.table.Select(1, 0)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '+', 0))
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return patches == 2 && tasks[0].Priority == 1
+	})
+}
