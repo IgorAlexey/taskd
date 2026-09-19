@@ -1388,3 +1388,128 @@ func TestCopyTaskID(t *testing.T) {
 		t.Fatalf("tmux osc52 sequence = %q", buf.String())
 	}
 }
+
+func TestFetchServerError(t *testing.T) {
+	t.Run("internal server error with text body", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+		}))
+		t.Cleanup(srv.Close)
+
+		u := newUI(srv.URL, "", false)
+		ts, err := u.fetch()
+		if err == nil {
+			t.Fatal("expected error from non-200 response, got nil")
+		}
+		if ts != nil {
+			t.Fatalf("expected nil tasks on error, got %v", ts)
+		}
+		if strings.Contains(err.Error(), "invalid character") {
+			t.Fatalf("expected HTTP status error instead of JSON parse error: %v", err)
+		}
+		if !strings.Contains(err.Error(), "500") {
+			t.Fatalf("expected status code 500 in error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "internal error") {
+			t.Fatalf("expected server response body in error, got: %v", err)
+		}
+	})
+
+	t.Run("bad gateway", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusBadGateway)
+			w.Write([]byte("bad gateway"))
+		}))
+		t.Cleanup(srv.Close)
+
+		u := newUI(srv.URL, "", false)
+		_, err := u.fetch()
+		if err == nil {
+			t.Fatal("expected error from 502 response, got nil")
+		}
+		if !strings.Contains(err.Error(), "502") {
+			t.Fatalf("expected status code 502 in error, got: %v", err)
+		}
+		if !strings.Contains(err.Error(), "bad gateway") {
+			t.Fatalf("expected server body in error, got: %v", err)
+		}
+	})
+
+	t.Run("empty error body", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		t.Cleanup(srv.Close)
+
+		u := newUI(srv.URL, "", false)
+		_, err := u.fetch()
+		if err == nil {
+			t.Fatal("expected error from 503 response, got nil")
+		}
+		if !strings.Contains(err.Error(), "503") {
+			t.Fatalf("expected status code 503 in error, got: %v", err)
+		}
+	})
+
+	t.Run("refresh surfaces error in status", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Error(w, "upstream timeout", http.StatusGatewayTimeout)
+		}))
+		t.Cleanup(srv.Close)
+
+		u := newUI(srv.URL, "", false)
+		sim := tcell.NewSimulationScreen("")
+		if err := sim.Init(); err != nil {
+			t.Fatal(err)
+		}
+		sim.SetSize(80, 25)
+		u.app.SetScreen(sim)
+		u.app.SetRoot(u.root, true)
+
+		done := make(chan struct{})
+		go func() {
+			u.app.Run()
+			close(done)
+		}()
+		defer func() {
+			u.app.Stop()
+			<-done
+		}()
+
+		query := func(fn func()) {
+			ch := make(chan struct{})
+			u.app.QueueUpdate(func() {
+				fn()
+				close(ch)
+			})
+			<-ch
+		}
+
+		u.refresh()
+		eventually(t, func() bool {
+			var msg, status string
+			query(func() {
+				msg = u.msg
+				status = u.status.GetText(true)
+			})
+			return strings.Contains(msg, "504") && strings.Contains(msg, "upstream timeout") &&
+				strings.Contains(status, "504") && strings.Contains(status, "upstream timeout")
+		})
+	})
+	t.Run("bounded error body read", func(t *testing.T) {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+			w.Write(bytes.Repeat([]byte("x"), 10000))
+		}))
+		t.Cleanup(srv.Close)
+
+		u := newUI(srv.URL, "", false)
+		_, err := u.fetch()
+		if err == nil {
+			t.Fatal("expected error from 500 response, got nil")
+		}
+		if len(err.Error()) > 3000 {
+			t.Fatalf("expected bounded error length, got %d", len(err.Error()))
+		}
+	})
+}

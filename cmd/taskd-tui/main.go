@@ -85,6 +85,14 @@ func (u *ui) fetch() ([]task, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		body := strings.TrimSpace(string(b))
+		if body != "" {
+			return nil, fmt.Errorf("GET /tasks: %s: %s", resp.Status, body)
+		}
+		return nil, fmt.Errorf("GET /tasks: %s", resp.Status)
+	}
 	var ts []task
 	return ts, json.NewDecoder(resp.Body).Decode(&ts)
 }
