@@ -412,6 +412,97 @@ func taskNotFoundOrConflict(w http.ResponseWriter, db *sql.DB, id string) {
 	http.Error(w, "task not leased by worker", http.StatusConflict)
 }
 
+type queryer interface {
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
+var errTaskNotFound = errors.New("task not found")
+
+type errMultipleMatch struct {
+	matches []string
+}
+
+func (e *errMultipleMatch) Error() string {
+	return fmt.Sprintf("Multiple matching tasks found:\n%s", strings.Join(e.matches, "\n"))
+}
+
+func prefixRange(prefix string) (string, string) {
+	b := []byte(prefix)
+	for i := len(b) - 1; i >= 0; i-- {
+		if b[i] < 0xff {
+			b[i]++
+			return prefix, string(b[:i+1])
+		}
+	}
+	return prefix, ""
+}
+
+func resolveTaskID(q queryer, id string) (string, error) {
+	if id == "" {
+		return "", errTaskNotFound
+	}
+	var exactID string
+	err := q.QueryRow("SELECT id FROM tasks WHERE id = ?", id).Scan(&exactID)
+	if err == nil {
+		return exactID, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return "", err
+	}
+
+	lower, upper := prefixRange(id)
+	var (
+		rows *sql.Rows
+	)
+	if upper != "" {
+		rows, err = q.Query("SELECT id FROM tasks WHERE id >= ? AND id < ? ORDER BY id ASC LIMIT 10", lower, upper)
+	} else {
+		rows, err = q.Query("SELECT id FROM tasks WHERE id >= ? ORDER BY id ASC LIMIT 10", lower)
+	}
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+
+	var matches []string
+	for rows.Next() {
+		var match string
+		if err := rows.Scan(&match); err != nil {
+			return "", err
+		}
+		matches = append(matches, match)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	if len(matches) == 0 {
+		return "", errTaskNotFound
+	}
+	if len(matches) > 1 {
+		return "", &errMultipleMatch{matches: matches}
+	}
+	return matches[0], nil
+}
+
+func resolveTaskIDHTTP(w http.ResponseWriter, q queryer, id string) (string, bool) {
+	resolved, err := resolveTaskID(q, id)
+	if err == nil {
+		return resolved, true
+	}
+	var mm *errMultipleMatch
+	if errors.As(err, &mm) {
+		http.Error(w, mm.Error(), http.StatusConflict)
+		return "", false
+	}
+	if errors.Is(err, errTaskNotFound) {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return "", false
+	}
+	internalError(w, err)
+	return "", false
+}
+
 type taskItem struct {
 	ID           string          `json:"id"`
 	AssetPath    string          `json:"asset_path"`
@@ -637,7 +728,10 @@ WHERE id = (
 		if !ok {
 			return
 		}
-		id := r.PathValue("id")
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
 		query := `UPDATE tasks
 SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = ? AND (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
@@ -678,11 +772,15 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
 		var prim any
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		res, err := db.Exec("UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", prim, r.PathValue("id"), req.Worker)
+		res, err := db.Exec("UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", prim, id, req.Worker)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -693,7 +791,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			return
 		}
 		if n == 0 {
-			taskNotFoundOrConflict(w, db, r.PathValue("id"))
+			taskNotFoundOrConflict(w, db, id)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -709,7 +807,10 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			http.Error(w, "unexpected request body", http.StatusBadRequest)
 			return
 		}
-		id := r.PathValue("id")
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
 		res, err := db.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL
 WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unixepoch())`, id)
 		if err != nil {
@@ -732,7 +833,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() + ? WHERE id = ? AND status = 'leased' AND worker = ? AND lease_expires >= unixepoch()", lease, r.PathValue("id"), worker)
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		res, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() + ? WHERE id = ? AND status = 'leased' AND worker = ? AND lease_expires >= unixepoch()", lease, id, worker)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -743,7 +848,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if n == 0 {
-			taskNotFoundOrConflict(w, db, r.PathValue("id"))
+			taskNotFoundOrConflict(w, db, id)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -753,7 +858,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", r.PathValue("id"), worker)
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", id, worker)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -764,7 +873,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if n == 0 {
-			taskNotFoundOrConflict(w, db, r.PathValue("id"))
+			taskNotFoundOrConflict(w, db, id)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -909,13 +1018,17 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	})
 
 	mux.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
 		var (
 			item         taskItem
 			worker       sql.NullString
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", r.PathValue("id")).
+		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", id).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "task not found", http.StatusNotFound)
@@ -996,9 +1109,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
 			return
 		}
+		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		if !ok {
+			return
+		}
 		if (clearBody && req.AssetPath == nil) || (clearAsset && req.Body == nil) {
 			var curBody, curAssetPath string
-			err := db.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&curBody, &curAssetPath)
+			err := db.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", id).Scan(&curBody, &curAssetPath)
 			if errors.Is(err, sql.ErrNoRows) {
 				http.Error(w, "task not found", http.StatusNotFound)
 				return
@@ -1015,7 +1132,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		res, err := db.Exec(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path)
 WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
-			req.Body, req.Priority, req.Project, req.AssetPath, r.PathValue("id"))
+			req.Body, req.Priority, req.Project, req.AssetPath, id)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1026,7 +1143,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if n == 0 {
-			writeTaskStateError(w, db, r.PathValue("id"))
+			writeTaskStateError(w, db, id)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1040,11 +1157,16 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		}
 		defer tx.Rollback()
 
+		id, ok := resolveTaskIDHTTP(w, tx, r.PathValue("id"))
+		if !ok {
+			return
+		}
+
 		var (
 			status       string
 			leaseExpires sql.NullInt64
 		)
-		err = tx.QueryRow("SELECT status, lease_expires FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&status, &leaseExpires)
+		err = tx.QueryRow("SELECT status, lease_expires FROM tasks WHERE id = ?", id).Scan(&status, &leaseExpires)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
@@ -1063,7 +1185,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			http.Error(w, "task is done", http.StatusConflict)
 			return
 		}
-		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", r.PathValue("id")); err != nil {
+		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", id); err != nil {
 			internalError(w, err)
 			return
 		}
