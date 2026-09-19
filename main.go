@@ -244,6 +244,26 @@ func internalError(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
+func cleanWorker(raw string) (string, bool) {
+	worker := strings.TrimSpace(raw)
+	return worker, worker != ""
+}
+
+func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
+	var req struct {
+		Worker string `json:"worker"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return "", false
+	}
+	worker, ok := cleanWorker(req.Worker)
+	if !ok {
+		http.Error(w, "missing worker", http.StatusBadRequest)
+		return "", false
+	}
+	return worker, true
+}
+
 type taskItem struct {
 	ID           string          `json:"id"`
 	AssetPath    string          `json:"asset_path"`
@@ -337,6 +357,12 @@ FROM tasks`
 		if !decodeJSON(w, r, &req) {
 			return
 		}
+		req.AssetPath = strings.TrimSpace(req.AssetPath)
+		req.Project = strings.TrimSpace(req.Project)
+		if req.Body != "" && strings.TrimSpace(req.Body) == "" {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
 		if req.AssetPath == "" && req.Body == "" {
 			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
 			return
@@ -383,10 +409,12 @@ FROM tasks`
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.Worker == "" {
+		var ok bool
+		if req.Worker, ok = cleanWorker(req.Worker); !ok {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
+		req.Project = strings.TrimSpace(req.Project)
 		if req.Project == "" {
 			req.Project = "*"
 		}
@@ -439,14 +467,8 @@ WHERE id = (
 		})
 	})
 	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Worker string `json:"worker"`
-		}
-		if !decodeJSON(w, r, &req) {
-			return
-		}
-		if req.Worker == "" {
-			http.Error(w, "missing worker", http.StatusBadRequest)
+		worker, ok := decodeWorker(w, r)
+		if !ok {
 			return
 		}
 		id := r.PathValue("id")
@@ -456,12 +478,12 @@ WHERE id = ? AND (status='pending' OR (status='leased' AND lease_expires < unixe
 RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count`
 		var (
 			item         taskItem
-			worker       sql.NullString
+			leasedWorker sql.NullString
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow(query, req.Worker, lease, id).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
+		err := db.QueryRow(query, worker, lease, id).
+			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			var status string
 			err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
@@ -484,7 +506,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			internalError(w, err)
 			return
 		}
-		item.Worker = worker.String
+		item.Worker = leasedWorker.String
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
 		w.Header().Set("Content-Type", "application/json")
@@ -499,7 +521,8 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.Worker == "" {
+		var ok bool
+		if req.Worker, ok = cleanWorker(req.Worker); !ok {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
@@ -534,17 +557,11 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /tasks/{id}/touch", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Worker string `json:"worker"`
-		}
-		if !decodeJSON(w, r, &req) {
+		worker, ok := decodeWorker(w, r)
+		if !ok {
 			return
 		}
-		if req.Worker == "" {
-			http.Error(w, "missing worker", http.StatusBadRequest)
-			return
-		}
-		res, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() + ? WHERE id = ? AND status = 'leased' AND worker = ? AND lease_expires >= unixepoch()", lease, r.PathValue("id"), req.Worker)
+		res, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() + ? WHERE id = ? AND status = 'leased' AND worker = ? AND lease_expires >= unixepoch()", lease, r.PathValue("id"), worker)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -561,17 +578,11 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /tasks/{id}/release", func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			Worker string `json:"worker"`
-		}
-		if !decodeJSON(w, r, &req) {
+		worker, ok := decodeWorker(w, r)
+		if !ok {
 			return
 		}
-		if req.Worker == "" {
-			http.Error(w, "missing worker", http.StatusBadRequest)
-			return
-		}
-		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=?", r.PathValue("id"), req.Worker)
+		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=?", r.PathValue("id"), worker)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -761,13 +772,23 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			http.Error(w, "missing fields to update", http.StatusBadRequest)
 			return
 		}
+		if req.Body != nil && *req.Body != "" && strings.TrimSpace(*req.Body) == "" {
+			http.Error(w, "invalid body", http.StatusBadRequest)
+			return
+		}
+		if req.AssetPath != nil {
+			*req.AssetPath = strings.TrimSpace(*req.AssetPath)
+		}
 		if req.Priority != nil && *req.Priority < 0 {
 			http.Error(w, "invalid priority", http.StatusBadRequest)
 			return
 		}
-		if req.Project != nil && !validProject(*req.Project) {
-			http.Error(w, "invalid project", http.StatusBadRequest)
-			return
+		if req.Project != nil {
+			*req.Project = strings.TrimSpace(*req.Project)
+			if !validProject(*req.Project) {
+				http.Error(w, "invalid project", http.StatusBadRequest)
+				return
+			}
 		}
 		clearBody := req.Body != nil && *req.Body == ""
 		clearAsset := req.AssetPath != nil && *req.AssetPath == ""

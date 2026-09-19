@@ -4105,3 +4105,116 @@ func TestProjectMaxLength(t *testing.T) {
 		t.Fatalf("expected project %q, got %q", p64b, pVal)
 	}
 }
+
+func TestRejectWhitespacePayloads(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, _ := post(t, srv.URL+"/tasks", map[string]string{"body": "   ", "project": "p1"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with whitespace body expected 400, got %d", code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks", map[string]string{"body": "b", "project": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with whitespace project expected 400, got %d", code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks", map[string]string{"asset_path": "   ", "body": "   ", "project": "p1"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with whitespace asset_path and body expected 400, got %d", code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks", map[string]string{"asset_path": "   ", "project": "p1"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with whitespace asset_path expected 400, got %d", code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks", map[string]string{"asset_path": "path", "body": "   ", "project": "p1"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with asset_path and whitespace body expected 400, got %d", code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "   ", "project": "p1"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/claim with whitespace worker expected 400, got %d", code)
+	}
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{"body": "init", "project": "p1"})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created task failed: %v", err)
+	}
+
+	code, _ = do(t, http.MethodPatch, srv.URL+"/tasks/"+created.ID, map[string]string{"body": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH /tasks with whitespace body expected 400, got %d", code)
+	}
+
+	code, _ = do(t, http.MethodPatch, srv.URL+"/tasks/"+created.ID, map[string]string{"project": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH /tasks with whitespace project expected 400, got %d", code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{"worker": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/%s/claim with whitespace worker expected 400, got %d", created.ID, code)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1", "project": "p1"})
+	if code != http.StatusOK {
+		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]string{"worker": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/%s/done with whitespace worker expected 400, got %d", created.ID, code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]string{"worker": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/%s/touch with whitespace worker expected 400, got %d", created.ID, code)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/"+created.ID+"/release", map[string]string{"worker": "   "})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/%s/release with whitespace worker expected 400, got %d", created.ID, code)
+	}
+
+	preservedBody := "  line 1\n    line 2\n"
+	code, body = post(t, srv.URL+"/tasks", map[string]string{"body": preservedBody, "project": " p2 "})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created2 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created2); err != nil {
+		t.Fatalf("unmarshal created task failed: %v", err)
+	}
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created2.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/%s expected 200, got %d", created2.ID, code)
+	}
+	var task taskItem
+	if err := json.Unmarshal(body, &task); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if task.Body != preservedBody {
+		t.Fatalf("expected body %q, got %q", preservedBody, task.Body)
+	}
+	if task.Project != "p2" {
+		t.Fatalf("expected project 'p2', got %q", task.Project)
+	}
+}
