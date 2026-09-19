@@ -391,6 +391,23 @@
           <option value="leased">Leased</option>
           <option value="done">Done</option>
         </select>
+        <label for="filter-priority" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Priority:</label>
+        <select id="filter-priority" onchange="onFilterChange()">
+          <option value="">(all)</option>
+          <option value="0">0</option>
+          <option value="1">1</option>
+          <option value="2">2</option>
+          <option value="3">3</option>
+          <option value="4">4</option>
+          <option value="5">5</option>
+        </select>
+        <label for="filter-worker" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Worker:</label>
+        <select id="filter-worker" onchange="onFilterChange()">
+          <option value="">(all)</option>
+        </select>
+        <label for="filter-search" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Search:</label>
+        <input type="text" id="filter-search" placeholder="Search tasks..." oninput="onSearchInput()" style="padding: 4px 8px; font-size: 12px;">
+        <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" style="padding: 2px 8px; font-size: 12px;">Clear</button>
       </div>
       <div id="queue" tabindex="-1" style="overflow-x: auto;">
         <table>
@@ -481,6 +498,8 @@
       return {
         project: q.get('project') || '',
         status: q.get('status') || '',
+        priority: q.get('priority') || '',
+        worker: q.get('worker') || '',
         task: q.get('task') || '',
         page: q.get('page') || ''
       };
@@ -489,9 +508,13 @@
     function currentURLState() {
       const projEl = document.getElementById('filter-project');
       const statusEl = document.getElementById('filter-status');
+      const prioEl = document.getElementById('filter-priority');
+      const workerEl = document.getElementById('filter-worker');
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: statusEl ? statusEl.value : '',
+        priority: prioEl ? prioEl.value : '',
+        worker: workerEl ? workerEl.value : '',
         task: selectedTaskId || ''
       };
       if (currentPage > 1) state.page = String(currentPage);
@@ -503,6 +526,8 @@
       const q = new URLSearchParams();
       if (state.project) q.set('project', state.project);
       if (state.status) q.set('status', state.status);
+      if (state.priority) q.set('priority', state.priority);
+      if (state.worker) q.set('worker', state.worker);
       if (state.task) q.set('task', state.task);
       if (state.page) q.set('page', state.page);
       const query = q.toString();
@@ -531,12 +556,45 @@
       }
     }
 
+    async function loadWorkers() {
+      const select = document.getElementById('filter-worker');
+      if (!select) return;
+      try {
+        const res = await fetch('/workers');
+        if (!res.ok) return;
+        const workers = await res.json();
+        const current = select.value;
+        select.innerHTML = '<option value="">(all)</option>';
+        if (Array.isArray(workers)) {
+          for (const w of workers) {
+            const opt = document.createElement('option');
+            opt.value = w;
+            opt.textContent = w;
+            select.appendChild(opt);
+          }
+        }
+        setFilter(select, current);
+      } catch (_) {}
+    }
+
     function applyURLState() {
       const state = readURLState();
       const projEl = document.getElementById('filter-project');
       pendingProject = (projEl && projEl.value === state.project) ? '' : state.project;
       setFilter(projEl, state.project);
       setFilter(document.getElementById('filter-status'), state.status);
+      setFilter(document.getElementById('filter-priority'), state.priority);
+      const workerEl = document.getElementById('filter-worker');
+      if (workerEl && state.worker) {
+        const exists = Array.from(workerEl.options).some(o => o.value === state.worker);
+        if (!exists) {
+          const opt = document.createElement('option');
+          opt.value = state.worker;
+          opt.textContent = state.worker;
+          workerEl.appendChild(opt);
+        }
+      }
+      setFilter(workerEl, state.worker);
       selectedTaskId = state.task || null;
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
@@ -680,7 +738,6 @@
         summary: t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : (t.asset_path || '')
       };
     }
-
     function createRow(t, isSelected) {
       const f = rowFields(t);
       const tr = document.createElement('tr');
@@ -723,14 +780,23 @@
     async function loadTasks() {
       const projEl = document.getElementById('filter-project');
       const statusEl = document.getElementById('filter-status');
+      const prioEl = document.getElementById('filter-priority');
+      const workerEl = document.getElementById('filter-worker');
+      const searchEl = document.getElementById('filter-search');
       const proj = projEl ? projEl.value : '';
       const status = statusEl ? statusEl.value : '';
+      const prio = prioEl ? prioEl.value : '';
+      const worker = workerEl ? workerEl.value : '';
+      const search = searchEl ? searchEl.value.trim() : '';
       while (true) {
         const offset = (currentPage - 1) * PAGE_SIZE;
         let url = '/tasks?limit=' + PAGE_SIZE;
         if (offset > 0) url += '&offset=' + offset;
         if (proj) url += '&project=' + encodeURIComponent(proj);
         if (status) url += '&status=' + encodeURIComponent(status);
+        if (prio !== '') url += '&priority=' + encodeURIComponent(prio);
+        if (worker) url += '&worker=' + encodeURIComponent(worker);
+        if (search) url += '&q=' + encodeURIComponent(search);
 
         try {
           const res = await fetchJSON(url, null, true);
@@ -1305,19 +1371,49 @@
 
     async function loadAll() {
       try {
-        await Promise.all([loadProjects(), loadStats(), loadTasks()]);
+        await Promise.all([loadProjects(), loadWorkers(), loadStats(), loadTasks()]);
       } catch (e) {
         console.error('Failed to refresh data:', e);
       }
     }
 
+    let searchDebounceTimer = null;
+    function onSearchInput() {
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+      searchDebounceTimer = setTimeout(() => {
+        currentPage = 1;
+        loadTasks();
+      }, 200);
+    }
+
+    function clearSearch() {
+      const el = document.getElementById('filter-search');
+      if (el) {
+        el.value = '';
+        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        currentPage = 1;
+        loadTasks();
+      }
+    }
+
+    function setupSearch() {
+      const el = document.getElementById('filter-search');
+      if (!el) return;
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          clearSearch();
+        }
+      });
+    }
+
     async function boot() {
       setupRowActivation();
       setupCardFilters();
+      setupSearch();
       applyURLState();
       syncURL(false);
       try {
-        await loadProjects();
+        await Promise.all([loadProjects(), loadWorkers()]);
         await Promise.all([loadStats(), loadTasks()]);
       } catch (e) {
         console.error('Failed to boot UI:', e);

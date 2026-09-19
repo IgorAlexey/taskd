@@ -569,6 +569,17 @@ func redirectWithQuery(w http.ResponseWriter, r *http.Request, path string, code
 	}
 	http.Redirect(w, r, path, code)
 }
+func escapeLike(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch r {
+		case '%', '_', '\\':
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
 func newHandler(db *sql.DB, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, "")
 }
@@ -883,7 +894,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		q := r.URL.Query()
 		for k := range q {
 			switch k {
-			case "status", "project", "worker", "priority", "limit", "offset", "asset_path":
+			case "status", "project", "worker", "priority", "limit", "offset", "asset_path", "q":
 			default:
 				http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
 				return
@@ -957,6 +968,14 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if q.Has("asset_path") {
 			where = append(where, "asset_path = ?")
 			args = append(args, q.Get("asset_path"))
+		}
+		if q.Has("q") {
+			search := strings.TrimSpace(q.Get("q"))
+			if search != "" {
+				pat := "%" + escapeLike(search) + "%"
+				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR worker LIKE ? ESCAPE '\\')")
+				args = append(args, pat, pat, pat, pat)
+			}
 		}
 		var whereSQL string
 		if len(where) > 0 {
@@ -1070,6 +1089,31 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(projects)
+	})
+	mux.HandleFunc("GET /workers", func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' ORDER BY worker ASC")
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer rows.Close()
+
+		workers := make([]string, 0)
+		for rows.Next() {
+			var wk string
+			if err := rows.Scan(&wk); err != nil {
+				internalError(w, err)
+				return
+			}
+			workers = append(workers, wk)
+		}
+		if err := rows.Err(); err != nil {
+			internalError(w, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(workers)
 	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {

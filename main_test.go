@@ -16,6 +16,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -3550,6 +3551,102 @@ func TestWebUIServesAccessibleQueueMarkup(t *testing.T) {
 		if strings.Contains(body, substr) {
 			t.Fatalf("did not expect %q in UI response body", substr)
 		}
+	}
+}
+func TestWebUIFilterControls(t *testing.T) {
+	ui := string(uiHTML)
+	for _, id := range []string{"filter-priority", "filter-worker", "filter-search"} {
+		if !strings.Contains(ui, `id="`+id+`"`) {
+			t.Fatalf("expected control with id=%q in web/index.html", id)
+		}
+	}
+}
+
+func TestWorkersEndpoint(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := do(t, http.MethodGet, srv.URL+"/workers", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /workers expected 200, got %d: %s", code, body)
+	}
+	var workers []string
+	if err := json.Unmarshal(body, &workers); err != nil {
+		t.Fatalf("unmarshal workers failed: %v", err)
+	}
+	if len(workers) != 0 {
+		t.Fatalf("expected empty workers, got %v", workers)
+	}
+
+	createTask(t, srv.URL, "p1")
+	claimTask(t, srv.URL, "p1", "worker-beta")
+	createTask(t, srv.URL, "p1")
+	claimTask(t, srv.URL, "p1", "worker-alpha")
+
+	code, body = do(t, http.MethodGet, srv.URL+"/workers", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /workers expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &workers); err != nil {
+		t.Fatalf("unmarshal workers failed: %v", err)
+	}
+	if !slices.Equal(workers, []string{"worker-alpha", "worker-beta"}) {
+		t.Fatalf("expected sorted distinct workers, got %v", workers)
+	}
+}
+
+func TestTasksSearchParam(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	t1ID := createTask(t, srv.URL, "proj-alpha")
+	post(t, srv.URL+"/tasks", map[string]any{"id": "t-custom-2", "project": "proj-beta", "body": "fix critical deadlock"})
+	claimTask(t, srv.URL, "proj-alpha", "node-runner-7")
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?q=deadlock", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=deadlock expected 200, got %d: %s", code, body)
+	}
+	var res []taskItem
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v", err)
+	}
+	if len(res) != 1 || res[0].ID != "t-custom-2" {
+		t.Fatalf("expected 1 task matching body deadlock, got %+v", res)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?q=NODE-RUNNER", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=NODE-RUNNER expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v", err)
+	}
+	if len(res) != 1 || res[0].ID != t1ID {
+		t.Fatalf("expected 1 task matching worker node-runner-7, got %+v", res)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?q=CUSTOM-2", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=CUSTOM-2 expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v", err)
+	}
+	if len(res) != 1 || res[0].ID != "t-custom-2" {
+		t.Fatalf("expected 1 task matching custom id, got %+v", res)
 	}
 }
 
