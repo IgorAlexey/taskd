@@ -292,6 +292,9 @@ func validTaskID(id string) bool {
 	if id == "" || len(id) > maxTaskIDLen || id == "." || id == ".." {
 		return false
 	}
+	if strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") {
+		return false
+	}
 	for i := 0; i < len(id); i++ {
 		c := id[i]
 		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {

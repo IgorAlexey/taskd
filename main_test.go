@@ -4330,3 +4330,50 @@ func TestGetTasksUnknownQueryParam(t *testing.T) {
 		}
 	}
 }
+
+func TestRejectReservedTaskID(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	reservedIDs := []string{
+		"claim",
+		"purge",
+		"CLAIM",
+		"PURGE",
+		"Claim",
+		"Purge",
+	}
+	for _, id := range reservedIDs {
+		code, body := post(t, srv.URL+"/tasks", map[string]any{
+			"id":      id,
+			"body":    "payload",
+			"project": "p1",
+		})
+		if code != http.StatusBadRequest {
+			t.Fatalf("POST /tasks with reserved id %q expected 400, got %d: %s", id, code, body)
+		}
+	}
+
+	validIDs := []string{
+		"claim-task",
+		"task-claim",
+		"purge-1",
+		"my-purge",
+	}
+	for _, id := range validIDs {
+		code, body := post(t, srv.URL+"/tasks", map[string]any{
+			"id":      id,
+			"body":    "payload",
+			"project": "p1",
+		})
+		if code != http.StatusCreated {
+			t.Fatalf("POST /tasks with allowed id %q expected 201, got %d: %s", id, code, body)
+		}
+	}
+}
