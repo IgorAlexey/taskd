@@ -40,6 +40,7 @@ type ui struct {
 	status    *tview.TextView
 	root      tview.Primitive
 	form      *tview.Form
+	modal     *tview.Modal
 	filter    string
 	project   string
 	all       []task
@@ -199,6 +200,33 @@ func (u *ui) showCreateForm() {
 	u.app.SetRoot(f, true)
 }
 
+func (u *ui) showDeleteConfirm(t task) {
+	title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
+	name := t.ID
+	if title != "" && title != t.ID {
+		name = fmt.Sprintf("%s (%s)", t.ID, title)
+	}
+	m := tview.NewModal()
+	m.SetText(fmt.Sprintf("Delete task %s?\nDeleted tasks cannot be recovered.", name))
+	m.AddButtons([]string{"Delete", "Cancel"})
+	close := func() {
+		u.modal = nil
+		u.app.SetRoot(u.root, true).SetFocus(u.table)
+	}
+	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		close()
+		if buttonIndex == 0 {
+			path := "/tasks/" + t.ID
+			if t.Status == "done" {
+				path += "?force=true"
+			}
+			u.act("DELETE", path, nil)
+		}
+	})
+	u.modal = m
+	u.app.SetRoot(m, true)
+}
+
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	switch ev.Key() {
 	case tcell.KeyTab, tcell.KeyBacktab:
@@ -247,7 +275,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 	case 'D':
 		if ok {
-			u.act("DELETE", "/tasks/"+t.ID, nil)
+			u.showDeleteConfirm(t)
 		}
 	case 'n':
 		u.showCreateForm()

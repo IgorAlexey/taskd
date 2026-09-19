@@ -13,9 +13,17 @@ import (
 	"github.com/rivo/tview"
 )
 
+var (
+	deleteMu    sync.Mutex
+	deleteCalls []string
+)
+
 func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	t.Helper()
 	var mu sync.Mutex
+	deleteMu.Lock()
+	deleteCalls = nil
+	deleteMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
@@ -40,7 +48,29 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		w.WriteHeader(204)
 	})
 	mux.HandleFunc("DELETE /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "task is leased", http.StatusConflict)
+		id := r.PathValue("id")
+		mu.Lock()
+		defer mu.Unlock()
+		deleteMu.Lock()
+		deleteCalls = append(deleteCalls, r.URL.RequestURI())
+		deleteMu.Unlock()
+		for i, tk := range tasks {
+			if tk.ID == id {
+				if tk.Status == "leased" {
+					http.Error(w, "task is leased", http.StatusConflict)
+					return
+				}
+				force := r.URL.Query().Get("force")
+				if tk.Status == "done" && force != "true" && force != "1" {
+					http.Error(w, "task is done", http.StatusConflict)
+					return
+				}
+				tasks = append(tasks[:i], tasks[i+1:]...)
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
 	})
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -486,4 +516,171 @@ func TestBodyFocusAndScroll(t *testing.T) {
 		query(func() { has = u.table.HasFocus() })
 		return has
 	})
+}
+
+func TestDeleteConfirm(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	screenText := func() string {
+		cells, _, _ := sim.GetContents()
+		var sb strings.Builder
+		for _, c := range cells {
+			for _, r := range c.Runes {
+				sb.WriteRune(r)
+			}
+		}
+		return sb.String()
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'D', 0))
+	})
+
+	var modal *tview.Modal
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+
+	eventually(t, func() bool {
+		s := screenText()
+		return strings.Contains(s, "aaaaaaa1") && strings.Contains(s, "first task")
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEscape, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal == nil
+	})
+
+	mu.Lock()
+	count := len(*tasks)
+	mu.Unlock()
+	if count != 3 {
+		t.Fatalf("expected 3 tasks after Esc, got %d", count)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, '3', 0))
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'D', 0))
+	})
+
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+
+	eventually(t, func() bool {
+		s := screenText()
+		return strings.Contains(s, "ccccccc3") && strings.Contains(s, "third")
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal == nil
+	})
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, tk := range *tasks {
+			if tk.ID == "ccccccc3" {
+				return false
+			}
+		}
+		return true
+	})
+
+	deleteMu.Lock()
+	var lastCall string
+	if len(deleteCalls) > 0 {
+		lastCall = deleteCalls[len(deleteCalls)-1]
+	}
+	deleteMu.Unlock()
+	if !strings.Contains(lastCall, "force=true") {
+		t.Fatalf("expected force=true in delete call for done task, got %q", lastCall)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'D', 0))
+	})
+
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal == nil
+	})
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, tk := range *tasks {
+			if tk.ID == "aaaaaaa1" {
+				return false
+			}
+		}
+		return true
+	})
+
+	deleteMu.Lock()
+	if len(deleteCalls) > 0 {
+		lastCall = deleteCalls[len(deleteCalls)-1]
+	}
+	deleteMu.Unlock()
+	if strings.Contains(lastCall, "force=true") {
+		t.Fatalf("did not expect force=true for pending task, got %q", lastCall)
+	}
 }
