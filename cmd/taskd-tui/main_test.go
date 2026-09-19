@@ -25,6 +25,8 @@ var (
 	deleteCalls  []string
 	releaseMu    sync.Mutex
 	releaseCalls []string
+	claimMu      sync.Mutex
+	claimCalls   []string
 )
 
 func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
@@ -36,6 +38,9 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	releaseMu.Lock()
 	releaseCalls = nil
 	releaseMu.Unlock()
+	claimMu.Lock()
+	claimCalls = nil
+	claimMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
@@ -123,6 +128,36 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 			}
 			tasks[i].Status, tasks[i].Worker, tasks[i].LeaseExpires = "pending", "", 0
 			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Worker == "" {
+			http.Error(w, "missing worker", http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		claimMu.Lock()
+		claimCalls = append(claimCalls, r.PathValue("id")+" "+req.Worker)
+		claimMu.Unlock()
+		for i := range tasks {
+			if tasks[i].ID != r.PathValue("id") {
+				continue
+			}
+			if tasks[i].Status != "pending" {
+				http.Error(w, "task is "+tasks[i].Status, http.StatusConflict)
+				return
+			}
+			tasks[i].Status = "leased"
+			tasks[i].Worker = req.Worker
+			tasks[i].LeaseExpires = time.Now().Unix() + 300
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(tasks[i])
 			return
 		}
 		http.Error(w, "task not found", http.StatusNotFound)

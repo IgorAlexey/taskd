@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"os/user"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -73,6 +74,7 @@ type ui struct {
 	filter                string
 	project               string
 	icons                 bool
+	worker                string
 	all                   []task
 	shown                 []task
 	projects              []string
@@ -587,6 +589,16 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
 			}
 		}
+	case 'c':
+		if ok {
+			if t.Status != "pending" {
+				u.setMsg("task is not pending")
+				break
+			}
+			u.act("POST", "/tasks/"+t.ID+"/claim",
+				map[string]string{"worker": u.worker},
+				"claimed task "+short(t.ID))
+		}
 	case 'u':
 		if ok {
 			if t.Status != "leased" {
@@ -630,6 +642,25 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	return ev
 }
 
+func defaultWorker() string {
+	if w := os.Getenv("TASKD_WORKER"); w != "" {
+		return w
+	}
+	host, err := os.Hostname()
+	if err != nil || host == "" {
+		host = "localhost"
+	}
+	for _, k := range []string{"USER", "LOGNAME"} {
+		if v := os.Getenv(k); v != "" {
+			return host + ":" + v
+		}
+	}
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return host + ":" + u.Username
+	}
+	return host + ":unknown"
+}
+
 type config struct {
 	url     string
 	project string
@@ -655,6 +686,7 @@ Environment variables:
   TASKD_URL        taskd daemon address
   TASKD_PROJECT    default project filter
   TASKD_TUI_ICONS  enable Nerd Font glyphs (1 or true)
+  TASKD_WORKER     worker identifier for claiming tasks
   T                shorthand taskd daemon address
 
 Keyboard shortcuts:
@@ -669,6 +701,7 @@ Keyboard shortcuts:
   + / =          Raise task priority (lower number)
   -              Lower task priority (higher number)
   n              Create new task
+  c              Claim selected pending task
   u              Release selected leased task back to pending
   D              Delete selected task
   y              Copy task ID to clipboard
@@ -703,7 +736,13 @@ func parseFlags(args []string) (config, error) {
 }
 
 func newUI(url, project string, icons bool) *ui {
-	u := &ui{url: strings.TrimRight(url, "/"), project: project, icons: icons, app: tview.NewApplication().EnableMouse(true)}
+	u := &ui{
+		url:     strings.TrimRight(url, "/"),
+		project: project,
+		icons:   icons,
+		worker:  defaultWorker(),
+		app:     tview.NewApplication().EnableMouse(true),
+	}
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody(); u.renderStatus() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
