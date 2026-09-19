@@ -2767,3 +2767,185 @@ func TestListPriorityFilter(t *testing.T) {
 		t.Fatalf("GET /tasks?priority=invalid expected 400, got %d", code)
 	}
 }
+
+func TestClaimByID(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "targeted",
+		"project":  "p1",
+		"priority": 10,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/non-existent/claim", map[string]string{
+		"worker": "w1",
+	})
+	if code != http.StatusNotFound {
+		t.Fatalf("claim non-existent task expected 404, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("claim without worker expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
+		"worker": "w1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim expected 200, got %d: %s", code, body)
+	}
+	var item taskItem
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal claim response: %v", err)
+	}
+	if item.ID != created.ID || item.Status != "leased" || item.Worker != "w1" || item.Body != "targeted" || item.Project != "p1" || item.Priority != 10 {
+		t.Fatalf("unexpected claim response: %+v", item)
+	}
+	if item.LeaseExpires <= time.Now().Unix() {
+		t.Fatalf("expected lease_expires in future, got %d", item.LeaseExpires)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
+		"worker": "w2",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("claim actively leased task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]string{
+		"worker": "w1",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("mark done expected 204, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
+		"worker": "w3",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("claim done task expected 409, got %d: %s", code, body)
+	}
+}
+
+func TestClaimByIDExpiredLease(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 1))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "expire-me",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
+		"worker": "w1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("initial claim expected 200, got %d: %s", code, body)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", created.ID); err != nil {
+		t.Fatalf("update lease_expires failed: %v", err)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
+		"worker": "w2",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("reclaim expired lease expected 200, got %d: %s", code, body)
+	}
+	var item taskItem
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal reclaimed task: %v", err)
+	}
+	if item.Worker != "w2" || item.Status != "leased" {
+		t.Fatalf("expected leased by w2, got worker=%q status=%q", item.Worker, item.Status)
+	}
+}
+
+func TestClaimByIDConcurrency(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "concurrent-target",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created: %v", err)
+	}
+
+	const workers = 10
+	var wg sync.WaitGroup
+	results := make([]int, workers)
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			statusCode, _ := post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
+				"worker": fmt.Sprintf("worker-%d", idx),
+			})
+			results[idx] = statusCode
+		}(i)
+	}
+	wg.Wait()
+
+	var okCount, conflictCount int
+	for _, sc := range results {
+		if sc == http.StatusOK {
+			okCount++
+		} else if sc == http.StatusConflict {
+			conflictCount++
+		} else {
+			t.Fatalf("unexpected status code: %d", sc)
+		}
+	}
+	if okCount != 1 {
+		t.Fatalf("expected exactly 1 claim success, got %d", okCount)
+	}
+	if conflictCount != workers-1 {
+		t.Fatalf("expected %d conflicts, got %d", workers-1, conflictCount)
+	}
+}

@@ -352,6 +352,58 @@ WHERE id = (
 			Project:   project,
 		})
 	})
+	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if req.Worker == "" {
+			http.Error(w, "missing worker", http.StatusBadRequest)
+			return
+		}
+		id := r.PathValue("id")
+		query := `UPDATE tasks
+SET status='leased', worker=?, lease_expires=unixepoch()+?
+WHERE id = ? AND (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project`
+		var (
+			item         taskItem
+			worker       sql.NullString
+			leaseExpires sql.NullInt64
+			prim         []byte
+		)
+		err := db.QueryRow(query, req.Worker, lease, id).
+			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project)
+		if errors.Is(err, sql.ErrNoRows) {
+			var status string
+			err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			if status == "done" {
+				http.Error(w, "task is done", http.StatusConflict)
+				return
+			}
+			http.Error(w, "task is leased", http.StatusConflict)
+			return
+		}
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		item.Worker = worker.String
+		item.LeaseExpires = leaseExpires.Int64
+		item.Primitives = prim
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(item)
+	})
 
 	mux.HandleFunc("POST /tasks/{id}/done", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
