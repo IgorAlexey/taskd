@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -476,8 +477,11 @@ WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
 		}
 		defer tx.Rollback()
 
-		var leased int
-		err = tx.QueryRow("SELECT CASE WHEN status = 'leased' AND lease_expires >= unixepoch() THEN 1 ELSE 0 END FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&leased)
+		var (
+			status       string
+			leaseExpires sql.NullInt64
+		)
+		err = tx.QueryRow("SELECT status, lease_expires FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&status, &leaseExpires)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
@@ -486,8 +490,14 @@ WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
 			internalError(w, err)
 			return
 		}
-		if leased == 1 {
+		if status == "leased" && leaseExpires.Int64 >= time.Now().Unix() {
 			http.Error(w, "task is leased", http.StatusConflict)
+			return
+		}
+		f := r.URL.Query().Get("force")
+		force := f == "1" || f == "true"
+		if status == "done" && !force {
+			http.Error(w, "task is done", http.StatusConflict)
 			return
 		}
 		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", r.PathValue("id")); err != nil {

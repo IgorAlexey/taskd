@@ -1033,6 +1033,11 @@ func TestDeleteLeasedTask(t *testing.T) {
 		t.Fatalf("DELETE on leased task expected 409, got %d: %s", code, body)
 	}
 
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID+"?force=1", nil)
+	if code != http.StatusConflict {
+		t.Fatalf("DELETE on leased task with force expected 409, got %d: %s", code, body)
+	}
+
 	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/done", map[string]any{
 		"worker": "w1",
 	})
@@ -1041,8 +1046,13 @@ func TestDeleteLeasedTask(t *testing.T) {
 	}
 
 	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusConflict {
+		t.Fatalf("DELETE on done task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID+"?force=1", nil)
 	if code != http.StatusNoContent {
-		t.Fatalf("DELETE on done task expected 204, got %d: %s", code, body)
+		t.Fatalf("DELETE on done task with force expected 204, got %d: %s", code, body)
 	}
 
 	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
@@ -1749,5 +1759,79 @@ PRAGMA user_version = 1;`
 	}
 	if claimIdxCount != 1 {
 		t.Fatalf("expected idx_tasks_claim count 1 after rollback, got %d", claimIdxCount)
+	}
+}
+
+func TestDeleteDoneTaskRequiresForce(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "finished",
+		"project": "del",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create failed: %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "del",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/done", map[string]any{
+		"worker": "w1",
+		"primitives": map[string]string{
+			"result": "expensive output",
+		},
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("done failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusConflict {
+		t.Fatalf("plain DELETE on done task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET on done task expected 200, got %d: %s", code, body)
+	}
+	var check struct {
+		Primitives struct {
+			Result string `json:"result"`
+		} `json:"primitives"`
+	}
+	if err := json.Unmarshal(body, &check); err != nil {
+		t.Fatalf("unmarshal GET task failed: %v", err)
+	}
+	if check.Primitives.Result != "expensive output" {
+		t.Fatalf("primitives result mismatch, got: %s", check.Primitives.Result)
+	}
+
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID+"?force=1", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("DELETE with force=1 expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("GET after forced delete expected 404, got %d: %s", code, body)
 	}
 }
