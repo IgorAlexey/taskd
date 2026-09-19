@@ -191,6 +191,16 @@ func TestWebUIURLState(t *testing.T) {
 			Done    int
 			Total   int
 		}
+		CardFilterStatus struct {
+			Status string
+			URL    string `json:"url"`
+			List   string
+		}
+		CardFilterTotal struct {
+			Status string
+			URL    string `json:"url"`
+			List   string
+		}
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -259,6 +269,15 @@ func TestWebUIURLState(t *testing.T) {
 	}
 	if got.ProjectFilterStats.Pending != 4 || got.ProjectFilterStats.Total != 7 {
 		t.Errorf("project filter stats cards = %+v, want pending: 4, total: 7", got.ProjectFilterStats)
+	}
+	if got.CardFilterStatus.Status != "pending" || got.CardFilterStatus.URL != "/ui?project=p1&status=pending" {
+		t.Errorf("status card filter = %+v, want pending and /ui?project=p1&status=pending", got.CardFilterStatus)
+	}
+	if got.CardFilterStatus.List != "/tasks?limit=200&project=p1&status=pending" {
+		t.Errorf("status card filter fetch = %q, want project=p1&status=pending query", got.CardFilterStatus.List)
+	}
+	if got.CardFilterTotal.Status != "" || got.CardFilterTotal.URL != "/ui?project=p1" {
+		t.Errorf("total card filter = %+v, want empty status and /ui?project=p1", got.CardFilterTotal)
 	}
 }
 func TestWebUITaskDetailsGuard(t *testing.T) {

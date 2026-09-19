@@ -107,7 +107,7 @@ function boot(search, world) {
   const api = new Function(
     'document', 'location', 'history', 'window', 'fetch', 'console',
     'setInterval', 'clearInterval',
-    script + '\nreturn {loadTasks, loadProjects, selectTask, onFilterChange,' +
+    script + '\nreturn {loadTasks, loadProjects, selectTask, onFilterChange, filterByStatus,' +
     ' currentURLState, get selected() { return selectedTaskId; }};'
   )(document, location, history, window, fetchStub, console, () => 0, () => {});
   return {
@@ -208,6 +208,21 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
     leased: w.els['stat-leased'].textContent,
     done: w.els['stat-done'].textContent,
     total: w.els['stat-total'].textContent,
+  };
+  w.api.filterByStatus('pending');
+  await settle();
+  out.cardFilterStatus = {
+    status: w.els['filter-status'].value,
+    url: w.url(),
+    list: w.listFetches[w.listFetches.length - 1],
+  };
+
+  w.api.filterByStatus('');
+  await settle();
+  out.cardFilterTotal = {
+    status: w.els['filter-status'].value,
+    url: w.url(),
+    list: w.listFetches[w.listFetches.length - 1],
   };
   process.stdout.write(JSON.stringify(out, null, 1));
 })();

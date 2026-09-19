@@ -116,6 +116,15 @@
     border: 1px solid var(--border);
     border-radius: 6px;
     padding: 12px;
+    cursor: pointer;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    transition: border-color 0.15s ease, background 0.15s ease;
+  }
+  .card:hover {
+    border-color: var(--accent);
+    background: #1c2128;
   }
   .stat-val {
     font-size: 22px;
@@ -335,22 +344,22 @@
 
   <main>
   <div class="grid-stats">
-    <div class="card">
+    <button type="button" class="card" data-status-filter="pending">
       <div class="stat-label">Pending</div>
       <div class="stat-val" id="stat-pending">0</div>
-    </div>
-    <div class="card">
+    </button>
+    <button type="button" class="card" data-status-filter="leased">
       <div class="stat-label">Leased</div>
       <div class="stat-val" id="stat-leased">0</div>
-    </div>
-    <div class="card">
+    </button>
+    <button type="button" class="card" data-status-filter="done">
       <div class="stat-label">Done</div>
       <div class="stat-val" id="stat-done">0</div>
-    </div>
-    <div class="card">
+    </button>
+    <button type="button" class="card" data-status-filter="">
       <div class="stat-label">Total</div>
       <div class="stat-val" id="stat-total">0</div>
-    </div>
+    </button>
   </div>
 
   <div class="layout">
@@ -513,6 +522,12 @@
       syncURL(false);
       loadTasks();
       loadStats();
+    }
+    function filterByStatus(status) {
+      const select = document.getElementById('filter-status');
+      if (!select) return;
+      setFilter(select, status);
+      onFilterChange();
     }
 
     function showError(msg) {
@@ -761,6 +776,15 @@
       tbody.addEventListener('click', (e) => {
         const tr = e.target.closest('tr[data-task-id]');
         if (tr) selectTask(tr.dataset.taskId);
+      });
+    }
+    function setupCardFilters() {
+      if (!document.querySelector) return;
+      const stats = document.querySelector('.grid-stats');
+      if (!stats) return;
+      stats.addEventListener('click', (e) => {
+        const card = e.target.closest ? e.target.closest('.card[data-status-filter]') : null;
+        if (card) filterByStatus(card.dataset.statusFilter);
       });
     }
     async function loadTaskDetails(id) {
@@ -1154,6 +1178,7 @@
 
     async function boot() {
       setupRowActivation();
+      setupCardFilters();
       applyURLState();
       syncURL(false);
       try {
