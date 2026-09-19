@@ -941,6 +941,7 @@ func (u *ui) showHelp() {
 		"[+/-] priority\n" +
 		"[c] claim task\n" +
 		"[u] release task\n" +
+		"[t] touch lease\n" +
 		"[z] zoom task body\n" +
 		"[y] copy ID\n" +
 		"[Y] copy body\n" +
@@ -1112,6 +1113,14 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 				break
 			}
 			u.act("POST", "/tasks/"+t.ID+"/release", map[string]string{"worker": t.Worker}, "released task "+short(t.ID))
+		}
+	case 't':
+		if ok {
+			if t.Status != "leased" {
+				u.setMsg("task is not leased")
+				break
+			}
+			u.act("POST", "/tasks/"+t.ID+"/touch", map[string]string{"worker": u.worker}, "touched task "+short(t.ID))
 		}
 	case 'D':
 		if ok {

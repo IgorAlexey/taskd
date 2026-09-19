@@ -28,6 +28,8 @@ var (
 	releaseCalls []string
 	claimMu      sync.Mutex
 	claimCalls   []string
+	touchMu      sync.Mutex
+	touchCalls   []string
 )
 
 type closeCall struct {
@@ -52,6 +54,9 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	claimMu.Lock()
 	claimCalls = nil
 	claimMu.Unlock()
+	touchMu.Lock()
+	touchCalls = nil
+	touchMu.Unlock()
 	closeMu.Lock()
 	closeCalls = nil
 	closeMu.Unlock()
@@ -176,6 +181,30 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 				return
 			}
 			tasks[i].Status, tasks[i].Worker, tasks[i].LeaseExpires = "pending", "", 0
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /tasks/{id}/touch", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		defer mu.Unlock()
+		touchMu.Lock()
+		touchCalls = append(touchCalls, r.PathValue("id")+" "+req.Worker)
+		touchMu.Unlock()
+		for i := range tasks {
+			if tasks[i].ID != r.PathValue("id") {
+				continue
+			}
+			if tasks[i].Status != "leased" || tasks[i].Worker != req.Worker || tasks[i].LeaseExpires < time.Now().Unix() {
+				http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+				return
+			}
+			tasks[i].LeaseExpires = time.Now().Unix() + 300
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
