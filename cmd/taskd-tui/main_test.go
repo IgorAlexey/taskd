@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"flag"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -104,7 +107,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	u := newUI(srv.URL)
+	u := newUI(srv.URL, "")
 	return u, &tasks, &mu
 }
 
@@ -398,7 +401,7 @@ func TestPriorityClamp(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL)
+	u := newUI(srv.URL, "")
 	ts, err := u.fetch()
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
@@ -806,4 +809,111 @@ func TestEditForm(t *testing.T) {
 	if form != nil {
 		t.Fatal("expected form to be closed after submit")
 	}
+}
+
+func TestTUIFlagsAndEnv(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		t.Setenv("TASKD_URL", "")
+		t.Setenv("T", "")
+		t.Setenv("TASKD_PROJECT", "")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.url != "http://localhost:8080" {
+			t.Fatalf("expected default url http://localhost:8080, got %q", cfg.url)
+		}
+		if cfg.project != "" {
+			t.Fatalf("expected default project empty, got %q", cfg.project)
+		}
+	})
+
+	t.Run("env fallback", func(t *testing.T) {
+		t.Setenv("TASKD_URL", "")
+		t.Setenv("T", "http://daemon-t:8080")
+		t.Setenv("TASKD_PROJECT", "myproj")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.url != "http://daemon-t:8080" {
+			t.Fatalf("expected url from T http://daemon-t:8080, got %q", cfg.url)
+		}
+		if cfg.project != "myproj" {
+			t.Fatalf("expected project myproj, got %q", cfg.project)
+		}
+
+		t.Setenv("TASKD_URL", "http://daemon-taskd:8080")
+		cfg, err = parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.url != "http://daemon-taskd:8080" {
+			t.Fatalf("expected url from TASKD_URL http://daemon-taskd:8080, got %q", cfg.url)
+		}
+	})
+
+	t.Run("flag overrides", func(t *testing.T) {
+		t.Setenv("TASKD_URL", "http://daemon-taskd:8080")
+		t.Setenv("TASKD_PROJECT", "baseproj")
+		cfg, err := parseFlags([]string{"-url", "http://custom:9090", "-project", "overrideproj"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.url != "http://custom:9090" {
+			t.Fatalf("expected flag url http://custom:9090, got %q", cfg.url)
+		}
+		if cfg.project != "overrideproj" {
+			t.Fatalf("expected flag project overrideproj, got %q", cfg.project)
+		}
+	})
+
+	t.Run("help output", func(t *testing.T) {
+		var buf bytes.Buffer
+		printUsage(&buf)
+		out := buf.String()
+		for _, want := range []string{
+			"Usage: taskd-tui",
+			"Keyboard shortcuts:",
+			"-url",
+			"-project",
+			"TASKD_URL",
+			"TASKD_PROJECT",
+			"T",
+		} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("help output missing %q:\n%s", want, out)
+			}
+		}
+
+		_, err := parseFlags([]string{"-h"})
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp for -h, got %v", err)
+		}
+	})
+
+	t.Run("ui project filter initialization", func(t *testing.T) {
+		u := newUI("http://localhost:8080", "proj-a")
+		if u.url != "http://localhost:8080" {
+			t.Fatalf("expected url http://localhost:8080, got %q", u.url)
+		}
+		if u.project != "proj-a" {
+			t.Fatalf("expected project proj-a, got %q", u.project)
+		}
+
+		tasks := []task{
+			{ID: "t1", Body: "Task 1", Project: "proj-a", Status: "pending"},
+			{ID: "t2", Body: "Task 2", Project: "proj-b", Status: "pending"},
+			{ID: "t3", Body: "Task 3", Project: "proj-a", Status: "done"},
+		}
+		u.render(tasks)
+		if len(u.shown) != 2 {
+			t.Fatalf("expected 2 tasks shown for proj-a, got %d", len(u.shown))
+		}
+		for _, tk := range u.shown {
+			if tk.Project != "proj-a" {
+				t.Fatalf("expected only proj-a tasks, got %q", tk.Project)
+			}
+		}
+	})
 }

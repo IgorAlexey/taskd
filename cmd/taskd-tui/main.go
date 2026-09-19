@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"maps"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -330,8 +332,71 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	return ev
 }
 
-func newUI(url string) *ui {
-	u := &ui{url: strings.TrimRight(url, "/"), app: tview.NewApplication().EnableMouse(true)}
+type config struct {
+	url     string
+	project string
+}
+
+func printUsage(w io.Writer) {
+	fmt.Fprintf(w, `Usage: taskd-tui [options]
+
+Terminal user interface for the taskd task queue.
+
+Options:
+  -url string
+    	taskd daemon URL (default: $TASKD_URL, $T, or "http://localhost:8080")
+  -project string
+    	filter tasks by project (default: $TASKD_PROJECT)
+  -h, -help
+    	show this help message
+
+Environment variables:
+  TASKD_URL      taskd daemon address
+  TASKD_PROJECT  default project filter
+  T              shorthand taskd daemon address
+
+Keyboard shortcuts:
+  j, Down        Move selection down
+  k, Up          Move selection up
+  Tab, Backtab   Switch focus between task table and task body
+  0              Show all tasks
+  1              Filter pending tasks
+  2              Filter leased tasks
+  3              Filter done tasks
+  p              Cycle project filter
+  + / =          Increase task priority
+  -              Decrease task priority
+  n              Create new task
+  D              Delete selected task
+  q              Quit
+`)
+}
+
+func parseFlags(args []string) (config, error) {
+	defaultURL := os.Getenv("TASKD_URL")
+	if defaultURL == "" {
+		defaultURL = os.Getenv("T")
+	}
+	if defaultURL == "" {
+		defaultURL = "http://localhost:8080"
+	}
+	defaultProject := os.Getenv("TASKD_PROJECT")
+
+	var cfg config
+	fs := flag.NewFlagSet("taskd-tui", flag.ContinueOnError)
+	fs.Usage = func() {
+		printUsage(fs.Output())
+	}
+	fs.StringVar(&cfg.url, "url", defaultURL, "taskd daemon address")
+	fs.StringVar(&cfg.project, "project", defaultProject, "filter tasks by project")
+	if err := fs.Parse(args); err != nil {
+		return cfg, err
+	}
+	return cfg, nil
+}
+
+func newUI(url, project string) *ui {
+	u := &ui{url: strings.TrimRight(url, "/"), project: project, app: tview.NewApplication().EnableMouse(true)}
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
@@ -344,9 +409,14 @@ func newUI(url string) *ui {
 }
 
 func main() {
-	url := flag.String("url", "http://localhost:8080", "taskd address")
-	flag.Parse()
-	u := newUI(*url)
+	cfg, err := parseFlags(os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		os.Exit(2)
+	}
+	u := newUI(cfg.url, cfg.project)
 	go func() {
 		for ; ; time.Sleep(time.Second) {
 			u.refresh()
