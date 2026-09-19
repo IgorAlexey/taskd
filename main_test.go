@@ -5418,3 +5418,39 @@ func TestTrailingSlash(t *testing.T) {
 		t.Fatalf("CORS GET /tasks/ expected Access-Control-Allow-Origin http://example.com, got %q", origin)
 	}
 }
+func TestClaimReturnsWorkerAndPrimitives(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 30))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "claim-envelope-test",
+		"project": "claim-test",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task expected 201, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
+		"worker":  "w-test",
+		"project": "claim-test",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(body, &raw); err != nil {
+		t.Fatalf("unmarshal claim response failed: %v: %s", err, body)
+	}
+	if w, ok := raw["worker"].(string); !ok || w != "w-test" {
+		t.Fatalf("expected worker w-test, got %v", raw["worker"])
+	}
+	if _, ok := raw["primitives"]; !ok {
+		t.Fatalf("expected primitives key in claim response, got %s", body)
+	}
+}

@@ -591,13 +591,15 @@ WHERE id = (
 		query += `
   ORDER BY priority ASC, rowid ASC
   LIMIT 1
-) RETURNING id, asset_path, body, priority, project, claim_count, status, lease_expires`
+) RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count`
 		var (
-			id, assetPath, body, project, status string
-			priority, claimCount                 int
-			leaseExpires                         int64
+			item         taskItem
+			leasedWorker sql.NullString
+			leaseExpires sql.NullInt64
+			prim         []byte
 		)
-		err := db.QueryRow(query, args...).Scan(&id, &assetPath, &body, &priority, &project, &claimCount, &status, &leaseExpires)
+		err := db.QueryRow(query, args...).
+			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -606,26 +608,11 @@ WHERE id = (
 			internalError(w, err)
 			return
 		}
+		item.Worker = leasedWorker.String
+		item.LeaseExpires = leaseExpires.Int64
+		item.Primitives = prim
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(struct {
-			ID           string `json:"id"`
-			AssetPath    string `json:"asset_path"`
-			Body         string `json:"body"`
-			Priority     int    `json:"priority"`
-			Project      string `json:"project"`
-			ClaimCount   int    `json:"claim_count"`
-			Status       string `json:"status"`
-			LeaseExpires int64  `json:"lease_expires"`
-		}{
-			ID:           id,
-			AssetPath:    assetPath,
-			Body:         body,
-			Priority:     priority,
-			Project:      project,
-			ClaimCount:   claimCount,
-			Status:       status,
-			LeaseExpires: leaseExpires,
-		})
+		json.NewEncoder(w).Encode(item)
 	})
 	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
 		worker, ok := decodeWorker(w, r)
