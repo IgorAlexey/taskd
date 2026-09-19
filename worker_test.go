@@ -1,6 +1,8 @@
 package main
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -337,5 +339,79 @@ func TestWorkerPreserveUnpushedCommits(t *testing.T) {
 	}
 	if !strings.Contains(string(out), "failed to inspect rev-list") {
 		t.Fatalf("expected rev-list failure message, got: %s", string(out))
+	}
+}
+
+func TestWorkerExportTaskdWorker(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	ompScript := filepath.Join(binDir, "omp")
+	scriptContent := "#!/bin/sh\necho \"CHILD_TASKD_WORKER=$TASKD_WORKER\"\nexit 130\n"
+	if err := os.WriteFile(ompScript, []byte(scriptContent), 0o755); err != nil {
+		t.Fatalf("write omp script: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "main", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "test").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "test@test.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v: %s", err, out)
+	}
+	dummyFile := filepath.Join(repoDir, "file.txt")
+	if err := os.WriteFile(dummyFile, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write dummy file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "add", "file.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "commit", "-m", "test: initial commit", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "add", "origin", repoDir).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v: %s", err, out)
+	}
+
+	wtBase := t.TempDir()
+	wtPath := filepath.Join(wtBase, "wt-test-export-5")
+	runDir := t.TempDir()
+
+	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "5", wtPath, "customproj", "main", "0", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, _ := cmd.CombinedOutput()
+	outStr := string(out)
+
+	if !strings.Contains(outStr, "CHILD_TASKD_WORKER=customproj-5") {
+		t.Fatalf("expected child process to have TASKD_WORKER=customproj-5, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "Worker customproj-5 running in") {
+		t.Fatalf("expected startup log to contain 'Worker customproj-5 running in', got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "slot 5") {
+		t.Fatalf("expected startup log to contain 'slot 5', got: %s", outStr)
 	}
 }

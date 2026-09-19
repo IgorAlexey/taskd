@@ -4,7 +4,7 @@ set -u
 USER="${USER:-$(id -un 2>/dev/null || echo "uid$$")}"
 rundir="${XDG_RUNTIME_DIR:-/tmp}"
 lockdir="$rundir/taskd-$USER"
-wtbase="/tmp/taskd-$USER"
+wtbase="${TASKD_WT_BASE:-${TMPDIR:-/tmp}/taskd-$USER}"
 taskd_url="${TASKD_URL:-${T:-http://localhost:8080}}"
 
 check_prerequisites() {
@@ -110,6 +110,7 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
     run_prompt="$7"
 
     export TASKD_PROJECT="$run_project"
+    export TASKD_WORKER="$run_project-$run_slot"
     export TASKD_WORKER_ACTIVE=1
     export TASKD_URL="$taskd_url"
 
@@ -138,10 +139,11 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
         }
     fi
 
-    echo "Worker running in $run_wt (slot $run_slot, project $run_project)..."
+    echo "Worker $TASKD_WORKER running in $run_wt (slot $run_slot, project $run_project)..."
     echo "Prompt: $run_prompt"
     cd "$run_wt"
 
+    mkdir -p -m 0700 "$lockdir"
     runlog="$lockdir/worker-$run_project-$run_slot.log"
     fifo="$lockdir/worker-$run_project-$run_slot.fifo"
     rm -f "$fifo"
