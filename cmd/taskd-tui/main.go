@@ -342,7 +342,21 @@ func (u *ui) render(all []task) {
 			row = i + 1
 		}
 	}
-	u.table.Select(row, 0)
+	off, coff := u.table.GetOffset()
+	curRow, _ := u.table.GetSelection()
+	if curRow != row {
+		u.table.Select(row, 0)
+	}
+	_, _, _, h := u.table.GetInnerRect()
+	if h > 0 {
+		if maxOff := max(0, len(u.shown)+1-h); off > maxOff {
+			off = maxOff
+		}
+	}
+	if off < 0 {
+		off = 0
+	}
+	u.table.SetOffset(off, coff)
 	u.showBody()
 	u.renderStatus()
 }
