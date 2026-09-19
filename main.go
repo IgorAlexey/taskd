@@ -354,6 +354,15 @@ WHERE id = (
 			}
 			limit = v
 		}
+		offset := 0
+		if q.Has("offset") {
+			v, err := strconv.Atoi(q.Get("offset"))
+			if err != nil || v < 0 {
+				http.Error(w, "invalid offset", http.StatusBadRequest)
+				return
+			}
+			offset = v
+		}
 		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks"
 		var where []string
 		var args []any
@@ -370,6 +379,10 @@ WHERE id = (
 		}
 		query += " ORDER BY priority DESC, rowid ASC LIMIT ?"
 		args = append(args, limit)
+		if offset > 0 {
+			query += " OFFSET ?"
+			args = append(args, offset)
+		}
 		rows, err := db.Query(query, args...)
 		if err != nil {
 			internalError(w, err)

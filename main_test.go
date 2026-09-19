@@ -1893,3 +1893,78 @@ func TestProjects(t *testing.T) {
 		t.Fatalf("expected [alpha beta], got %v", projects)
 	}
 }
+
+func TestListTasksOffset(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "first",
+		"priority": 2,
+		"project":  "page-test",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create first failed: %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "second",
+		"priority": 1,
+		"project":  "page-test",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create second failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=page-test&limit=1&offset=1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET with offset failed: %d: %s", code, body)
+	}
+	var items []taskItem
+	if err := json.Unmarshal(body, &items); err != nil {
+		t.Fatalf("unmarshal offset items failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if items[0].Body != "second" {
+		t.Fatalf("expected second, got %s", items[0].Body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=page-test&limit=1&offset=0", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET offset=0 failed: %d: %s", code, body)
+	}
+	var page0 []taskItem
+	if err := json.Unmarshal(body, &page0); err != nil {
+		t.Fatalf("unmarshal page0 items failed: %v", err)
+	}
+	if len(page0) != 1 || page0[0].Body != "first" {
+		t.Fatalf("expected page0 to return first, got %v", page0)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=page-test&limit=1&offset=2", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET offset=2 failed: %d: %s", code, body)
+	}
+	var page2 []taskItem
+	if err := json.Unmarshal(body, &page2); err != nil {
+		t.Fatalf("unmarshal page2 items failed: %v", err)
+	}
+	if len(page2) != 0 {
+		t.Fatalf("expected page2 to be empty, got %v", page2)
+	}
+
+	for _, invalid := range []string{"-1", "-10", "invalid", "abc"} {
+		code, _ = do(t, http.MethodGet, srv.URL+"/tasks?offset="+invalid, nil)
+		if code != http.StatusBadRequest {
+			t.Fatalf("GET /tasks?offset=%s expected 400, got %d", invalid, code)
+		}
+	}
+}
