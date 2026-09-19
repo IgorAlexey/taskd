@@ -1068,6 +1068,13 @@ func newUI(url, project string, icons bool) *ui {
 		worker:  defaultWorker(),
 		app:     tview.NewApplication().EnableMouse(true),
 	}
+	u.app.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyCtrlL {
+			u.app.Sync()
+			return nil
+		}
+		return ev
+	})
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody(); u.renderStatus() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
