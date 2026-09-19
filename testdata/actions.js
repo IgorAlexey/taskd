@@ -120,6 +120,23 @@ const api = new Function(
   results.pendingHasDelete = pendingHTML.includes('id="delete-task-btn"');
   results.pendingHasComplete = pendingHTML.includes('id="complete-task-btn"');
   results.pendingHasRelease = pendingHTML.includes('id="release-task-btn"');
+  let clipboardText = '';
+  Object.defineProperty(global.navigator, 'clipboard', {
+    value: { writeText: async (txt) => { clipboardText = txt; } },
+    configurable: true,
+    writable: true,
+  });
+  results.pendingHasCopy = pendingHTML.includes('id="copy-id-btn"');
+  if (els['copy-id-btn'].onclick) {
+    await els['copy-id-btn'].onclick();
+    results.copySuccess = (clipboardText === 't-pending' && els['copy-id-btn'].textContent === 'Copied!');
+  }
+  delete global.navigator.clipboard;
+  els['copy-id-btn'].textContent = 'Copy';
+  if (els['copy-id-btn'].onclick) {
+    await els['copy-id-btn'].onclick();
+    results.copyFailure = (els['copy-id-btn'].textContent === 'Copy' && els['error-banner'].textContent.includes('Failed to copy ID'));
+  }
 
   confirmAnswer = false;
   confirmAsked = 0;

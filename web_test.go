@@ -317,6 +317,7 @@ func TestWebUITaskActions(t *testing.T) {
 		id   string
 		text string
 	}{
+		{"copy-id-btn", "Copy"},
 		{"delete-task-btn", "Delete Task"},
 		{"release-task-btn", "Release Task"},
 		{"complete-task-btn", "Complete Task"},
@@ -348,6 +349,9 @@ func TestWebUITaskActions(t *testing.T) {
 		PendingHasDelete        bool
 		PendingHasComplete      bool
 		PendingHasRelease       bool
+		PendingHasCopy          bool
+		CopySuccess             bool
+		CopyFailure             bool
 		CancelDeleteAsked       bool
 		CancelDeleteCalls       int
 		ConfirmDeletePending    *struct{ URL, Method string }
@@ -381,6 +385,15 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.CancelDeleteAsked || got.CancelDeleteCalls != 0 {
 		t.Errorf("cancel delete failed: asked=%v calls=%d", got.CancelDeleteAsked, got.CancelDeleteCalls)
+	}
+	if !got.PendingHasCopy {
+		t.Error("expected copy-id-btn in task details HTML")
+	}
+	if !got.CopySuccess {
+		t.Error("expected copy-id-btn click to copy task ID and display Copied!")
+	}
+	if !got.CopyFailure {
+		t.Error("expected copy failure to display error banner and not show Copied!")
 	}
 	if got.ConfirmDeletePending == nil || got.ConfirmDeletePending.URL != "/tasks/t-pending" || got.ConfirmDeletePending.Method != "DELETE" {
 		t.Errorf("confirm delete pending call = %+v", got.ConfirmDeletePending)

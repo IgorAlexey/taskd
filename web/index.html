@@ -100,6 +100,11 @@
   button.danger:hover {
     background: rgba(248, 81, 73, 0.15);
   }
+  .copy-btn {
+    padding: 2px 8px;
+    font-size: 11px;
+    line-height: 1.4;
+  }
   .task-actions {
     display: flex;
     gap: 8px;
@@ -645,7 +650,12 @@
       }
     }
 
+    let copyTimer = null;
     function resetTaskDetails() {
+      if (copyTimer) {
+        clearTimeout(copyTimer);
+        copyTimer = null;
+      }
       shownTaskId = null;
       shownTaskRaw = '';
       currentTask = null;
@@ -932,7 +942,13 @@
       const prevScrollTop = sameTask ? pane.scrollTop : 0;
       if (isEditingTask && t.status !== 'done') {
         pane.innerHTML = `
-          <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
+          <div class="field">
+            <span class="field-label">ID</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="mono">${escapeHTML(t.id || '')}</span>
+              <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
+            </div>
+          </div>
           <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
           <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
           <div class="field">
@@ -977,10 +993,18 @@
           });
           bodyInput.focus();
         }
+        const copyBtn = document.getElementById('copy-id-btn');
+        if (copyBtn) copyBtn.onclick = () => copyTaskId(t.id);
         return;
       }
       pane.innerHTML = `
-        <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
+        <div class="field">
+          <span class="field-label">ID</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="mono">${escapeHTML(t.id || '')}</span>
+            <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
+          </div>
+        </div>
         <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
         <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
         <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
@@ -1008,6 +1032,8 @@
       if (relBtn) relBtn.onclick = () => releaseTask(t.id, t.worker);
       const delBtn = document.getElementById('delete-task-btn');
       if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status);
+      const copyBtn = document.getElementById('copy-id-btn');
+      if (copyBtn) copyBtn.onclick = () => copyTaskId(t.id);
     }
 
     async function finishTaskAction() {
@@ -1116,6 +1142,37 @@
         if (saveBtn) saveBtn.disabled = false;
         if (cancelBtn) cancelBtn.disabled = false;
         showError(err.message);
+      }
+    }
+    async function copyTaskId(id) {
+      if (!id) return;
+      try {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(id);
+        } else if (typeof document !== 'undefined' && document.body && document.execCommand) {
+          const ta = document.createElement('textarea');
+          ta.value = id;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (!ok) throw new Error('copy command failed');
+        } else {
+          throw new Error('clipboard API unavailable');
+        }
+        const btn = document.getElementById('copy-id-btn');
+        if (btn) {
+          btn.textContent = 'Copied!';
+          if (copyTimer) clearTimeout(copyTimer);
+          copyTimer = setTimeout(() => {
+            if (btn) btn.textContent = 'Copy';
+            copyTimer = null;
+          }, 1500);
+        }
+      } catch (err) {
+        showError('Failed to copy ID: ' + (err && err.message ? err.message : err));
       }
     }
 
