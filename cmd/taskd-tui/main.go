@@ -140,9 +140,17 @@ func (u *ui) call(method, path string, body any) error {
 	return nil
 }
 
-func (u *ui) selected() (task, bool) {
+func (u *ui) selectedRow() int {
 	r, _ := u.table.GetSelection()
-	if r < 1 || r > len(u.shown) {
+	if len(u.shown) == 0 {
+		return 0
+	}
+	return min(max(1, r), len(u.shown))
+}
+
+func (u *ui) selected() (task, bool) {
+	r := u.selectedRow()
+	if r == 0 {
 		return task{}, false
 	}
 	return u.shown[r-1], true
@@ -203,10 +211,12 @@ func lease(t task, now int64) string {
 
 func (u *ui) render(all []task) {
 	keep, _ := u.selected()
-	prevRow, _ := u.table.GetSelection()
 	u.all, u.shown = all, u.shown[:0]
 	u.pending, u.leased, u.done = 0, 0, 0
 	for _, t := range all {
+		if u.project != "" && t.Project != u.project {
+			continue
+		}
 		switch t.Status {
 		case "pending":
 			u.pending++
@@ -215,7 +225,7 @@ func (u *ui) render(all []task) {
 		case "done":
 			u.done++
 		}
-		if (u.filter == "" || t.Status == u.filter) && (u.project == "" || t.Project == u.project) {
+		if u.filter == "" || t.Status == u.filter {
 			u.shown = append(u.shown, t)
 		}
 	}
@@ -224,7 +234,7 @@ func (u *ui) render(all []task) {
 		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false))
 	}
 	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
-	now, row := time.Now().Unix(), min(max(1, prevRow), len(u.shown))
+	now, row := time.Now().Unix(), u.selectedRow()
 	for i, t := range u.shown {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
 		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
@@ -236,8 +246,6 @@ func (u *ui) render(all []task) {
 		}
 	}
 	u.table.Select(row, 0)
-	u.showBody()
-	u.renderStatus()
 }
 
 func truncWidth(s string, maxWidth int) string {
@@ -267,13 +275,16 @@ func truncWidth(s string, maxWidth int) string {
 	return s[:end] + suffix
 }
 
+const statusCols = 80
+
 func (u *ui) renderStatus() {
 	proj := truncWidth(cmp.Or(u.project, "all"), 20)
+	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
-		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), 80)
+		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), statusCols-uniseg.StringWidth(idx)) + idx
 	line2 := " [j/k] move [0-3] filter [p] project [n] new [e] edit [+/-] pri [D] del [q] quit"
 	if u.msg != "" {
-		line2 = truncWidth(" "+u.msg, 80)
+		line2 = truncWidth(" "+u.msg, statusCols)
 	}
 	u.status.SetText(line1 + "\n" + line2)
 }
@@ -650,7 +661,7 @@ func parseFlags(args []string) (config, error) {
 func newUI(url, project string, icons bool) *ui {
 	u := &ui{url: strings.TrimRight(url, "/"), project: project, icons: icons, app: tview.NewApplication().EnableMouse(true)}
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
-	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody() }).SetInputCapture(u.keys)
+	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody(); u.renderStatus() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
 	u.body.SetBorder(true).SetTitle(" task ").SetInputCapture(u.bodyKeys)
 	u.status = tview.NewTextView().SetWrap(false)
