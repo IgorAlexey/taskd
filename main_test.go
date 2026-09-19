@@ -3225,6 +3225,46 @@ func TestWebUI(t *testing.T) {
 	}
 }
 
+func TestWebUIServesAccessibleQueueMarkup(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui")
+	if err != nil {
+		t.Fatalf("GET /ui failed: %v", err)
+	}
+	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("io.ReadAll failed: %v", err)
+	}
+	body := string(raw)
+
+	for _, substr := range []string{
+		"aria-selected",
+		`class="row-select"`,
+		":focus-visible",
+		"focus-within",
+		`scope="col"`,
+		`scope="row"`,
+	} {
+		if !strings.Contains(body, substr) {
+			t.Fatalf("expected %q in UI response body", substr)
+		}
+	}
+	for _, substr := range []string{"tr.onclick", "tr { cursor: pointer; }"} {
+		if strings.Contains(body, substr) {
+			t.Fatalf("did not expect %q in UI response body", substr)
+		}
+	}
+}
+
 func TestStats(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {

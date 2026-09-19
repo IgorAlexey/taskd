@@ -144,13 +144,39 @@
     font-weight: 600;
     font-size: 12px;
   }
-  tr:hover td {
+  tbody tr:hover td {
     background: rgba(255,255,255,0.03);
   }
-  tr.selected td {
+  tbody tr[aria-selected="true"] td,
+  tbody tr[aria-selected="true"] th {
     background: rgba(88,166,255,0.1);
   }
-  tr { cursor: pointer; }
+  tbody tr:focus-within td,
+  tbody tr:focus-within th {
+    background: rgba(88,166,255,0.18);
+  }
+  tbody tr[data-task-id] { cursor: pointer; }
+  tbody th {
+    color: var(--text);
+    font-weight: 400;
+  }
+  .row-select {
+    background: none;
+    border: 0;
+    border-radius: 3px;
+    padding: 0;
+    font: inherit;
+    color: var(--accent);
+    text-align: left;
+  }
+  .row-select:hover {
+    background: none;
+    text-decoration: underline;
+  }
+  .row-select:focus-visible {
+    outline: 2px solid var(--accent-hover);
+    outline-offset: 2px;
+  }
   .badge {
     display: inline-block;
     padding: 2px 6px;
@@ -263,12 +289,12 @@
         <table>
           <thead>
             <tr>
-              <th>ID</th>
-              <th>Project</th>
-              <th>Status</th>
-              <th>Priority</th>
-              <th>Worker</th>
-              <th>Summary</th>
+              <th scope="col">ID</th>
+              <th scope="col">Project</th>
+              <th scope="col">Status</th>
+              <th scope="col">Priority</th>
+              <th scope="col">Worker</th>
+              <th scope="col">Summary</th>
             </tr>
           </thead>
           <tbody id="task-table-body">
@@ -434,16 +460,18 @@
         for (const t of tasks) {
           if (!t) continue;
           const tr = document.createElement('tr');
-          if (t.id === selectedTaskId) {
-            tr.className = 'selected';
-            foundSelected = true;
-          }
-          tr.onclick = () => selectTask(t.id);
           const tid = String(t.id || '');
+          tr.dataset.taskId = tid;
+          if (t.id === selectedTaskId) {
+            tr.setAttribute('aria-selected', 'true');
+            foundSelected = true;
+          } else {
+            tr.setAttribute('aria-selected', 'false');
+          }
           const shortId = tid.length > 10 ? tid.slice(0, 8) + '…' : tid;
           const summary = t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : (t.asset_path || '');
           tr.innerHTML = `
-            <td class="mono" title="${escapeHTML(tid)}">${escapeHTML(shortId)}</td>
+            <th scope="row" class="mono"><button type="button" class="row-select" title="${escapeHTML(tid)}">${escapeHTML(shortId)}</button></th>
             <td>${escapeHTML(t.project || '')}</td>
             <td><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></td>
             <td>${escapeHTML(String(t.priority ?? 0))}</td>
@@ -469,16 +497,20 @@
       selectedTaskId = id;
       const tbody = document.getElementById('task-table-body');
       if (tbody) {
-        for (const tr of tbody.querySelectorAll('tr')) {
-          const td = tr.querySelector('td.mono');
-          if (td && td.getAttribute('title') === id) {
-            tr.className = 'selected';
-          } else {
-            tr.className = '';
-          }
+        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
+          tr.setAttribute('aria-selected', tr.dataset.taskId === id ? 'true' : 'false');
         }
       }
       loadTaskDetails(id);
+    }
+
+    function setupRowActivation() {
+      const tbody = document.getElementById('task-table-body');
+      if (!tbody) return;
+      tbody.addEventListener('click', (e) => {
+        const tr = e.target.closest('tr[data-task-id]');
+        if (tr) selectTask(tr.dataset.taskId);
+      });
     }
 
     async function loadTaskDetails(id) {
@@ -611,6 +643,7 @@
       if (cb) cb.onchange = setupAutoRefresh;
     }
 
+    setupRowActivation();
     loadAll();
     setupAutoRefresh();
   </script>
