@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -34,6 +35,28 @@ type task struct {
 }
 
 var client = &http.Client{Timeout: 3 * time.Second}
+
+var (
+	copyToClipboard           = defaultCopyToClipboard
+	clipboardOut    io.Writer = os.Stderr
+)
+
+func defaultCopyToClipboard(text string) {
+	b64 := base64.StdEncoding.EncodeToString([]byte(text))
+	seq := fmt.Sprintf("\x1b]52;c;%s\x07", b64)
+	if os.Getenv("TMUX") != "" {
+		seq = fmt.Sprintf("\x1bPtmux;\x1b%s\x1b\\", seq)
+	}
+	fmt.Fprint(clipboardOut, seq)
+}
+
+func (u *ui) copySelectedID() {
+	if t, ok := u.selected(); ok {
+		copyToClipboard(t.ID)
+		u.msg = fmt.Sprintf("copied %s to clipboard", t.ID)
+		u.render(u.all)
+	}
+}
 
 type ui struct {
 	url                   string
@@ -433,6 +456,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		if ok {
 			u.showEditForm(t)
 		}
+	case 'y':
+		u.copySelectedID()
 	default:
 		return ev
 	}
@@ -447,6 +472,10 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	}
 	if ev.Rune() == 'q' {
 		u.app.Stop()
+		return nil
+	}
+	if ev.Rune() == 'y' {
+		u.copySelectedID()
 		return nil
 	}
 	return ev
@@ -492,6 +521,7 @@ Keyboard shortcuts:
   -              Decrease task priority
   n              Create new task
   D              Delete selected task
+  y              Copy task ID to clipboard
   q              Quit
 `)
 }

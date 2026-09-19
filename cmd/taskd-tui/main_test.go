@@ -1322,3 +1322,69 @@ func TestTUIStatusLayout(t *testing.T) {
 		}
 	}
 }
+
+func TestCopyTaskID(t *testing.T) {
+	u, _, _ := stub(t)
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 3 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	u.render(ts)
+
+	var copied string
+	origCopy := copyToClipboard
+	copyToClipboard = func(text string) {
+		copied = text
+	}
+	t.Cleanup(func() { copyToClipboard = origCopy })
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'y', 0))
+	if copied != "aaaaaaa1" {
+		t.Fatalf("copied ID = %q, want aaaaaaa1", copied)
+	}
+	if !strings.Contains(u.status.GetText(true), "copied aaaaaaa1") {
+		t.Fatalf("status line missing copied confirmation: %q", u.status.GetText(true))
+	}
+
+	u.table.Select(2, 0)
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'y', 0))
+	if copied != "bbbbbbb2" {
+		t.Fatalf("copied ID = %q, want bbbbbbb2", copied)
+	}
+	if !strings.Contains(u.status.GetText(true), "copied bbbbbbb2") {
+		t.Fatalf("status line missing copied confirmation: %q", u.status.GetText(true))
+	}
+
+	u.table.Select(3, 0)
+	u.bodyKeys(tcell.NewEventKey(tcell.KeyRune, 'y', 0))
+	if copied != "ccccccc3" {
+		t.Fatalf("copied ID = %q, want ccccccc3", copied)
+	}
+	if !strings.Contains(u.status.GetText(true), "copied ccccccc3") {
+		t.Fatalf("status line missing copied confirmation: %q", u.status.GetText(true))
+	}
+
+	u.shown = nil
+	copied = ""
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'y', 0))
+	if copied != "" {
+		t.Fatalf("copied on empty list = %q, want empty", copied)
+	}
+
+	var buf bytes.Buffer
+	origOut := clipboardOut
+	clipboardOut = &buf
+	t.Cleanup(func() { clipboardOut = origOut })
+	t.Setenv("TMUX", "")
+	defaultCopyToClipboard("test-id-12345")
+	if buf.String() != "\x1b]52;c;dGVzdC1pZC0xMjM0NQ==\x07" {
+		t.Fatalf("osc52 sequence = %q", buf.String())
+	}
+
+	t.Setenv("TMUX", "/tmp/tmux-1000/default,1234,0")
+	buf.Reset()
+	defaultCopyToClipboard("test-id-12345")
+	if buf.String() != "\x1bPtmux;\x1b\x1b]52;c;dGVzdC1pZC0xMjM0NQ==\x07\x1b\\" {
+		t.Fatalf("tmux osc52 sequence = %q", buf.String())
+	}
+}
