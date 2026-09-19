@@ -96,6 +96,18 @@ func TestWorkerScriptCLI(t *testing.T) {
 		t.Fatalf("expected help output to contain '/fulfill', got: %s", string(out))
 	}
 
+	for _, flag := range []string{"-h", "--help", "help"} {
+		cmd = exec.Command("/bin/sh", workerPath, flag)
+		cmd.Env = append(os.Environ(), "TASKD_WORKER_ACTIVE=1")
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("expected %s with TASKD_WORKER_ACTIVE=1 to exit 0, got error %v: %s", flag, err, string(out))
+		}
+		if !strings.Contains(string(out), "Usage: worker") {
+			t.Fatalf("expected help output with TASKD_WORKER_ACTIVE=1 to contain 'Usage: worker', got: %s", string(out))
+		}
+	}
+
 	cmd = exec.Command("/bin/sh", workerPath)
 	out, err = cmd.CombinedOutput()
 	if err == nil {
