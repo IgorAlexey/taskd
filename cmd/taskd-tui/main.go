@@ -64,6 +64,13 @@ func (u *ui) copySelectedID() {
 	}
 }
 
+func (u *ui) copySelectedBody() {
+	if t, ok := u.selected(); ok {
+		copyToClipboard(t.Body)
+		u.setMsg("copied body to clipboard")
+	}
+}
+
 type ui struct {
 	url                   string
 	app                   *tview.Application
@@ -672,6 +679,7 @@ func (u *ui) showHelp() {
 		"[u] release task\n" +
 		"[z] zoom task body\n" +
 		"[y] copy ID\n" +
+		"[Y] copy body\n" +
 		"[r] refresh\n" +
 		"[Tab] toggle pane focus\n" +
 		"[q] quit"))
@@ -879,6 +887,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 	case 'y':
 		u.copySelectedID()
+	case 'Y':
+		u.copySelectedBody()
 	default:
 		return ev
 	}
@@ -930,6 +940,10 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	}
 	if ev.Rune() == 'y' {
 		u.copySelectedID()
+		return nil
+	}
+	if ev.Rune() == 'Y' {
+		u.copySelectedBody()
 		return nil
 	}
 	if ev.Rune() == 'z' {
@@ -1014,6 +1028,7 @@ Keyboard shortcuts:
   x              Complete selected task
   z              Zoom task body to full screen
   y              Copy task ID to clipboard
+  Y              Copy task body to clipboard
   r, R           Refresh task queue
   q              Quit
 `)
