@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -159,5 +160,92 @@ func TestWorkerBranchDetection(t *testing.T) {
 	branch := strings.TrimSpace(string(out))
 	if branch != "master" {
 		t.Fatalf("expected detected branch to be 'master', got %q", branch)
+	}
+}
+func TestWorkerStatus(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	rundir := t.TempDir()
+	username := "teststatus"
+	lockdir := filepath.Join(rundir, "taskd-"+username)
+	if err := os.MkdirAll(lockdir, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", lockdir, err)
+	}
+
+	lock1Path := filepath.Join(lockdir, "projA-1.lock")
+	f1, err := os.OpenFile(lock1Path, os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("create lock1: %v", err)
+	}
+	defer f1.Close()
+
+	if err := syscall.Flock(int(f1.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("flock f1: %v", err)
+	}
+
+	lock2Path := filepath.Join(lockdir, "projA-2.lock")
+	if err := os.WriteFile(lock2Path, nil, 0o644); err != nil {
+		t.Fatalf("write lock2: %v", err)
+	}
+
+	lock3Path := filepath.Join(lockdir, "projB-1.lock")
+	if err := os.WriteFile(lock3Path, nil, 0o644); err != nil {
+		t.Fatalf("write lock3: %v", err)
+	}
+
+	log1Path := filepath.Join(lockdir, "worker-projA-1.log")
+	if err := os.WriteFile(log1Path, []byte("compiling assets\n"), 0o644); err != nil {
+		t.Fatalf("write log1: %v", err)
+	}
+
+	log2Path := filepath.Join(lockdir, "worker-projA-2.log")
+	if err := os.WriteFile(log2Path, []byte("idle backoff\n"), 0o644); err != nil {
+		t.Fatalf("write log2: %v", err)
+	}
+
+	cmd := exec.Command("/bin/sh", workerPath, "status")
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"USER=" + username,
+		"XDG_RUNTIME_DIR=" + rundir,
+		"TASKD_WORKER_ACTIVE=1",
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("worker status failed: %v: %s", err, string(out))
+	}
+	sOut := string(out)
+	if !strings.Contains(sOut, "SLOT") || !strings.Contains(sOut, "PROJECT") || !strings.Contains(sOut, "STATUS") || !strings.Contains(sOut, "ACTIVITY") {
+		t.Fatalf("expected status table headers, got: %s", sOut)
+	}
+	if !strings.Contains(sOut, "projA") || !strings.Contains(sOut, "projB") {
+		t.Fatalf("expected projects projA and projB, got: %s", sOut)
+	}
+	if !strings.Contains(sOut, "active") || !strings.Contains(sOut, "idle") {
+		t.Fatalf("expected active and idle statuses, got: %s", sOut)
+	}
+	if !strings.Contains(sOut, "compiling assets") {
+		t.Fatalf("expected recent activity summary, got: %s", sOut)
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "status", "-p", "projA")
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"USER=" + username,
+		"XDG_RUNTIME_DIR=" + rundir,
+	}
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("worker status -p projA failed: %v: %s", err, string(out))
+	}
+	sOut = string(out)
+	if !strings.Contains(sOut, "projA") {
+		t.Fatalf("expected filtered output to contain projA, got: %s", sOut)
+	}
+	if strings.Contains(sOut, "projB") {
+		t.Fatalf("expected filtered output to exclude projB, got: %s", sOut)
 	}
 }

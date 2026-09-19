@@ -173,12 +173,63 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
     exit 0
 fi
 
+show_worker_status() {
+    filter_project="${1:-}"
+
+    printf "%-6s  %-16s  %-8s  %s\n" "SLOT" "PROJECT" "STATUS" "ACTIVITY"
+
+    if [ ! -d "$lockdir" ]; then
+        return 0
+    fi
+
+    for lockfile in "$lockdir"/*.lock; do
+        [ -f "$lockfile" ] || continue
+        base="$(basename "$lockfile" .lock)"
+        slot="${base##*-}"
+        proj="${base%-*}"
+
+        case "$slot" in
+            ''|*[!0-9]*) continue ;;
+        esac
+
+        if [ -n "$filter_project" ] && [ "$proj" != "$filter_project" ]; then
+            continue
+        fi
+
+        if flock -n "$lockfile" true 2>/dev/null; then
+            st="idle"
+        else
+            st="active"
+        fi
+
+        runlog="$lockdir/worker-$proj-$slot.log"
+        summary="-"
+        if [ -f "$runlog" ]; then
+            line="$(awk 'NF {line=$0} END {gsub(/^[ \t]+|[ \t]+$/, "", line); gsub(/[\t\r\n]+/, " ", line); print line}' "$runlog" 2>/dev/null)"
+            if [ -n "$line" ]; then
+                summary="$line"
+            fi
+        fi
+        if [ "${#summary}" -gt 60 ]; then
+            summary="$(printf "%.57s..." "$summary")"
+        fi
+        printf "%s\t%s\t%s\t%s\n" "$slot" "$proj" "$st" "$summary"
+    done | sort -k2,2 -k1,1n | while IFS="$(printf '\t')" read -r s p st act; do
+        [ -n "$s" ] || continue
+        printf "%-6s  %-16s  %-8s  %s\n" "$s" "$p" "$st" "$act"
+    done
+}
+
 usage() {
     cat << 'USAGE_EOF'
 Usage: worker "<prompt_or_command>" [--verbose|-v] [--project <name>] [--slot <n>]
+       worker status [--project <name>]
 
 Launches an agent in an isolated, reusable worktree slot.
 Slots are locked via flock(1) and automatically acquired.
+
+Commands:
+  status           Inspect active and idle worker slots and recent activity
 
 Options:
   -v, --verbose    Stream internal agent thinking and reasoning tokens
@@ -189,6 +240,7 @@ Examples:
   worker "/fulfill"
   worker "/fulfill" --verbose
   worker "fix the build" --project taskd --slot 1
+  worker status
 USAGE_EOF
     exit "${1:-0}"
 }
@@ -197,12 +249,17 @@ prompt=""
 project=""
 slot=""
 verbose=0
+action=""
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
         --detect-branch)
             detect_default_branch
             exit 0
+            ;;
+        status)
+            action="status"
+            shift
             ;;
         -h|--help|help)
             usage 0
@@ -240,11 +297,20 @@ while [ "$#" -gt 0 ]; do
             exit 1
             ;;
         *)
-            prompt="${prompt:+$prompt }$1"
+            if [ "$action" = "status" ] && [ -z "$project" ]; then
+                project="$1"
+            else
+                prompt="${prompt:+$prompt }$1"
+            fi
             shift
             ;;
     esac
 done
+
+if [ "$action" = "status" ]; then
+    show_worker_status "$project"
+    exit 0
+fi
 
 if [ -z "$prompt" ]; then
     echo "Error: prompt or command is required." >&2
