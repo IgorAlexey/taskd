@@ -332,6 +332,14 @@ while [ "$#" -gt 0 ]; do
             project="$2"
             shift 2
             ;;
+        --project=*)
+            project="${1#--project=}"
+            if [ -z "$project" ]; then
+                echo "Error: option '$1' requires an argument" >&2
+                exit 1
+            fi
+            shift
+            ;;
         -s|--slot)
             if [ "$#" -lt 2 ]; then
                 echo "Error: option '$1' requires an argument" >&2
@@ -339,6 +347,14 @@ while [ "$#" -gt 0 ]; do
             fi
             slot="$2"
             shift 2
+            ;;
+        --slot=*)
+            slot="${1#--slot=}"
+            if [ -z "$slot" ]; then
+                echo "Error: option '$1' requires an argument" >&2
+                exit 1
+            fi
+            shift
             ;;
         --)
             shift

@@ -46,6 +46,40 @@ func TestWorkerScriptCLI(t *testing.T) {
 	if !strings.Contains(string(out), "requires an argument") {
 		t.Fatalf("expected error message to contain 'requires an argument', got: %s", string(out))
 	}
+	cmd = exec.Command("/bin/sh", workerPath, "--project=")
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected --project= without argument to fail")
+	}
+	if !strings.Contains(string(out), "requires an argument") {
+		t.Fatalf("expected error message to contain 'requires an argument', got: %s", string(out))
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "--slot=")
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected --slot= without argument to fail")
+	}
+	if !strings.Contains(string(out), "requires an argument") {
+		t.Fatalf("expected error message to contain 'requires an argument', got: %s", string(out))
+	}
+	cmd = exec.Command("/bin/sh", workerPath, "--project=test-proj", "-h")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected --project=test-proj -h to succeed, got error %v: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Usage: worker") {
+		t.Fatalf("expected help output to contain 'Usage: worker', got: %s", string(out))
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "--slot=1", "-h")
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected --slot=1 -h to succeed, got error %v: %s", err, string(out))
+	}
+	if !strings.Contains(string(out), "Usage: worker") {
+		t.Fatalf("expected help output to contain 'Usage: worker', got: %s", string(out))
+	}
 
 	cmd = exec.Command("/bin/sh", workerPath, "--help")
 	out, err = cmd.CombinedOutput()
@@ -242,6 +276,23 @@ func TestWorkerStatus(t *testing.T) {
 	out, err = cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("worker status -p projA failed: %v: %s", err, string(out))
+	}
+	sOut = string(out)
+	if !strings.Contains(sOut, "projA") {
+		t.Fatalf("expected filtered output to contain projA, got: %s", sOut)
+	}
+	if strings.Contains(sOut, "projB") {
+		t.Fatalf("expected filtered output to exclude projB, got: %s", sOut)
+	}
+	cmd = exec.Command("/bin/sh", workerPath, "status", "--project=projA")
+	cmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"USER=" + username,
+		"XDG_RUNTIME_DIR=" + rundir,
+	}
+	out, err = cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("worker status --project=projA failed: %v: %s", err, string(out))
 	}
 	sOut = string(out)
 	if !strings.Contains(sOut, "projA") {
@@ -604,6 +655,27 @@ func TestWorkerHonorTaskdProjectEnv(t *testing.T) {
 	}
 	if !strings.Contains(outStr, "project flagoverride") {
 		t.Fatalf("expected startup message to contain 'project flagoverride', got: %s", outStr)
+	}
+	cmd = exec.Command("/bin/sh", workerPath, "--slot=2", "--project=flagoverride", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+		"TASKD_PROJECT=envproj",
+	}
+	out, _ = cmd.CombinedOutput()
+	outStr = string(out)
+	if !strings.Contains(outStr, "CHILD_TASKD_PROJECT=flagoverride") {
+		t.Fatalf("expected --project=flagoverride to override TASKD_PROJECT, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "project flagoverride") {
+		t.Fatalf("expected startup message to contain 'project flagoverride', got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "slot 2") {
+		t.Fatalf("expected startup message to contain 'slot 2', got: %s", outStr)
 	}
 
 	// 3. When TASKD_PROJECT is unset, worker falls back to repo root basename.
