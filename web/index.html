@@ -400,9 +400,9 @@
               <input type="text" id="form-project" required aria-required="true" placeholder="e.g. default" aria-invalid="false" aria-describedby="form-project-error">
             </div>
             <div class="field">
-              <label for="form-priority">Priority</label>
+              <label for="form-priority">Priority (1 is top, blank for default)</label>
               <span class="field-error" id="form-priority-error"></span>
-              <input type="number" id="form-priority" value="0" aria-invalid="false" aria-describedby="form-priority-error">
+              <input type="number" id="form-priority" value="" aria-invalid="false" aria-describedby="form-priority-error">
             </div>
             <div class="field">
               <label for="form-body">Body</label>
@@ -519,7 +519,7 @@
         project: t.project || '',
         status: t.status || '',
         badgeClass: 'badge badge-' + (t.status || 'unknown'),
-        priority: String(t.priority ?? 0),
+        priority: String(t.priority ?? ''),
         worker: t.worker || '',
         summary: t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : (t.asset_path || '')
       };
@@ -706,7 +706,7 @@
           <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
           <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
           <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
-          <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? 0))}</span></div>
+          <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
           ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
           ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
           ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
@@ -782,7 +782,8 @@
 
       const proj = projEl ? projEl.value.trim() : '';
       const body = bodyEl ? bodyEl.value : '';
-      const prio = prioEl ? (parseInt(prioEl.value, 10) || 0) : 0;
+      const prioText = prioEl ? prioEl.value.trim() : '';
+      const prio = prioText === '' ? null : parseInt(prioText, 10);
       const asset = assetEl ? assetEl.value.trim() : '';
       const customId = idEl ? idEl.value.trim() : '';
 
@@ -797,8 +798,8 @@
           message: 'Either Body or Asset Path must be provided'
         });
       }
-      if (prio < 0) {
-        errors.push({ fieldId: 'form-priority', message: 'Priority must be 0 or greater' });
+      if (prio !== null && (!Number.isInteger(prio) || prio < 0)) {
+        errors.push({ fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' });
       }
 
       if (errors.length > 0) {
@@ -808,9 +809,9 @@
 
       const payload = {
         project: proj,
-        body: body,
-        priority: prio
+        body: body
       };
+      if (prio !== null) payload.priority = prio;
       if (asset) payload.asset_path = asset;
       if (customId) payload.id = customId;
 

@@ -87,21 +87,10 @@ func openDB(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, err
 	}
-	const fullSchema = `CREATE TABLE IF NOT EXISTS tasks (
-  id TEXT PRIMARY KEY,
-  asset_path TEXT NOT NULL DEFAULT '',
-  status TEXT DEFAULT 'pending',
-  worker TEXT,
-  lease_expires INTEGER,
-  primitives JSON,
-  body TEXT NOT NULL DEFAULT '',
-  priority INTEGER NOT NULL DEFAULT 0,
-  project TEXT NOT NULL DEFAULT '',
-  claim_count INTEGER NOT NULL DEFAULT 0
-);
+	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
 DROP INDEX IF EXISTS idx_tasks_claim;
-CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);
-CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);`
+CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority ASC);
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);`
 	if version == 0 {
 		var tableExists int
 		if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&tableExists); err != nil {
@@ -109,7 +98,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 			return nil, err
 		}
 		if tableExists == 0 {
-			if _, err := db.Exec(fullSchema + "\nPRAGMA user_version = 3;"); err != nil {
+			if _, err := db.Exec(fullSchema + "\nPRAGMA user_version = 4;"); err != nil {
 				db.Close()
 				return nil, err
 			}
@@ -138,6 +127,12 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 	}
 	if version < 3 {
 		if err := migrateV3(db); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if version < 4 {
+		if err := migrateV4(db); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -222,6 +217,84 @@ func migrateV3(db *sql.DB) error {
 	}
 	return tx.Commit()
 }
+
+// migrateV4 flips priority from "higher claims first" to "lower claims first"
+// (P1 is top) and rebuilds the table from taskColumns so every v4 database has
+// the same layout. Old rows are remapped with a clamp: 0 was "unspecified" and
+// lands on the new default, anything above the old top of 3 becomes 1, and
+// 1..3 mirror so relative order survives. Columns an earlier migration left
+// missing or nullable are filled with their schema defaults.
+func migrateV4(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query("SELECT name FROM pragma_table_info('tasks')")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	src := func(name, def string) string {
+		if !cols[name] {
+			return def
+		}
+		return "COALESCE(" + name + ", " + def + ")"
+	}
+	insert := "INSERT INTO tasks_new (rowid, id, asset_path, status, worker, lease_expires, primitives, body, priority, project, claim_count) SELECT rowid, id, " +
+		src("asset_path", "''") + ", " +
+		src("status", "'pending'") + ", " +
+		src("worker", "NULL") + ", " +
+		src("lease_expires", "NULL") + ", " +
+		src("primitives", "NULL") + ", " +
+		src("body", "''") + ", " +
+		"CASE WHEN " + src("priority", "0") + " <= 0 THEN 3 WHEN " + src("priority", "0") + " >= 4 THEN 1 ELSE 4 - " + src("priority", "0") + " END, " +
+		src("project", "''") + ", " +
+		src("claim_count", "0") + " FROM tasks;"
+
+	stmts := []string{
+		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		insert,
+		"DROP TABLE tasks;",
+		"ALTER TABLE tasks_new RENAME TO tasks;",
+		"CREATE INDEX idx_tasks_queue ON tasks (status, priority ASC);",
+		"CREATE INDEX idx_tasks_project ON tasks (project, status, priority ASC);",
+		"PRAGMA user_version = 4;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+const taskColumns = `
+  id TEXT PRIMARY KEY,
+  asset_path TEXT NOT NULL DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  worker TEXT,
+  lease_expires INTEGER,
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
+  project TEXT NOT NULL DEFAULT '',
+  claim_count INTEGER NOT NULL DEFAULT 0`
+
+const defaultPriority = 3
 
 const maxBodyBytes = 1 << 20
 
@@ -355,7 +428,7 @@ FROM tasks`
 			ID        string `json:"id"`
 			AssetPath string `json:"asset_path"`
 			Body      string `json:"body"`
-			Priority  int    `json:"priority"`
+			Priority  *int   `json:"priority"`
 			Project   string `json:"project"`
 		}
 		if !decodeJSON(w, r, &req) {
@@ -375,9 +448,13 @@ FROM tasks`
 			http.Error(w, "invalid project", http.StatusBadRequest)
 			return
 		}
-		if req.Priority < 0 {
-			http.Error(w, "invalid priority", http.StatusBadRequest)
-			return
+		priority := defaultPriority
+		if req.Priority != nil {
+			if *req.Priority < 0 {
+				http.Error(w, "invalid priority", http.StatusBadRequest)
+				return
+			}
+			priority = *req.Priority
 		}
 		if req.ID == "" {
 			var b [16]byte
@@ -390,7 +467,7 @@ FROM tasks`
 			http.Error(w, "invalid id", http.StatusBadRequest)
 			return
 		}
-		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, req.Priority, req.Project)
+		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, priority, req.Project)
 		if err != nil {
 			var se *sqlite.Error
 			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
@@ -432,7 +509,7 @@ WHERE id = (
 			args = append(args, req.Project)
 		}
 		query += `
-  ORDER BY priority DESC, rowid ASC
+  ORDER BY priority ASC, rowid ASC
   LIMIT 1
 ) RETURNING id, asset_path, body, priority, project, claim_count, status, lease_expires`
 		var (
@@ -683,7 +760,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		}
 		countArgs := slices.Clone(args)
 		query += whereSQL
-		query += " ORDER BY priority DESC, rowid ASC LIMIT ?"
+		query += " ORDER BY priority ASC, rowid ASC LIMIT ?"
 		args = append(args, limit)
 		if offset > 0 {
 			query += " OFFSET ?"

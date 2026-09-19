@@ -287,8 +287,8 @@ func TestCreateForm(t *testing.T) {
 	if got := form.GetFormItem(0).(*tview.InputField).GetText(); got != "taskd" {
 		t.Fatalf("default project = %q, want taskd", got)
 	}
-	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "0" {
-		t.Fatalf("default priority = %q, want 0", got)
+	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "" {
+		t.Fatalf("default priority = %q, want blank", got)
 	}
 	if got := form.GetFormItem(2).(*tview.InputField).GetText(); got != "" {
 		t.Fatalf("default asset path = %q, want empty", got)
@@ -447,11 +447,11 @@ func TestMouseSupport(t *testing.T) {
 	})
 }
 
-func TestPriorityClamp(t *testing.T) {
+func TestPriorityFloorIsOne(t *testing.T) {
 	var patches int
 	var mu sync.Mutex
 	tasks := []task{
-		{ID: "t1", Project: "p1", Status: "pending", Priority: 1, Body: "task 1"},
+		{ID: "t1", Project: "p1", Status: "pending", Priority: 2, Body: "task 1"},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -462,8 +462,8 @@ func TestPriorityClamp(t *testing.T) {
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var p struct{ Priority int }
 		json.NewDecoder(r.Body).Decode(&p)
-		if p.Priority < 0 {
-			t.Errorf("server received negative priority: %d", p.Priority)
+		if p.Priority < 1 {
+			t.Errorf("server received priority below the key floor: %d", p.Priority)
 		}
 		mu.Lock()
 		patches++
@@ -482,24 +482,39 @@ func TestPriorityClamp(t *testing.T) {
 	u.render(ts)
 	u.table.Select(1, 0)
 
-	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '+', 0))
 	eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return patches == 1 && tasks[0].Priority == 0
+		return patches == 1 && tasks[0].Priority == 1
 	})
 
 	ts, _ = u.fetch()
 	u.render(ts)
 	u.table.Select(1, 0)
 
-	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
 	u.keys(tcell.NewEventKey(tcell.KeyRune, '+', 0))
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
 
 	eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return patches == 2 && tasks[0].Priority == 1
+		return patches == 2 && tasks[0].Priority == 2
+	})
+
+	mu.Lock()
+	tasks[0].Priority = 0
+	mu.Unlock()
+	ts, _ = u.fetch()
+	u.render(ts)
+	u.table.Select(1, 0)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '+', 0))
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return patches == 3 && tasks[0].Priority == 1
 	})
 }
 
@@ -1136,23 +1151,23 @@ func TestNerdFontIcons(t *testing.T) {
 		if got := u.table.GetCell(1, 0).Text; got != "\uf017 pending" {
 			t.Fatalf("status cell = %q, want %q", got, "\uf017 pending")
 		}
-		if got := u.table.GetCell(1, 1).Text; got != "\uf107 0" {
-			t.Fatalf("priority cell = %q, want %q", got, "\uf107 0")
+		if got := u.table.GetCell(1, 1).Text; got != "\uf06d 0" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf06d 0")
 		}
 		if got := u.table.GetCell(2, 0).Text; got != "\uf021 leased" {
 			t.Fatalf("status cell = %q, want %q", got, "\uf021 leased")
 		}
-		if got := u.table.GetCell(2, 1).Text; got != "\uf106 1" {
-			t.Fatalf("priority cell = %q, want %q", got, "\uf106 1")
+		if got := u.table.GetCell(2, 1).Text; got != "\uf102 1" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf102 1")
 		}
 		if got := u.table.GetCell(3, 0).Text; got != "\uf00c done" {
 			t.Fatalf("status cell = %q, want %q", got, "\uf00c done")
 		}
-		if got := u.table.GetCell(3, 1).Text; got != "\uf102 2" {
-			t.Fatalf("priority cell = %q, want %q", got, "\uf102 2")
+		if got := u.table.GetCell(3, 1).Text; got != "\uf106 2" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf106 2")
 		}
-		if got := u.table.GetCell(4, 1).Text; got != "\uf06d 5" {
-			t.Fatalf("priority cell = %q, want %q", got, "\uf06d 5")
+		if got := u.table.GetCell(4, 1).Text; got != "\uf107 5" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf107 5")
 		}
 	})
 }
@@ -1325,8 +1340,8 @@ func TestTUIStatusLayout(t *testing.T) {
 		t.Fatalf("error feedback 409 not visible on 80x25 screen:\n%s", screenText())
 	}
 
-	// 3. Action success feedback: increment priority (+)
-	sim.InjectKey(tcell.KeyRune, '+', 0)
+	// 3. Action success feedback: lower priority (-) on a P1 task
+	sim.InjectKey(tcell.KeyRune, '-', 0)
 	eventually(t, func() bool {
 		var st string
 		query(func() { st = u.status.GetText(true) })

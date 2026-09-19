@@ -196,11 +196,11 @@ func priorityText(pri int, icons bool) string {
 	}
 	glyph := iconPriLow
 	switch {
-	case pri >= 3:
+	case pri <= 0:
 		glyph = iconPriFire
-	case pri == 2:
-		glyph = iconPriHigh
 	case pri == 1:
+		glyph = iconPriHigh
+	case pri == 2:
 		glyph = iconPriMed
 	}
 	return glyph + " " + strconv.Itoa(pri)
@@ -408,7 +408,7 @@ func (u *ui) showCreateForm() {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" new task ")
 	f.AddInputField("Project", cmp.Or(u.project, "taskd"), 20, nil, nil)
-	f.AddInputField("Priority", "0", 10, tview.InputFieldInteger, nil)
+	f.AddInputField("Priority (1 is top, blank for default)", "", 10, tview.InputFieldInteger, nil)
 	f.AddInputField("Asset Path", "", 0, nil, nil)
 	f.AddTextArea("Body", "", 0, 0, 0, nil)
 	proj := f.GetFormItem(0).(*tview.InputField)
@@ -426,10 +426,14 @@ func (u *ui) showCreateForm() {
 			f.SetTitle(" new task (invalid project) ")
 			return
 		}
-		p, err := strconv.Atoi(pri.GetText())
-		if err != nil || p < 0 {
-			f.SetTitle(" new task (invalid priority) ")
-			return
+		payload := map[string]any{"project": pname}
+		if ptext := strings.TrimSpace(pri.GetText()); ptext != "" {
+			p, err := strconv.Atoi(ptext)
+			if err != nil || p < 0 {
+				f.SetTitle(" new task (invalid priority) ")
+				return
+			}
+			payload["priority"] = p
 		}
 		btext := strings.TrimSpace(body.GetText())
 		apath := strings.TrimSpace(asset.GetText())
@@ -438,12 +442,9 @@ func (u *ui) showCreateForm() {
 			return
 		}
 		close()
-		u.act("POST", "/tasks", map[string]any{
-			"project":    pname,
-			"priority":   p,
-			"body":       btext,
-			"asset_path": apath,
-		}, "task created")
+		payload["body"] = btext
+		payload["asset_path"] = apath
+		u.act("POST", "/tasks", payload, "task created")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
@@ -554,8 +555,11 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.render(u.all)
 	case '+', '=', '-':
 		if ok {
-			d := map[rune]int{'+': 1, '=': 1, '-': -1}[ev.Rune()]
-			if pri := max(0, t.Priority+d); pri != t.Priority {
+			d := map[rune]int{'+': -1, '=': -1, '-': 1}[ev.Rune()]
+			if d < 0 && t.Priority == 0 {
+				break
+			}
+			if pri := max(1, t.Priority+d); pri != t.Priority {
 				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
 			}
 		}
@@ -638,8 +642,8 @@ Keyboard shortcuts:
   2              Filter leased tasks
   3              Filter done tasks
   p              Cycle project filter
-  + / =          Increase task priority
-  -              Decrease task priority
+  + / =          Raise task priority (lower number)
+  -              Lower task priority (higher number)
   n              Create new task
   u              Release selected leased task back to pending
   D              Delete selected task

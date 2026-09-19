@@ -544,8 +544,8 @@ func TestEnqueueBodyPriority(t *testing.T) {
 	if bodyVal2 != "only body" {
 		t.Fatalf("expected body %q, got %q", "only body", bodyVal2)
 	}
-	if priorityVal2 != 0 {
-		t.Fatalf("expected default priority 0, got %d", priorityVal2)
+	if priorityVal2 != 3 {
+		t.Fatalf("expected default priority 3, got %d", priorityVal2)
 	}
 }
 
@@ -561,7 +561,7 @@ func TestClaimPriorityOrder(t *testing.T) {
 
 	codeA, bodyA := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "task A",
-		"priority": 0,
+		"priority": 9,
 		"project":  "p",
 	})
 	if codeA != http.StatusCreated {
@@ -576,7 +576,7 @@ func TestClaimPriorityOrder(t *testing.T) {
 
 	codeB, bodyB := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "task B",
-		"priority": 9,
+		"priority": 0,
 		"project":  "p",
 	})
 	if codeB != http.StatusCreated {
@@ -591,7 +591,7 @@ func TestClaimPriorityOrder(t *testing.T) {
 
 	codeC, bodyC := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "task C",
-		"priority": 0,
+		"priority": 9,
 		"project":  "p",
 	})
 	if codeC != http.StatusCreated {
@@ -625,8 +625,8 @@ func TestClaimPriorityOrder(t *testing.T) {
 	if claim1.Body != "task B" {
 		t.Fatalf("expected body %q, got %q", "task B", claim1.Body)
 	}
-	if claim1.Priority != 9 {
-		t.Fatalf("expected priority 9, got %d", claim1.Priority)
+	if claim1.Priority != 0 {
+		t.Fatalf("expected priority 0, got %d", claim1.Priority)
 	}
 
 	code2, data2 := post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1"})
@@ -643,8 +643,8 @@ func TestClaimPriorityOrder(t *testing.T) {
 	if claim2.Body != "task A" {
 		t.Fatalf("expected body %q, got %q", "task A", claim2.Body)
 	}
-	if claim2.Priority != 0 {
-		t.Fatalf("expected priority 0, got %d", claim2.Priority)
+	if claim2.Priority != 9 {
+		t.Fatalf("expected priority 9, got %d", claim2.Priority)
 	}
 
 	code3, data3 := post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1"})
@@ -661,8 +661,8 @@ func TestClaimPriorityOrder(t *testing.T) {
 	if claim3.Body != "task C" {
 		t.Fatalf("expected body %q, got %q", "task C", claim3.Body)
 	}
-	if claim3.Priority != 0 {
-		t.Fatalf("expected priority 0, got %d", claim3.Priority)
+	if claim3.Priority != 9 {
+		t.Fatalf("expected priority 9, got %d", claim3.Priority)
 	}
 }
 
@@ -1448,8 +1448,8 @@ func TestGetTask(t *testing.T) {
 	if task.Project != "p1" {
 		t.Fatalf("expected project 'p1', got %q", task.Project)
 	}
-	if task.Priority != 0 {
-		t.Fatalf("expected priority 0, got %d", task.Priority)
+	if task.Priority != 3 {
+		t.Fatalf("expected priority 3, got %d", task.Priority)
 	}
 	if task.AssetPath != "" {
 		t.Fatalf("expected empty asset_path, got %q", task.AssetPath)
@@ -1645,7 +1645,7 @@ PRAGMA user_version = 1;`
 	if err := json.Unmarshal(body, &tasks); err != nil {
 		t.Fatalf("unmarshal tasks failed: %v", err)
 	}
-	if len(tasks) != 1 || tasks[0].ID != "legacy-1" || tasks[0].Priority != 0 || tasks[0].Body != "" {
+	if len(tasks) != 1 || tasks[0].ID != "legacy-1" || tasks[0].Priority != 3 || tasks[0].Body != "" {
 		t.Fatalf("unexpected tasks: %+v", tasks)
 	}
 
@@ -1653,8 +1653,8 @@ PRAGMA user_version = 1;`
 	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
-	if userVersion != 3 {
-		t.Fatalf("expected user_version 3, got %d", userVersion)
+	if userVersion != 4 {
+		t.Fatalf("expected user_version 4, got %d", userVersion)
 	}
 
 	var queueIdxCount int
@@ -1695,6 +1695,110 @@ PRAGMA user_version = 1;`
 	}
 	if len(tasks) != 1 || tasks[0].ID != "legacy-1" {
 		t.Fatalf("unexpected tasks on restart: %+v", tasks)
+	}
+}
+
+func TestMigrationV4RemapsPriority(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v3.db")
+	db0, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("setup open: %v", err)
+	}
+	setup := `CREATE TABLE tasks (id TEXT PRIMARY KEY, asset_path TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'pending', worker TEXT, lease_expires INTEGER, primitives JSON, body TEXT NOT NULL DEFAULT '', priority INTEGER NOT NULL DEFAULT 0, project TEXT NOT NULL DEFAULT '', claim_count INT);
+CREATE INDEX idx_tasks_queue ON tasks (status, priority DESC);
+CREATE INDEX idx_tasks_project ON tasks (project, status, priority DESC);
+INSERT INTO tasks (id, body, priority, project) VALUES ('low','low',1,'p'),('top','top',3,'p'),('mid','mid',2,'p'),('unset','unset',0,'p'),('hot','hot',9,'p');
+INSERT INTO tasks (id, body, priority, project, claim_count) VALUES ('nullcc','nullcc',3,'p',NULL);
+DELETE FROM tasks WHERE id = 'mid';
+INSERT INTO tasks (id, body, priority, project) VALUES ('mid','mid',2,'p');
+PRAGMA user_version = 3;`
+	if _, err := db0.Exec(setup); err != nil {
+		db0.Close()
+		t.Fatalf("setup exec: %v", err)
+	}
+	db0.Close()
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB v3 failed: %v", err)
+	}
+	defer db.Close()
+
+	var userVersion int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		t.Fatalf("query user_version: %v", err)
+	}
+	if userVersion != 4 {
+		t.Fatalf("expected user_version 4, got %d", userVersion)
+	}
+
+	rows, err := db.Query("SELECT name FROM pragma_table_info('tasks')")
+	if err != nil {
+		t.Fatalf("table_info: %v", err)
+	}
+	var cols []string
+	for rows.Next() {
+		var c string
+		if err := rows.Scan(&c); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		cols = append(cols, c)
+	}
+	rows.Close()
+	if got := strings.Join(cols, ","); got != "id,asset_path,status,worker,lease_expires,primitives,body,priority,project,claim_count" {
+		t.Fatalf("rebuilt column order = %s", got)
+	}
+	var midRowid int
+	if err := db.QueryRow("SELECT rowid FROM tasks WHERE id = 'mid'").Scan(&midRowid); err != nil {
+		t.Fatalf("query rowid: %v", err)
+	}
+	if midRowid != 7 {
+		t.Fatalf("rowid renumbered by rebuild: mid = %d, want 7", midRowid)
+	}
+	if _, err := db.Exec("INSERT INTO tasks (id, priority) VALUES ('neg', -1)"); err == nil {
+		t.Fatal("expected CHECK to reject negative priority")
+	}
+
+	srv := httptest.NewServer(newHandler(db, 30))
+	defer srv.Close()
+
+	want := []struct {
+		id  string
+		pri int
+	}{{"top", 1}, {"hot", 1}, {"nullcc", 1}, {"mid", 2}, {"low", 3}, {"unset", 3}}
+	for _, w := range want {
+		code, body := post(t, srv.URL+"/tasks/claim", map[string]any{"worker": "w", "project": "p"})
+		if code != http.StatusOK {
+			t.Fatalf("claim expected 200, got %d: %s", code, body)
+		}
+		var got struct {
+			ID       string `json:"id"`
+			Priority int    `json:"priority"`
+		}
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("unmarshal claim: %v", err)
+		}
+		if got.ID != w.id || got.Priority != w.pri {
+			t.Fatalf("expected %s@%d, got %s@%d", w.id, w.pri, got.ID, got.Priority)
+		}
+	}
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{"body": "new", "project": "p"})
+	if code != http.StatusCreated {
+		t.Fatalf("create expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal create: %v", err)
+	}
+	var pri int
+	if err := db.QueryRow("SELECT priority FROM tasks WHERE id = ?", created.ID).Scan(&pri); err != nil {
+		t.Fatalf("query priority: %v", err)
+	}
+	if pri != 3 {
+		t.Fatalf("expected default priority 3 on migrated db, got %d", pri)
 	}
 }
 
@@ -1919,7 +2023,7 @@ func TestListTasksOffset(t *testing.T) {
 
 	code, body := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "first",
-		"priority": 2,
+		"priority": 1,
 		"project":  "page-test",
 	})
 	if code != http.StatusCreated {
@@ -1928,7 +2032,7 @@ func TestListTasksOffset(t *testing.T) {
 
 	code, body = post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "second",
-		"priority": 1,
+		"priority": 2,
 		"project":  "page-test",
 	})
 	if code != http.StatusCreated {
@@ -3532,8 +3636,8 @@ PRAGMA user_version = 2;`
 	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
-	if userVersion != 3 {
-		t.Fatalf("expected user_version 3, got %d", userVersion)
+	if userVersion != 4 {
+		t.Fatalf("expected user_version 4, got %d", userVersion)
 	}
 }
 
@@ -3913,9 +4017,9 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 			db.Close()
 			t.Fatalf("query user_version: %v", err)
 		}
-		if userVersion != 3 {
+		if userVersion != 4 {
 			db.Close()
-			t.Fatalf("expected user_version 3, got %d", userVersion)
+			t.Fatalf("expected user_version 4, got %d", userVersion)
 		}
 		var hasClaimCount int
 		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
@@ -3952,8 +4056,8 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			t.Fatalf("query user_version: %v", err)
 		}
-		if userVersion != 3 {
-			t.Fatalf("expected user_version 3, got %d", userVersion)
+		if userVersion != 4 {
+			t.Fatalf("expected user_version 4, got %d", userVersion)
 		}
 
 		var hasClaimCount int
@@ -3988,8 +4092,8 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			t.Fatalf("query user_version: %v", err)
 		}
-		if userVersion != 3 {
-			t.Fatalf("expected user_version 3, got %d", userVersion)
+		if userVersion != 4 {
+			t.Fatalf("expected user_version 4, got %d", userVersion)
 		}
 
 		var hasClaimCount int
