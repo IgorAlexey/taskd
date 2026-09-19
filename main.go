@@ -1014,9 +1014,10 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 }
 
 type config struct {
-	dbPath string
-	addr   string
-	lease  int
+	dbPath     string
+	addr       string
+	lease      int
+	backupPath string
 }
 
 func parseFlags(args []string) (config, error) {
@@ -1025,6 +1026,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
+	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -1076,6 +1078,12 @@ func main() {
 	}
 	defer db.Close()
 
+	if cfg.backupPath != "" {
+		if _, err := db.Exec("VACUUM INTO ?", cfg.backupPath); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

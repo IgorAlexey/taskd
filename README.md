@@ -19,3 +19,14 @@ Just simple SQL and UI that works.
 Each task has a numeric priority and lower numbers are claimed first: 1 is
 the top, 0 is reserved for emergencies, and a task filed without a
 priority gets 3. Ties are broken by insertion order.
+
+## Backup
+
+A plain cp of the .db is not a backup: WAL mode leaves data in the wal file.
+Take a safe online snapshot with `taskd -backup <path>`:
+
+```sh
+taskd -db taskd.db -backup /backups/taskd.db
+```
+
+This runs SQLite `VACUUM INTO` to write a consistent copy.

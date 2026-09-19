@@ -4609,3 +4609,130 @@ func TestListWorkerFilterHonoursExpiry(t *testing.T) {
 		t.Fatalf("expected [w1t] for worker= after expiry, got %+v", tasks)
 	}
 }
+
+func TestBackupOnline(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "live.db")
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	for i := 1; i <= 400; i++ {
+		code, body := post(t, srv.URL+"/tasks", map[string]any{
+			"body":    fmt.Sprintf("task %d", i),
+			"project": "p1",
+		})
+		if code != http.StatusCreated {
+			t.Fatalf("POST /tasks #%d expected 201, got %d: %s", i, code, body)
+		}
+	}
+
+	cpPath := filepath.Join(dir, "live-cp.db")
+	raw, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read live.db failed: %v", err)
+	}
+	if err := os.WriteFile(cpPath, raw, 0644); err != nil {
+		t.Fatalf("write live-cp.db failed: %v", err)
+	}
+	cpDB, err := sql.Open("sqlite", "file:"+cpPath)
+	if err != nil {
+		t.Fatalf("open live-cp.db failed: %v", err)
+	}
+	defer cpDB.Close()
+	var cpCount int
+	if err := cpDB.QueryRow("SELECT count(*) FROM tasks").Scan(&cpCount); err != nil {
+		t.Fatalf("query cp count failed: %v", err)
+	}
+
+	cliBackupPath := filepath.Join(dir, "backup-cli.db")
+	cfg, err := parseFlags([]string{"-db", dbPath, "-backup", cliBackupPath})
+	if err != nil {
+		t.Fatalf("parseFlags failed: %v", err)
+	}
+	if cfg.backupPath != cliBackupPath {
+		t.Fatalf("expected backupPath %q, got %q", cliBackupPath, cfg.backupPath)
+	}
+
+	cliDB, err := openDB(cfg.dbPath)
+	if err != nil {
+		t.Fatalf("openDB for backup failed: %v", err)
+	}
+	defer cliDB.Close()
+
+	if _, err := cliDB.Exec("VACUUM INTO ?", cfg.backupPath); err != nil {
+		t.Fatalf("VACUUM INTO failed: %v", err)
+	}
+
+	bkDB, err := sql.Open("sqlite", "file:"+cliBackupPath)
+	if err != nil {
+		t.Fatalf("open backupDB failed: %v", err)
+	}
+	defer bkDB.Close()
+
+	var count int
+	if err := bkDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("query backup count failed: %v", err)
+	}
+	if count != 400 {
+		t.Fatalf("expected 400 tasks in backup, got %d", count)
+	}
+	if count <= cpCount {
+		t.Fatalf("expected backup to capture WAL tasks: backup %d, cp %d", count, cpCount)
+	}
+
+	var integrity string
+	if err := bkDB.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		t.Fatalf("query integrity_check failed: %v", err)
+	}
+	if integrity != "ok" {
+		t.Fatalf("expected integrity_check 'ok', got %q", integrity)
+	}
+
+	if _, err := cliDB.Exec("VACUUM INTO ?", cfg.backupPath); err == nil {
+		t.Fatalf("expected error when backup file already exists")
+	}
+
+	stopCh := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 401; ; i++ {
+			select {
+			case <-stopCh:
+				return
+			default:
+				post(t, srv.URL+"/tasks", map[string]any{
+					"body":    fmt.Sprintf("concurrent task %d", i),
+					"project": "p1",
+				})
+			}
+		}
+	}()
+
+	concurrentBackupPath := filepath.Join(dir, "backup-concurrent.db")
+	if _, err := cliDB.Exec("VACUUM INTO ?", concurrentBackupPath); err != nil {
+		t.Fatalf("VACUUM INTO during concurrent writes failed: %v", err)
+	}
+	close(stopCh)
+	wg.Wait()
+
+	bkConcurrent, err := sql.Open("sqlite", "file:"+concurrentBackupPath)
+	if err != nil {
+		t.Fatalf("open backupConcurrent failed: %v", err)
+	}
+	defer bkConcurrent.Close()
+
+	if err := bkConcurrent.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		t.Fatalf("query integrity_check failed: %v", err)
+	}
+	if integrity != "ok" {
+		t.Fatalf("expected integrity_check 'ok', got %q", integrity)
+	}
+}
