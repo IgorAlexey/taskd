@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
@@ -84,7 +85,16 @@ type ui struct {
 }
 
 func (u *ui) fetch() ([]task, error) {
-	resp, err := client.Get(u.url + "/tasks?limit=500")
+	reqURL, err := url.Parse(u.url + "/tasks?limit=500")
+	if err != nil {
+		return nil, err
+	}
+	if u.project != "" {
+		q := reqURL.Query()
+		q.Set("project", u.project)
+		reqURL.RawQuery = q.Encode()
+	}
+	resp, err := client.Get(reqURL.String())
 	if err != nil {
 		return nil, err
 	}
