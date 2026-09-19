@@ -303,8 +303,9 @@ func (u *ui) render(all []task) {
 		}
 	}
 	u.table.Clear()
+	headerClicked := func() bool { return true }
 	for i, h := range []string{"STATUS", "PRI", "PROJECT", "LEASE", "WORKER", "ID", "CLAIMS", "TITLE"} {
-		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false))
+		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false).SetClickedFunc(headerClicked))
 	}
 	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
 	now, row := time.Now().Unix(), u.selectedRow()
