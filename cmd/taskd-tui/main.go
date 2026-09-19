@@ -71,6 +71,7 @@ type ui struct {
 	table                 *tview.Table
 	body                  *tview.TextView
 	status                *tview.TextView
+	flex                  *tview.Flex
 	pages                 *tview.Pages
 	form                  *tview.Form
 	modal                 *tview.Modal
@@ -89,6 +90,7 @@ type ui struct {
 	shownID               string
 	shownBody             string
 	refreshing            atomic.Bool
+	zoomed                bool
 }
 
 func (u *ui) fetch() ([]task, error) {
@@ -354,11 +356,19 @@ func truncWidth(s string, maxWidth int) string {
 const statusCols = 80
 
 func (u *ui) renderStatus() {
+	if u.zoomed {
+		line := " [z/Esc] unzoom [j/k] scroll [y] copy [q] quit"
+		if u.msg != "" {
+			line = truncWidth(" "+u.msg, statusCols)
+		}
+		u.status.SetText(line)
+		return
+	}
 	proj := truncWidth(cmp.Or(u.project, "all"), 20)
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
 		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), statusCols-uniseg.StringWidth(idx)) + idx
-	line2 := " [j/k] move [0-3] filter [p] project [n] new [e] edit [+/-] pri [D] del [q] quit"
+	line2 := " [j/k] [0-3] filt [p] proj [n] new [e] edit [+/-] pri [D] del [z] zoom [q] quit"
 	if u.searching {
 		line2 = truncWidth("/"+u.query, statusCols)
 	} else if u.msg != "" {
@@ -619,6 +629,7 @@ func (u *ui) showHelp() {
 		"[+/-] priority\n" +
 		"[c] claim task\n" +
 		"[u] release task\n" +
+		"[z] zoom task body\n" +
 		"[y] copy ID\n" +
 		"[r] refresh\n" +
 		"[Tab] toggle pane focus\n" +
@@ -799,6 +810,10 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			}
 			u.showCompleteConfirm(t)
 		}
+	case 'z':
+		if ok {
+			u.toggleZoom()
+		}
 	case 'n':
 		u.showCreateForm()
 	case 'e':
@@ -813,9 +828,38 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
+func (u *ui) toggleZoom() {
+	if u.zoomed {
+		u.zoomed = false
+		u.body.SetBorder(true)
+		u.flex.ResizeItem(u.table, 0, 3)
+		u.flex.ResizeItem(u.body, 0, 2)
+		u.flex.ResizeItem(u.status, 2, 0)
+		u.app.SetFocus(u.table)
+	} else {
+		u.zoomed = true
+		u.body.SetBorder(false)
+		u.flex.ResizeItem(u.table, 0, 0)
+		u.flex.ResizeItem(u.body, 0, 1)
+		u.flex.ResizeItem(u.status, 1, 0)
+		u.app.SetFocus(u.body)
+	}
+	u.renderStatus()
+}
+
 func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	switch ev.Key() {
-	case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyEscape:
+	case tcell.KeyTab, tcell.KeyBacktab:
+		if u.zoomed {
+			return nil
+		}
+		u.app.SetFocus(u.table)
+		return nil
+	case tcell.KeyEscape:
+		if u.zoomed {
+			u.toggleZoom()
+			return nil
+		}
 		u.app.SetFocus(u.table)
 		return nil
 	}
@@ -830,6 +874,16 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	if ev.Rune() == 'y' {
 		u.copySelectedID()
 		return nil
+	}
+	if ev.Rune() == 'z' {
+		if u.zoomed {
+			u.toggleZoom()
+			return nil
+		}
+		if _, ok := u.selected(); ok {
+			u.toggleZoom()
+			return nil
+		}
 	}
 	return ev
 }
@@ -898,6 +952,7 @@ Keyboard shortcuts:
   u              Release selected leased task back to pending
   D              Delete selected task
   x              Complete selected task
+  z              Zoom task body to full screen
   y              Copy task ID to clipboard
   q              Quit
 `)
@@ -944,6 +999,7 @@ func newUI(url, project string, icons bool) *ui {
 	u.status = tview.NewTextView().SetWrap(false)
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 2, 0, false)
+	u.flex = flex
 	u.pages = tview.NewPages().AddPage("main", flex, true, true)
 	u.app.SetRoot(u.pages, true)
 	return u
