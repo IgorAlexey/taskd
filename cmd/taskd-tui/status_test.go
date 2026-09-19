@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/uniseg"
 )
 
@@ -106,5 +107,60 @@ func TestStatusBarIndex(t *testing.T) {
 	}
 	if w := uniseg.StringWidth(got); w > 80 {
 		t.Fatalf("status line width = %d: %q", w, got)
+	}
+}
+
+func TestStatusBarWidth(t *testing.T) {
+	u := newUI("http://localhost:8080", "", false)
+	all := []task{
+		{ID: "a1", Project: "proj-a", Status: "pending", Body: "first"},
+	}
+	u.render(all)
+
+	msg120 := "error: " + strings.Repeat("a", 113)
+	if len(msg120) != 120 {
+		t.Fatalf("expected 120 chars, got %d", len(msg120))
+	}
+
+	// 160-column status area keeps a 120-character message intact.
+	u.width = 160
+	u.setMsg(msg120)
+	got160 := u.status.GetText(true)
+	if !strings.Contains(got160, msg120) {
+		t.Fatalf("expected 160-column status area to keep 120-character message intact, got: %q", got160)
+	}
+
+	// 80-column status area still fits.
+	u.width = 80
+	u.setMsg(msg120)
+	got80 := u.status.GetText(true)
+	for _, line := range strings.Split(strings.TrimRight(got80, "\n"), "\n") {
+		if w := uniseg.StringWidth(line); w > 80 {
+			t.Fatalf("expected 80-column status area to fit within 80 columns, got width %d: %q", w, line)
+		}
+	}
+	// End-to-end simulation screen with resize via app beforeDraw hook.
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	u2 := newUI("http://localhost:8080", "", false)
+	u2.app.SetScreen(sim)
+	sim.SetSize(160, 25)
+	u2.app.SetRoot(u2.pages, true)
+	u2.setMsg(msg120)
+	u2.app.ForceDraw()
+	gotSim160 := u2.status.GetText(true)
+	if !strings.Contains(gotSim160, msg120) {
+		t.Fatalf("expected 160-column drawn status area to keep 120-char message intact, got: %q", gotSim160)
+	}
+
+	sim.SetSize(80, 25)
+	u2.app.ForceDraw()
+	gotSim80 := u2.status.GetText(true)
+	for _, line := range strings.Split(strings.TrimRight(gotSim80, "\n"), "\n") {
+		if w := uniseg.StringWidth(line); w > 80 {
+			t.Fatalf("expected 80-column drawn status area to fit within 80 columns, got width %d: %q", w, line)
+		}
 	}
 }

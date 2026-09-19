@@ -87,6 +87,7 @@ type ui struct {
 	query                 string
 	icons                 bool
 	worker                string
+	width                 int
 	all                   []task
 	shown                 []task
 	projects              []string
@@ -373,13 +374,15 @@ func truncWidth(s string, maxWidth int) string {
 	return s[:end] + suffix
 }
 
-const statusCols = 80
-
 func (u *ui) renderStatus() {
+	cols := u.width
+	if cols <= 0 {
+		cols = 80
+	}
 	if u.zoomed {
 		line := " [z/Esc] unzoom [j/k] scroll [y] copy [q] quit"
 		if u.msg != "" {
-			line = truncWidth(" "+u.msg, statusCols)
+			line = truncWidth(" "+u.msg, cols)
 		}
 		u.status.SetText(line)
 		return
@@ -387,14 +390,14 @@ func (u *ui) renderStatus() {
 	proj := truncWidth(cmp.Or(u.project, "all"), 20)
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
-		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), statusCols-uniseg.StringWidth(idx)) + idx
+		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), cols-uniseg.StringWidth(idx)) + idx
 	line2 := " [j/k] [0-4] filt [p] proj [n] new [e] edit [+/-] pri [D] del [z] zoom [q] quit"
 	if u.searching {
-		line2 = truncWidth("/"+u.query, statusCols)
+		line2 = truncWidth("/"+u.query, cols)
 	} else if u.msg != "" {
-		line2 = truncWidth(" "+u.msg, statusCols)
+		line2 = truncWidth(" "+u.msg, cols)
 	} else if u.query != "" {
-		line2 = truncWidth(fmt.Sprintf(" filter: %s  (press / to edit, Esc to clear)", u.query), statusCols)
+		line2 = truncWidth(fmt.Sprintf(" filter: %s  (press / to edit, Esc to clear)", u.query), cols)
 	}
 	u.status.SetText(line1 + "\n" + line2)
 }
@@ -1131,6 +1134,14 @@ func newUI(url, project string, icons bool) *ui {
 		filter:  "live",
 		app:     tview.NewApplication().EnableMouse(true),
 	}
+	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		width, _ := screen.Size()
+		if width > 0 && width != u.width {
+			u.width = width
+			u.renderStatus()
+		}
+		return false
+	})
 	u.app.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
 		if ev.Key() == tcell.KeyCtrlL {
 			u.app.Sync()
