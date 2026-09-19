@@ -1066,10 +1066,31 @@ Keyboard shortcuts:
 `)
 }
 
+func normalizeURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", errors.New("url cannot be empty")
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "http://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("invalid url: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("unsupported protocol scheme %q", u.Scheme)
+	}
+	if u.Host == "" {
+		return "", errors.New("url missing host")
+	}
+	return u.String(), nil
+}
+
 func parseFlags(args []string) (config, error) {
-	defaultURL := os.Getenv("TASKD_URL")
+	defaultURL := strings.TrimSpace(os.Getenv("TASKD_URL"))
 	if defaultURL == "" {
-		defaultURL = os.Getenv("T")
+		defaultURL = strings.TrimSpace(os.Getenv("T"))
 	}
 	if defaultURL == "" {
 		defaultURL = "http://localhost:8080"
@@ -1092,6 +1113,12 @@ func parseFlags(args []string) (config, error) {
 	if fs.NArg() > 0 {
 		return cfg, fmt.Errorf("unexpected argument: %s", fs.Arg(0))
 	}
+	normalizedURL, err := normalizeURL(cfg.url)
+	if err != nil {
+		fmt.Fprintf(fs.Output(), "%s: %v\n", fs.Name(), err)
+		return cfg, err
+	}
+	cfg.url = normalizedURL
 	return cfg, nil
 }
 
