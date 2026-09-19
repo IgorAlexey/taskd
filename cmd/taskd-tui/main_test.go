@@ -36,13 +36,21 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		json.NewEncoder(w).Encode(tasks)
 	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
-		var p struct{ Priority int }
+		var p struct {
+			Priority *int    `json:"priority"`
+			Body     *string `json:"body"`
+		}
 		json.NewDecoder(r.Body).Decode(&p)
 		mu.Lock()
 		defer mu.Unlock()
 		for i := range tasks {
 			if tasks[i].ID == r.PathValue("id") {
-				tasks[i].Priority = p.Priority
+				if p.Priority != nil {
+					tasks[i].Priority = *p.Priority
+				}
+				if p.Body != nil {
+					tasks[i].Body = *p.Body
+				}
 			}
 		}
 		w.WriteHeader(204)
@@ -682,5 +690,120 @@ func TestDeleteConfirm(t *testing.T) {
 	deleteMu.Unlock()
 	if strings.Contains(lastCall, "force=true") {
 		t.Fatalf("did not expect force=true for pending task, got %q", lastCall)
+	}
+}
+
+func TestEditForm(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	u.app.SetScreen(sim)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	u.app.QueueUpdateDraw(func() {
+		u.table.Select(1, 0)
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
+	})
+	var form *tview.Form
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to be open after pressing e")
+	}
+	bodyItem, ok := form.GetFormItem(0).(*tview.TextArea)
+	if !ok {
+		t.Fatalf("expected body item to be *tview.TextArea, got %T", form.GetFormItem(0))
+	}
+	if got := bodyItem.GetText(); got != "first task\n\nWhy: a" {
+		t.Fatalf("pre-filled body = %q, want first task\\n\\nWhy: a", got)
+	}
+	priItem, ok := form.GetFormItem(1).(*tview.InputField)
+	if !ok {
+		t.Fatalf("expected pri item to be *tview.InputField, got %T", form.GetFormItem(1))
+	}
+	if got := priItem.GetText(); got != "2" {
+		t.Fatalf("pre-filled priority = %q, want 2", got)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.form.InputHandler()(tcell.NewEventKey(tcell.KeyEscape, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form != nil {
+		t.Fatal("expected form to be closed after cancel")
+	}
+	mu.Lock()
+	bodyUnchanged := (*tasks)[0].Body
+	priUnchanged := (*tasks)[0].Priority
+	mu.Unlock()
+	if bodyUnchanged != "first task\n\nWhy: a" || priUnchanged != 2 {
+		t.Fatalf("task was modified on cancel: body=%q pri=%d", bodyUnchanged, priUnchanged)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to be open after pressing e")
+	}
+	u.app.QueueUpdateDraw(func() {
+		priItem = u.form.GetFormItem(1).(*tview.InputField)
+		priItem.SetText("")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on invalid priority")
+	}
+	mu.Lock()
+	priAfterInvalid := (*tasks)[0].Priority
+	mu.Unlock()
+	if priAfterInvalid != 2 {
+		t.Fatalf("priority modified on invalid input: %d", priAfterInvalid)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		bodyItem = u.form.GetFormItem(0).(*tview.TextArea)
+		bodyItem.SetText("updated body\nwith multiple lines", false)
+		priItem = u.form.GetFormItem(1).(*tview.InputField)
+		priItem.SetText("5")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return (*tasks)[0].Body == "updated body\nwith multiple lines" && (*tasks)[0].Priority == 5
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form != nil {
+		t.Fatal("expected form to be closed after submit")
 	}
 }

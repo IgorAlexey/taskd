@@ -127,7 +127,7 @@ func (u *ui) render(all []task) {
 	}
 	u.table.Select(row, 0)
 	u.showBody()
-	u.status.SetText(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [p] project  [n] new  [+/-] priority  [D] delete  [q] quit   %s",
+	u.status.SetText(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [p] project  [n] new  [e] edit  [+/-] priority  [D] delete  [q] quit   %s",
 		cmp.Or(u.filter, "all"), cmp.Or(u.project, "all"), counts["pending"], counts["leased"], counts["done"], u.msg))
 }
 
@@ -193,6 +193,34 @@ func (u *ui) showCreateForm() {
 			"project":  proj.GetText(),
 			"priority": p,
 			"body":     body.GetText(),
+		})
+	}
+	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
+	u.form = f
+	u.app.SetRoot(f, true)
+}
+
+func (u *ui) showEditForm(t task) {
+	f := tview.NewForm()
+	f.SetBorder(true).SetTitle(" edit task ")
+	body := tview.NewTextArea().SetLabel("Body").SetText(t.Body, false).SetSize(5, 0)
+	pri := tview.NewInputField().SetLabel("Priority").SetText(strconv.Itoa(t.Priority)).
+		SetFieldWidth(10).SetAcceptanceFunc(tview.InputFieldInteger)
+	f.AddFormItem(body).AddFormItem(pri)
+	close := func() {
+		u.form = nil
+		u.app.SetRoot(u.root, true).SetFocus(u.table)
+	}
+	submit := func() {
+		p, err := strconv.Atoi(pri.GetText())
+		if err != nil || p < 0 {
+			f.SetTitle(" edit task (invalid priority) ")
+			return
+		}
+		close()
+		u.act("PATCH", "/tasks/"+t.ID, map[string]any{
+			"body":     body.GetText(),
+			"priority": p,
 		})
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
@@ -279,6 +307,10 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 	case 'n':
 		u.showCreateForm()
+	case 'e':
+		if ok {
+			u.showEditForm(t)
+		}
 	default:
 		return ev
 	}
