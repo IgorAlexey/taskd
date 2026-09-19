@@ -498,6 +498,7 @@
   <script>
     let selectedTaskId = null;
     let refreshTimer = null;
+    let refreshInFlight = false;
     let shownTaskId = null;
     let shownTaskRaw = '';
     let currentTask = null;
@@ -801,7 +802,7 @@
       }
     }
 
-    async function loadTasks() {
+    async function loadTasks(isPoll) {
       const projEl = document.getElementById('filter-project');
       const statusEl = document.getElementById('filter-status');
       const prioEl = document.getElementById('filter-priority');
@@ -815,6 +816,7 @@
       while (true) {
         const offset = (currentPage - 1) * PAGE_SIZE;
         let url = '/tasks?limit=' + PAGE_SIZE;
+        if (isPoll) url += '&fields=id,status,project,priority,claim_count,worker,asset_path';
         if (offset > 0) url += '&offset=' + offset;
         if (proj) url += '&project=' + encodeURIComponent(proj);
         if (status) url += '&status=' + encodeURIComponent(status);
@@ -1394,10 +1396,21 @@
     }
 
     async function loadAll() {
+      if (refreshInFlight) return;
+      refreshInFlight = true;
       try {
-        await Promise.all([loadProjects(), loadWorkers(), loadStats(), loadTasks()]);
+        await Promise.all([loadProjects(), loadWorkers(), loadStats(), loadTasks(true)]);
       } catch (e) {
         console.error('Failed to refresh data:', e);
+      } finally {
+        refreshInFlight = false;
+        const cb = document.getElementById('auto-refresh');
+        if (cb && cb.checked) {
+          if (refreshTimer) {
+            clearTimeout(refreshTimer);
+          }
+          refreshTimer = setTimeout(loadAll, 3000);
+        }
       }
     }
 
@@ -1447,13 +1460,15 @@
 
     function setupAutoRefresh() {
       const cb = document.getElementById('auto-refresh');
-      if (refreshTimer) clearInterval(refreshTimer);
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+        refreshTimer = null;
+      }
       if (cb && cb.checked) {
-        refreshTimer = setInterval(loadAll, 3000);
+        refreshTimer = setTimeout(loadAll, 3000);
       }
       if (cb) cb.onchange = setupAutoRefresh;
     }
-
     window.addEventListener('popstate', () => {
       applyURLState();
       loadTasks();

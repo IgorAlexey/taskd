@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -1006,7 +1007,47 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			offset = v
 		}
 		now := time.Now().Unix()
-		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks"
+		var requestedFields []string
+		fieldsParam := q.Get("fields")
+		if fieldsParam == "" && q.Has("columns") {
+			fieldsParam = q.Get("columns")
+		}
+		if q.Has("fields") || q.Has("columns") {
+			if strings.TrimSpace(fieldsParam) == "" {
+				http.Error(w, "invalid fields", http.StatusBadRequest)
+				return
+			}
+			parts := strings.Split(fieldsParam, ",")
+			seen := make(map[string]bool, len(parts))
+			for _, p := range parts {
+				f := strings.TrimSpace(p)
+				switch f {
+				case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count":
+					if !seen[f] {
+						seen[f] = true
+						requestedFields = append(requestedFields, f)
+					}
+				default:
+					http.Error(w, "invalid fields", http.StatusBadRequest)
+					return
+				}
+			}
+			if len(requestedFields) == 0 {
+				http.Error(w, "invalid fields", http.StatusBadRequest)
+				return
+			}
+		}
+		bodyCol := "body"
+		primCol := "primitives"
+		if requestedFields != nil {
+			if !slices.Contains(requestedFields, "body") {
+				bodyCol = "''"
+			}
+			if !slices.Contains(requestedFields, "primitives") {
+				primCol = "NULL"
+			}
+		}
+		query := fmt.Sprintf("SELECT id, asset_path, status, worker, lease_expires, priority, %s, %s, project, claim_count FROM tasks", bodyCol, primCol)
 		var where []string
 		var args []any
 		if status == "pending" {
@@ -1105,7 +1146,61 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Total-Count", strconv.Itoa(total))
-		json.NewEncoder(w).Encode(tasks)
+		if requestedFields == nil {
+			json.NewEncoder(w).Encode(tasks)
+		} else {
+			var buf bytes.Buffer
+			buf.WriteByte('[')
+			for i, item := range tasks {
+				if i > 0 {
+					buf.WriteByte(',')
+				}
+				buf.WriteByte('{')
+				for j, f := range requestedFields {
+					if j > 0 {
+						buf.WriteByte(',')
+					}
+					buf.WriteByte('"')
+					buf.WriteString(f)
+					buf.WriteString(`":`)
+					switch f {
+					case "id":
+						b, _ := json.Marshal(item.ID)
+						buf.Write(b)
+					case "asset_path":
+						b, _ := json.Marshal(item.AssetPath)
+						buf.Write(b)
+					case "status":
+						b, _ := json.Marshal(item.Status)
+						buf.Write(b)
+					case "worker":
+						b, _ := json.Marshal(item.Worker)
+						buf.Write(b)
+					case "lease_expires":
+						buf.WriteString(strconv.FormatInt(item.LeaseExpires, 10))
+					case "priority":
+						buf.WriteString(strconv.Itoa(item.Priority))
+					case "body":
+						b, _ := json.Marshal(item.Body)
+						buf.Write(b)
+					case "primitives":
+						if len(item.Primitives) > 0 {
+							buf.Write(item.Primitives)
+						} else {
+							buf.WriteString("null")
+						}
+					case "project":
+						b, _ := json.Marshal(item.Project)
+						buf.Write(b)
+					case "claim_count":
+						buf.WriteString(strconv.Itoa(item.ClaimCount))
+					}
+				}
+				buf.WriteByte('}')
+			}
+			buf.WriteString("]\n")
+			w.Write(buf.Bytes())
+		}
 	})
 
 	mux.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -1359,7 +1454,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 				case "GET /stats":
 					allowed = []string{"project"}
 				case "GET /tasks":
-					allowed = []string{"status", "project", "worker", "priority", "limit", "offset", "asset_path", "q"}
+					allowed = []string{"status", "project", "worker", "priority", "limit", "offset", "asset_path", "q", "fields", "columns"}
 				case "DELETE /tasks/{id}":
 					allowed = []string{"force"}
 				}

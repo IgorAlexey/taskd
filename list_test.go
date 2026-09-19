@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -190,5 +191,127 @@ func TestListTotalCountExposedToBrowsers(t *testing.T) {
 	io.Copy(io.Discard, resp.Body)
 	if got := resp.Header.Get("Access-Control-Expose-Headers"); got != "X-Total-Count" {
 		t.Fatalf("expected Access-Control-Expose-Headers: X-Total-Count, got %q", got)
+	}
+}
+func TestListFieldsProjection(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	if code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"project":  "proj",
+		"body":     "prompt body 1",
+		"priority": 1,
+	}); code != http.StatusCreated {
+		t.Fatalf("create task: got %d, body %s", code, body)
+	}
+
+	code, resp := do(t, http.MethodGet, srv.URL+"/tasks?fields=id,status", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET fields=id,status expected 200, got %d: %s", code, resp)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(resp, &items); err != nil {
+		t.Fatalf("unmarshal expected json array: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(items))
+	}
+	if len(items[0]) != 2 || items[0]["id"] == nil || items[0]["status"] == nil {
+		t.Fatalf("expected only id and status keys, got %+v", items[0])
+	}
+	if _, ok := items[0]["body"]; ok {
+		t.Fatalf("unexpected body field in projection: %+v", items[0])
+	}
+
+	code, resp = do(t, http.MethodGet, srv.URL+"/tasks?columns=id,priority", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET columns=id,priority expected 200, got %d: %s", code, resp)
+	}
+	var colItems []map[string]any
+	if err := json.Unmarshal(resp, &colItems); err != nil {
+		t.Fatalf("unmarshal expected json array: %v", err)
+	}
+	if len(colItems) != 1 || len(colItems[0]) != 2 || colItems[0]["id"] == nil || colItems[0]["priority"] == nil {
+		t.Fatalf("expected only id and priority keys, got %+v", colItems[0])
+	}
+
+	for _, invalid := range []string{"", "foo", "id,bad", "unknown"} {
+		c, _ := do(t, http.MethodGet, srv.URL+"/tasks?fields="+invalid, nil)
+		if c != http.StatusBadRequest {
+			t.Fatalf("GET fields=%q expected 400, got %d", invalid, c)
+		}
+	}
+}
+
+func TestListFieldsPayloadSize200Tasks(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	fourKB := strings.Repeat("A", 4096)
+	for i := 0; i < 200; i++ {
+		if code, body := post(t, srv.URL+"/tasks", map[string]any{
+			"project": "bench",
+			"body":    fourKB,
+		}); code != http.StatusCreated {
+			t.Fatalf("create task %d: got %d, body %s", i, code, body)
+		}
+	}
+
+	respDefault, err := http.Get(srv.URL + "/tasks?limit=1")
+	if err != nil {
+		t.Fatalf("http.Get failed: %v", err)
+	}
+	defer respDefault.Body.Close()
+	var defaultItems []taskItem
+	if err := json.NewDecoder(respDefault.Body).Decode(&defaultItems); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(defaultItems) != 1 || defaultItems[0].Body != fourKB {
+		t.Fatalf("expected untruncated full body in default list")
+	}
+
+	respProj, err := http.Get(srv.URL + "/tasks?limit=200&fields=id,status,project,priority,claim_count,worker,asset_path")
+	if err != nil {
+		t.Fatalf("http.Get projected failed: %v", err)
+	}
+	defer respProj.Body.Close()
+	if respProj.StatusCode != http.StatusOK {
+		t.Fatalf("GET projected expected 200, got %d", respProj.StatusCode)
+	}
+	dataProj, err := io.ReadAll(respProj.Body)
+	if err != nil {
+		t.Fatalf("io.ReadAll projected failed: %v", err)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(dataProj, &items); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(items) != 200 {
+		t.Fatalf("expected 200 items, got %d", len(items))
+	}
+	if len(dataProj) >= 51200 {
+		t.Fatalf("projected payload size %d expected under 51200", len(dataProj))
+	}
+}
+
+func TestWebUISequentialAutoRefresh(t *testing.T) {
+	ui := string(uiHTML)
+	if strings.Contains(ui, "setInterval(loadAll") {
+		t.Fatal("expected setInterval(loadAll) to be replaced by sequential setTimeout polling")
+	}
+	if !strings.Contains(ui, "setTimeout(loadAll") {
+		t.Fatal("expected setTimeout(loadAll) sequential polling in web/index.html")
 	}
 }
