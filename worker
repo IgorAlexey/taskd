@@ -108,7 +108,7 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
     run_branch="$5"
     run_verbose="$6"
     run_prompt="$7"
-
+    run_once="${8:-0}"
     export TASKD_PROJECT="$run_project"
     export TASKD_WORKER="$run_project-$run_slot"
     export TASKD_WORKER_ACTIVE=1
@@ -161,6 +161,10 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
 
     while true; do
         if ! git fetch origin "$run_branch" -q; then
+            if [ "$run_once" = "1" ]; then
+                echo "Error: git fetch failed in once mode." >&2
+                exit 2
+            fi
             echo "Warning: git fetch failed, retrying in 5s..." >&2
             idle_sleep 5
             continue
@@ -188,6 +192,12 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
             omp $omp_flags "$run_prompt" > "$runlog" 2>&1
             omp_status=$?
             cat "$runlog"
+        fi
+        if [ "$run_once" = "1" ]; then
+            if ! preserve_unpushed_commits "$run_branch" "$run_project" "$run_slot"; then
+                exit 2
+            fi
+            exit "$omp_status"
         fi
         if [ "$omp_status" -gt 128 ]; then
             echo "Worker received termination signal ($omp_status), exiting loop." >&2
@@ -274,7 +284,7 @@ show_worker_status() {
 
 usage() {
     cat << 'USAGE_EOF'
-Usage: worker "<prompt_or_command>" [--verbose|-v] [--project <name>] [--slot <n>]
+Usage: worker "<prompt_or_command>" [--verbose|-v] [--once|-1] [--project <name>] [--slot <n>]
        worker status [--project <name>]
 
 Launches an agent in an isolated, reusable worktree slot.
@@ -285,12 +295,14 @@ Commands:
 
 Options:
   -v, --verbose    Stream internal agent thinking and reasoning tokens
+  -1, --once       Run a single agent iteration and exit immediately with its exit code
   -p, --project    Project queue name (default: repository name)
   -s, --slot       Explicit worker slot number (default: first free)
 
 Examples:
   worker "/fulfill"
   worker "/fulfill" --verbose
+  worker "/fulfill" --once
   worker "fix the build" --project taskd --slot 1
   worker status
 USAGE_EOF
@@ -301,6 +313,7 @@ prompt=""
 project="${TASKD_PROJECT:-}"
 slot=""
 verbose=0
+once=0
 action=""
 
 while [ "$#" -gt 0 ]; do
@@ -322,6 +335,10 @@ while [ "$#" -gt 0 ]; do
             ;;
         -v|--verbose)
             verbose=1
+            shift
+            ;;
+        -1|--once)
+            once=1
             shift
             ;;
         -p|--project)
@@ -430,20 +447,17 @@ for s in $target_slots; do
     lockfile="$lockdir/$project-$s.lock"
     wt="$wtbase/wt-$project-$s"
 
-    flock -n -E 99 "$lockfile" "$script_path" --run-locked "$s" "$wt" "$project" "$default_branch" "$verbose" "$prompt"
-    res=$?
-
-    if [ "$res" -eq 0 ]; then
-        exit 0
-    elif [ "$res" -eq 99 ]; then
+    exec 9>"$lockfile"
+    if ! flock -n 9; then
+        exec 9>&-
         if [ -n "$slot" ]; then
             echo "Error: slot $slot is already locked by another worker!" >&2
             exit 1
         fi
         continue
-    else
-        exit "$res"
     fi
+
+    exec "$script_path" --run-locked "$s" "$wt" "$project" "$default_branch" "$verbose" "$prompt" "$once"
 done
 
 echo "Error: all worker slots are currently in use!" >&2

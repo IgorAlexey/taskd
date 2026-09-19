@@ -9,6 +9,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestWorkerScriptCLI(t *testing.T) {
@@ -95,6 +96,12 @@ func TestWorkerScriptCLI(t *testing.T) {
 	if !strings.Contains(string(out), "/fulfill") {
 		t.Fatalf("expected help output to contain '/fulfill', got: %s", string(out))
 	}
+	if !strings.Contains(string(out), "--once") {
+		t.Fatalf("expected help output to contain '--once', got: %s", string(out))
+	}
+	if !strings.Contains(string(out), "-1") {
+		t.Fatalf("expected help output to contain '-1', got: %s", string(out))
+	}
 
 	for _, flag := range []string{"-h", "--help", "help"} {
 		cmd = exec.Command("/bin/sh", workerPath, flag)
@@ -112,6 +119,24 @@ func TestWorkerScriptCLI(t *testing.T) {
 	out, err = cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected worker with no arguments to fail")
+	}
+	if !strings.Contains(string(out), "prompt or command is required") {
+		t.Fatalf("expected prompt required message, got: %s", string(out))
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "--once")
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected worker --once with no arguments to fail")
+	}
+	if !strings.Contains(string(out), "prompt or command is required") {
+		t.Fatalf("expected prompt required message, got: %s", string(out))
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "-1")
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected worker -1 with no arguments to fail")
 	}
 	if !strings.Contains(string(out), "prompt or command is required") {
 		t.Fatalf("expected prompt required message, got: %s", string(out))
@@ -708,5 +733,298 @@ func TestWorkerHonorTaskdProjectEnv(t *testing.T) {
 	}
 	if !strings.Contains(outStr, "project "+expectedDefault) {
 		t.Fatalf("expected startup message to contain 'project "+expectedDefault+"', got: %s", outStr)
+	}
+}
+func TestWorkerOnceExecution(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	counterFile := filepath.Join(binDir, "iterations.txt")
+	_ = os.WriteFile(counterFile, []byte("0"), 0o644)
+
+	ompScript := filepath.Join(binDir, "omp")
+	scriptContent := "#!/bin/sh\n" +
+		"cnt=$(cat \"" + counterFile + "\" 2>/dev/null || echo 0)\n" +
+		"cnt=$((cnt + 1))\n" +
+		"echo \"$cnt\" > \"" + counterFile + "\"\n" +
+		"exit 42\n"
+	if err := os.WriteFile(ompScript, []byte(scriptContent), 0o755); err != nil {
+		t.Fatalf("write omp script: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "main", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "test").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "test@test.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v: %s", err, out)
+	}
+	dummyFile := filepath.Join(repoDir, "file.txt")
+	if err := os.WriteFile(dummyFile, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write dummy file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "add", "file.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "-c", "core.hookspath=", "-c", "sendpatch.enabled=false", "commit", "-m", "chore: initial commit", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "add", "origin", repoDir).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v: %s", err, out)
+	}
+
+	wtBase := t.TempDir()
+	wtPath := filepath.Join(wtBase, "wt-test-once-1")
+	runDir := t.TempDir()
+
+	cmd := exec.Command("/bin/sh", workerPath, "--run-locked", "1", wtPath, "onceproj", "main", "0", "test prompt", "1")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, err := cmd.CombinedOutput()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected command to exit with non-zero exit error, got %v: %s", err, string(out))
+	}
+	if exitErr.ExitCode() != 42 {
+		t.Fatalf("expected exit code 42, got %d: %s", exitErr.ExitCode(), string(out))
+	}
+
+	cntBytes, err := os.ReadFile(counterFile)
+	if err != nil {
+		t.Fatalf("read counter file: %v", err)
+	}
+	if strings.TrimSpace(string(cntBytes)) != "1" {
+		t.Fatalf("expected exactly 1 iteration, got %s", strings.TrimSpace(string(cntBytes)))
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "test prompt", "--once", "--slot", "2")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, err = cmd.CombinedOutput()
+	exitErr, ok = err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected worker --once to exit non-zero, got %v: %s", err, string(out))
+	}
+	if exitErr.ExitCode() != 42 {
+		t.Fatalf("expected exit code 42 for --once, got %d: %s", exitErr.ExitCode(), string(out))
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "-1", "test prompt", "--slot", "3")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, err = cmd.CombinedOutput()
+	exitErr, ok = err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected worker -1 to exit non-zero, got %v: %s", err, string(out))
+	}
+	if exitErr.ExitCode() != 42 {
+		t.Fatalf("expected exit code 42 for -1, got %d: %s", exitErr.ExitCode(), string(out))
+	}
+	cntBytes, err = os.ReadFile(counterFile)
+	if err != nil {
+		t.Fatalf("read counter file: %v", err)
+	}
+	if strings.TrimSpace(string(cntBytes)) != "3" {
+		t.Fatalf("expected exactly 3 iterations, got %s", strings.TrimSpace(string(cntBytes)))
+	}
+
+	ompScript99 := "#!/bin/sh\n" +
+		"cnt=$(cat \"" + counterFile + "\" 2>/dev/null || echo 0)\n" +
+		"cnt=$((cnt + 1))\n" +
+		"echo \"$cnt\" > \"" + counterFile + "\"\n" +
+		"exit 99\n"
+	if err := os.WriteFile(ompScript, []byte(ompScript99), 0o755); err != nil {
+		t.Fatalf("write omp script 99: %v", err)
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "test prompt", "--once")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, err = cmd.CombinedOutput()
+	exitErr, ok = err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected worker --once to exit 99, got %v: %s", err, string(out))
+	}
+	if exitErr.ExitCode() != 99 {
+		t.Fatalf("expected exit code 99 without slot retry, got %d: %s", exitErr.ExitCode(), string(out))
+	}
+	cntBytes, err = os.ReadFile(counterFile)
+	if err != nil {
+		t.Fatalf("read counter file: %v", err)
+	}
+	if strings.TrimSpace(string(cntBytes)) != "4" {
+		t.Fatalf("expected exactly 4 iterations without slot cascade, got %s", strings.TrimSpace(string(cntBytes)))
+	}
+
+	fetchWt := filepath.Join(wtBase, "wt-test-once-fetch")
+	if out, err := exec.Command("git", "-C", repoDir, "worktree", "add", "--detach", "--force", fetchWt, "main").CombinedOutput(); err != nil {
+		t.Fatalf("git worktree add: %v: %s", err, out)
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "--run-locked", "1", fetchWt, "onceproj", "nonexistent-branch-xyz", "0", "test prompt", "1")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, err = cmd.CombinedOutput()
+	exitErr, ok = err.(*exec.ExitError)
+	if !ok {
+		t.Fatalf("expected fetch failure in once mode to fail immediately, got %v: %s", err, string(out))
+	}
+	if exitErr.ExitCode() != 2 {
+		t.Fatalf("expected infrastructure exit code 2 on fetch failure, got %d: %s", exitErr.ExitCode(), string(out))
+	}
+	if !strings.Contains(string(out), "git fetch failed in once mode") {
+		t.Fatalf("expected git fetch failure message, got: %s", string(out))
+	}
+}
+
+func TestWorkerSlotContention(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	startedFile := filepath.Join(binDir, "started")
+	ompScript := filepath.Join(binDir, "omp")
+	scriptContent := "#!/bin/sh\n" +
+		"case \"$TASKD_WORKER\" in\n" +
+		"*-1) touch \"" + startedFile + "\"; sleep 120 ;;\n" +
+		"esac\n" +
+		"exit 0\n"
+	if err := os.WriteFile(ompScript, []byte(scriptContent), 0o755); err != nil {
+		t.Fatalf("write omp script: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "main", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "test").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "test@test.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v: %s", err, out)
+	}
+	if err := os.WriteFile(filepath.Join(repoDir, "file.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write dummy file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "add", "file.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "-c", "core.hookspath=", "-c", "sendpatch.enabled=false", "commit", "-m", "chore: initial commit", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "add", "origin", repoDir).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v: %s", err, out)
+	}
+
+	wtBase := t.TempDir()
+	runDir := t.TempDir()
+	env := []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+
+	holder := exec.Command("/bin/sh", workerPath, "test prompt", "--once", "--slot", "1")
+	holder.Dir = repoDir
+	holder.Env = env
+	if err := holder.Start(); err != nil {
+		t.Fatalf("start holder worker: %v", err)
+	}
+	defer func() {
+		_ = holder.Process.Kill()
+		_ = holder.Wait()
+	}()
+
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		if _, err := os.Stat(startedFile); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for holder worker to claim slot 1")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	contender := exec.Command("/bin/sh", workerPath, "test prompt", "--once", "--slot", "1")
+	contender.Dir = repoDir
+	contender.Env = env
+	out, err := contender.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected contender on locked slot to fail, got success: %s", string(out))
+	}
+	if !strings.Contains(string(out), "slot 1 is already locked") {
+		t.Fatalf("expected slot contention message, got: %s", string(out))
+	}
+
+	cascade := exec.Command("/bin/sh", workerPath, "test prompt", "--once")
+	cascade.Dir = repoDir
+	cascade.Env = env
+	cascadeOut, err := cascade.CombinedOutput()
+	if err != nil {
+		t.Fatalf("expected cascade worker to succeed on a free slot: %v: %s", err, string(cascadeOut))
+	}
+	if !strings.Contains(string(cascadeOut), "slot 2") {
+		t.Fatalf("expected cascade worker to take slot 2, got: %s", string(cascadeOut))
 	}
 }
