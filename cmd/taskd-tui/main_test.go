@@ -87,9 +87,10 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	})
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Body     string `json:"body"`
-			Priority int    `json:"priority"`
-			Project  string `json:"project"`
+			AssetPath string `json:"asset_path"`
+			Body      string `json:"body"`
+			Priority  int    `json:"priority"`
+			Project   string `json:"project"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -97,11 +98,12 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		}
 		mu.Lock()
 		tasks = append(tasks, task{
-			ID:       "ddddddd4",
-			Project:  req.Project,
-			Status:   "pending",
-			Priority: req.Priority,
-			Body:     req.Body,
+			ID:        "ddddddd4",
+			Project:   req.Project,
+			AssetPath: req.AssetPath,
+			Status:    "pending",
+			Priority:  req.Priority,
+			Body:      req.Body,
 		})
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
@@ -241,7 +243,10 @@ func TestCreateForm(t *testing.T) {
 	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "0" {
 		t.Fatalf("default priority = %q, want 0", got)
 	}
-	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != "" {
+	if got := form.GetFormItem(2).(*tview.InputField).GetText(); got != "" {
+		t.Fatalf("default asset path = %q, want empty", got)
+	}
+	if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != "" {
 		t.Fatalf("default body = %q, want empty", got)
 	}
 	screenText := func() string {
@@ -293,7 +298,7 @@ func TestCreateForm(t *testing.T) {
 	}
 	u.app.QueueUpdateDraw(func() {
 		u.form.GetFormItem(1).(*tview.InputField).SetText("42")
-		u.form.GetFormItem(2).(*tview.TextArea).SetText("brand new task\n\nWhy: multi-line test\nDone when: ok", true)
+		u.form.GetFormItem(3).(*tview.TextArea).SetText("brand new task\n\nWhy: multi-line test\nDone when: ok", true)
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
@@ -1308,7 +1313,7 @@ func TestTUIStatusLayout(t *testing.T) {
 		return open
 	})
 	query(func() {
-		u.form.GetFormItem(2).(*tview.TextArea).SetText("layout test task", false)
+		u.form.GetFormItem(3).(*tview.TextArea).SetText("layout test task", false)
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 	eventually(t, func() bool {
@@ -1593,7 +1598,7 @@ func TestCreateFormValidation(t *testing.T) {
 
 	testBody := "brand new task\n\nWhy: multi-line test\nDone when: ok"
 	u.app.QueueUpdateDraw(func() {
-		u.form.GetFormItem(2).(*tview.TextArea).SetText(testBody, true)
+		u.form.GetFormItem(3).(*tview.TextArea).SetText(testBody, true)
 		u.form.GetFormItem(1).(*tview.InputField).SetText("-1")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
@@ -1606,7 +1611,7 @@ func TestCreateFormValidation(t *testing.T) {
 	if title := form.GetTitle(); !strings.Contains(title, "priority") {
 		t.Fatalf("expected title to indicate priority error, got %q", title)
 	}
-	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != testBody {
+	if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != testBody {
 		t.Fatalf("body buffer lost on invalid priority: %q", got)
 	}
 	mu.Lock()
@@ -1630,7 +1635,7 @@ func TestCreateFormValidation(t *testing.T) {
 	if title := form.GetTitle(); !strings.Contains(title, "project") {
 		t.Fatalf("expected title to indicate project error, got %q", title)
 	}
-	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != testBody {
+	if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != testBody {
 		t.Fatalf("body buffer lost on empty project: %q", got)
 	}
 	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "7" {
@@ -1837,4 +1842,75 @@ func TestClearErrorOnReconnect(t *testing.T) {
 		})
 		return count == 1 && msg == "" && !strings.Contains(status, "daemon unavailable")
 	})
+}
+func TestCreateFormAssetPath(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	u.app.SetScreen(sim)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'n', 0))
+	})
+	var form *tview.Form
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to be open after pressing n")
+	}
+
+	if form.GetFormItemCount() < 4 {
+		t.Fatalf("expected at least 4 form items, got %d", form.GetFormItemCount())
+	}
+	assetItem, ok := form.GetFormItem(2).(*tview.InputField)
+	if !ok {
+		t.Fatalf("expected item 2 to be *tview.InputField, got %T", form.GetFormItem(2))
+	}
+	if got := assetItem.GetText(); got != "" {
+		t.Fatalf("default asset path = %q, want empty", got)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		form.GetFormItem(0).(*tview.InputField).SetText("pipeline")
+		form.GetFormItem(1).(*tview.InputField).SetText("9")
+		form.GetFormItem(2).(*tview.InputField).SetText("assets/model.gltf")
+		form.GetFormItem(3).(*tview.TextArea).SetText("", true)
+		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(*tasks) == 4
+	})
+	mu.Lock()
+	created := (*tasks)[3]
+	mu.Unlock()
+	if created.Project != "pipeline" || created.Priority != 9 || created.AssetPath != "assets/model.gltf" || created.Body != "" {
+		t.Fatalf("created task mismatch: %+v", created)
+	}
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form != nil {
+		t.Fatal("expected form to be closed after submit with asset path")
+	}
 }

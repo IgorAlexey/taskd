@@ -337,10 +337,12 @@ func (u *ui) showCreateForm() {
 	f.SetBorder(true).SetTitle(" new task ")
 	f.AddInputField("Project", cmp.Or(u.project, "taskd"), 20, nil, nil)
 	f.AddInputField("Priority", "0", 10, tview.InputFieldInteger, nil)
+	f.AddInputField("Asset Path", "", 0, nil, nil)
 	f.AddTextArea("Body", "", 0, 0, 0, nil)
 	proj := f.GetFormItem(0).(*tview.InputField)
 	pri := f.GetFormItem(1).(*tview.InputField)
-	body := f.GetFormItem(2).(*tview.TextArea)
+	asset := f.GetFormItem(2).(*tview.InputField)
+	body := f.GetFormItem(3).(*tview.TextArea)
 	close := func() {
 		u.form = nil
 		u.pages.RemovePage("create")
@@ -357,16 +359,18 @@ func (u *ui) showCreateForm() {
 			f.SetTitle(" new task (invalid priority) ")
 			return
 		}
-		btext := body.GetText()
-		if strings.TrimSpace(btext) == "" {
-			f.SetTitle(" new task (invalid body) ")
+		btext := strings.TrimSpace(body.GetText())
+		apath := strings.TrimSpace(asset.GetText())
+		if btext == "" && apath == "" {
+			f.SetTitle(" new task (missing body or asset path) ")
 			return
 		}
 		close()
 		u.act("POST", "/tasks", map[string]any{
-			"project":  pname,
-			"priority": p,
-			"body":     btext,
+			"project":    pname,
+			"priority":   p,
+			"body":       btext,
+			"asset_path": apath,
 		}, "task created")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
