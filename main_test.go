@@ -3768,6 +3768,12 @@ func TestTouchTask(t *testing.T) {
 	if err := json.Unmarshal(body, &created); err != nil {
 		t.Fatalf("unmarshal created failed: %v", err)
 	}
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("touch unleased task expected 409, got %d: %s", code, body)
+	}
 
 	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
 		"worker":  "w1",
@@ -3817,8 +3823,8 @@ func TestTouchTask(t *testing.T) {
 	code, body = post(t, srv.URL+"/tasks/nonexistent/touch", map[string]any{
 		"worker": "w1",
 	})
-	if code != http.StatusConflict {
-		t.Fatalf("touch nonexistent expected 409, got %d: %s", code, body)
+	if code != http.StatusNotFound {
+		t.Fatalf("touch nonexistent expected 404, got %d: %s", code, body)
 	}
 
 	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
@@ -4049,8 +4055,8 @@ func TestReleaseTask(t *testing.T) {
 	code, body = post(t, srv.URL+"/tasks/nonexistent/release", map[string]any{
 		"worker": "w1",
 	})
-	if code != http.StatusConflict {
-		t.Fatalf("release on nonexistent task expected 409, got %d: %s", code, body)
+	if code != http.StatusNotFound {
+		t.Fatalf("release on nonexistent task expected 404, got %d: %s", code, body)
 	}
 
 	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{
@@ -4058,6 +4064,12 @@ func TestReleaseTask(t *testing.T) {
 	})
 	if code != http.StatusNoContent {
 		t.Fatalf("release expected 204, got %d: %s", code, body)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/release", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("release already-released task expected 409, got %d: %s", code, body)
 	}
 
 	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=p1", nil)
