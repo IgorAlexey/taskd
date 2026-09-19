@@ -2609,7 +2609,7 @@ func TestRunServerGracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runServer(ctx, l, db, 300)
+		errCh <- runServer(ctx, l, db, 300, "")
 	}()
 
 	addr := l.Addr().String()
@@ -2660,7 +2660,7 @@ func TestSignalNotifyShutdown(t *testing.T) {
 
 			errCh := make(chan error, 1)
 			go func() {
-				errCh <- runServer(ctx, l, db, 300)
+				errCh <- runServer(ctx, l, db, 300, "")
 			}()
 
 			addr := l.Addr().String()
@@ -3735,53 +3735,152 @@ func TestCORS(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := httptest.NewServer(newHandler(db, 300))
-	defer srv.Close()
+	cfgDef, err := parseFlags(nil)
+	if err != nil {
+		t.Fatalf("default parseFlags failed: %v", err)
+	}
+	if cfgDef.corsOrigin != "" {
+		t.Fatalf("expected empty default cors-origin, got %q", cfgDef.corsOrigin)
+	}
 
-	req, err := http.NewRequest(http.MethodOptions, srv.URL+"/tasks", nil)
+	cfgNamed, err := parseFlags([]string{"-cors-origin", "https://allowed.example"})
+	if err != nil {
+		t.Fatalf("parseFlags with -cors-origin failed: %v", err)
+	}
+	if cfgNamed.corsOrigin != "https://allowed.example" {
+		t.Fatalf("expected corsOrigin https://allowed.example, got %q", cfgNamed.corsOrigin)
+	}
+
+	srvDefault := httptest.NewServer(newHandler(db, 300))
+	defer srvDefault.Close()
+
+	req, err := http.NewRequest(http.MethodOptions, srvDefault.URL+"/tasks", nil)
 	if err != nil {
 		t.Fatalf("new request failed: %v", err)
 	}
+	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("Access-Control-Request-Method", "DELETE")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("options request failed: %v", err)
 	}
 	resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("options expected 204, got %d", resp.StatusCode)
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("options expected empty Access-Control-Allow-Origin, got %q", got)
 	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Fatalf("options expected Access-Control-Allow-Origin: *, got %q", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, POST, PATCH, DELETE, OPTIONS" {
-		t.Fatalf("options expected Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS, got %q", got)
-	}
-	if got := resp.Header.Get("Access-Control-Allow-Headers"); got != "Content-Type" {
-		t.Fatalf("options expected Access-Control-Allow-Headers: Content-Type, got %q", got)
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "" {
+		t.Fatalf("options expected empty Access-Control-Allow-Methods, got %q", got)
 	}
 
-	req, err = http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
+	req, err = http.NewRequest(http.MethodGet, srvDefault.URL+"/tasks", nil)
 	if err != nil {
 		t.Fatalf("new request failed: %v", err)
 	}
+	req.Header.Set("Origin", "https://evil.example")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("get request failed: %v", err)
 	}
 	resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get expected 200, got %d", resp.StatusCode)
 	}
-	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
-		t.Fatalf("get expected Access-Control-Allow-Origin: *, got %q", got)
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("get expected empty Access-Control-Allow-Origin, got %q", got)
+	}
+
+	srvNamed := httptest.NewServer(newHandlerWithCORS(db, 300, "https://app.example"))
+	defer srvNamed.Close()
+
+	req, err = http.NewRequest(http.MethodOptions, srvNamed.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Origin", "https://app.example")
+	req.Header.Set("Access-Control-Request-Method", "DELETE")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("options request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("options expected 204, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://app.example" {
+		t.Fatalf("options expected Access-Control-Allow-Origin: https://app.example, got %q", got)
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, POST, PATCH, DELETE, OPTIONS" {
-		t.Fatalf("get expected Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS, got %q", got)
+		t.Fatalf("options expected Access-Control-Allow-Methods, got %q", got)
 	}
 	if got := resp.Header.Get("Access-Control-Allow-Headers"); got != "Content-Type" {
-		t.Fatalf("get expected Access-Control-Allow-Headers: Content-Type, got %q", got)
+		t.Fatalf("options expected Access-Control-Allow-Headers: Content-Type, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Expose-Headers"); got != "X-Total-Count" {
+		t.Fatalf("options expected Access-Control-Expose-Headers: X-Total-Count, got %q", got)
+	}
+	if got := resp.Header.Get("Vary"); got != "Origin" {
+		t.Fatalf("options expected Vary: Origin, got %q", got)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, srvNamed.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Origin", "https://app.example")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get expected 200, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "https://app.example" {
+		t.Fatalf("get expected Access-Control-Allow-Origin: https://app.example, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Expose-Headers"); got != "X-Total-Count" {
+		t.Fatalf("get expected Access-Control-Expose-Headers: X-Total-Count, got %q", got)
+	}
+	if got := resp.Header.Get("Vary"); got != "Origin" {
+		t.Fatalf("get expected Vary: Origin, got %q", got)
+	}
+
+	req, err = http.NewRequest(http.MethodOptions, srvNamed.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Origin", "https://evil.example")
+	req.Header.Set("Access-Control-Request-Method", "DELETE")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("options request failed: %v", err)
+	}
+	resp.Body.Close()
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "" {
+		t.Fatalf("options evil expected empty Access-Control-Allow-Origin, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "" {
+		t.Fatalf("options evil expected empty Access-Control-Allow-Methods, got %q", got)
+	}
+
+	srvWildcard := httptest.NewServer(newHandlerWithCORS(db, 300, "*"))
+	defer srvWildcard.Close()
+
+	req, err = http.NewRequest(http.MethodOptions, srvWildcard.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Origin", "https://any.example")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("options wildcard request failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("options wildcard expected 204, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("options wildcard expected *, got %q", got)
 	}
 }
 func TestReleaseTask(t *testing.T) {

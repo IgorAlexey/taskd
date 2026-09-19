@@ -417,6 +417,10 @@ func validProject(p string) bool {
 var uiHTML []byte
 
 func newHandler(db *sql.DB, lease int) http.Handler {
+	return newHandlerWithCORS(db, lease, "")
+}
+
+func newHandlerWithCORS(db *sql.DB, lease int, corsOrigin string) http.Handler {
 	mux := http.NewServeMux()
 
 	uiHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -1029,13 +1033,22 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
-		if r.Method == http.MethodOptions {
+		if corsOrigin != "" && corsOrigin != "*" {
+			w.Header().Add("Vary", "Origin")
+		}
+		origin := r.Header.Get("Origin")
+		originMatched := corsOrigin != "" && (corsOrigin == "*" || origin == corsOrigin)
+		if r.Method == http.MethodOptions && originMatched {
+			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 			w.WriteHeader(http.StatusNoContent)
 			return
+		}
+		if originMatched {
+			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
+			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		mux.ServeHTTP(w, r)
@@ -1047,6 +1060,7 @@ type config struct {
 	addr       string
 	lease      int
 	backupPath string
+	corsOrigin string
 }
 
 func parseFlags(args []string) (config, error) {
@@ -1056,6 +1070,7 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
+	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
@@ -1065,9 +1080,9 @@ func parseFlags(args []string) (config, error) {
 	return cfg, nil
 }
 
-func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease int) error {
+func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease int, corsOrigin string) error {
 	srv := &http.Server{
-		Handler:           newHandler(db, lease),
+		Handler:           newHandlerWithCORS(db, lease, corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -1122,7 +1137,7 @@ func main() {
 	}
 	log.Printf("listening on %s", l.Addr())
 
-	if err := runServer(ctx, l, db, cfg.lease); err != nil {
+	if err := runServer(ctx, l, db, cfg.lease, cfg.corsOrigin); err != nil {
 		log.Fatal(err)
 	}
 }
