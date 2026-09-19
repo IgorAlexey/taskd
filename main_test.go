@@ -3090,3 +3090,75 @@ func TestListAssetPathFilter(t *testing.T) {
 		t.Fatalf("unexpected task item: %+v", emptyAsset[0])
 	}
 }
+func TestRejectUnknownFields(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":        "valid",
+		"project":     "p1",
+		"unknown_key": 123,
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with unknown field expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "valid",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks valid expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
+		"worker": "w1",
+		"woker":  "typo",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/claim with typo field expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]any{
+		"worker": "w1",
+		"extra":  "field",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/{id}/claim with unknown field expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+created.ID, map[string]any{
+		"priority": 5,
+		"invalid":  "field",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH /tasks/{id} with unknown field expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("POST /tasks/{id}/claim valid expected 200, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker":  "w1",
+		"unknown": "value",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks/{id}/done with unknown field expected 400, got %d: %s", code, body)
+	}
+}
