@@ -243,6 +243,8 @@ func (u *ui) emptyState() string {
 	return "No tasks yet. Press 'n' to create a task."
 }
 
+const maxMetaWidth = 16
+
 func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	u.all, u.shown = all, u.shown[:0]
@@ -271,7 +273,15 @@ func (u *ui) render(all []task) {
 	now, row := time.Now().Unix(), u.selectedRow()
 	for i, t := range u.shown {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
-		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, short(t.ID), title}
+		cells := []string{
+			statusText(t.Status, u.icons),
+			priorityText(t.Priority, u.icons),
+			truncWidth(t.Project, maxMetaWidth),
+			lease(t, now),
+			truncWidth(t.Worker, maxMetaWidth),
+			short(t.ID),
+			title,
+		}
 		for c, s := range cells {
 			u.table.SetCell(i+1, c, tview.NewTableCell(tview.Escape(s)).SetTextColor(colors[t.Status]).SetExpansion(c/6))
 		}
