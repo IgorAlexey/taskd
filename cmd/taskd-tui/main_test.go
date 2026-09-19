@@ -77,6 +77,33 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		}
 		json.NewEncoder(w).Encode(slices.Sorted(maps.Keys(seen)))
 	})
+	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		project := r.URL.Query().Get("project")
+		var pending, leased, done, total int
+		for _, t := range tasks {
+			if project != "" && project != "*" && t.Project != project {
+				continue
+			}
+			total++
+			switch t.Status {
+			case "pending":
+				pending++
+			case "leased":
+				leased++
+			case "done":
+				done++
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{
+			"pending": pending,
+			"leased":  leased,
+			"done":    done,
+			"total":   total,
+		})
+	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
 			Priority  *int    `json:"priority"`

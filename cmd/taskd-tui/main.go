@@ -134,6 +134,8 @@ type ui struct {
 	shown                 []task
 	projects              []string
 	pending, leased, done int
+	hasServerStats        bool
+	statsProject          string
 	msg                   string
 	msgRev                int
 	msgTimeout            time.Duration
@@ -195,6 +197,42 @@ func (u *ui) fetchProjects() ([]string, error) {
 		return nil, err
 	}
 	return projects, nil
+}
+
+type stats struct {
+	Pending int `json:"pending"`
+	Leased  int `json:"leased"`
+	Done    int `json:"done"`
+}
+
+func (u *ui) fetchStats() (stats, error) {
+	reqURL, err := url.Parse(u.url + "/stats")
+	if err != nil {
+		return stats{}, err
+	}
+	if u.project != "" {
+		q := reqURL.Query()
+		q.Set("project", u.project)
+		reqURL.RawQuery = q.Encode()
+	}
+	resp, err := client.Get(reqURL.String())
+	if err != nil {
+		return stats{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		body := strings.TrimSpace(string(b))
+		if body != "" {
+			return stats{}, fmt.Errorf("GET /stats: %s: %s", resp.Status, body)
+		}
+		return stats{}, fmt.Errorf("GET /stats: %s", resp.Status)
+	}
+	var st stats
+	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		return stats{}, err
+	}
+	return st, nil
 }
 
 func (u *ui) call(method, path string, body any) error {
@@ -323,7 +361,23 @@ const maxMetaWidth = 16
 func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	u.all, u.shown = all, u.shown[:0]
-	u.pending, u.leased, u.done = 0, 0, 0
+	if !u.hasServerStats || u.statsProject != u.project {
+		u.pending, u.leased, u.done = 0, 0, 0
+		for i := range all {
+			t := all[i]
+			if u.project != "" && t.Project != u.project {
+				continue
+			}
+			switch t.Status {
+			case "pending":
+				u.pending++
+			case "leased":
+				u.leased++
+			case "done":
+				u.done++
+			}
+		}
+	}
 	qLower := strings.ToLower(u.query)
 	for i := range all {
 		if all[i].searchText == "" {
@@ -332,14 +386,6 @@ func (u *ui) render(all []task) {
 		t := all[i]
 		if u.project != "" && t.Project != u.project {
 			continue
-		}
-		switch t.Status {
-		case "pending":
-			u.pending++
-		case "leased":
-			u.leased++
-		case "done":
-			u.done++
 		}
 		var matchFilter bool
 		switch u.filter {
@@ -556,6 +602,7 @@ func (u *ui) refresh() {
 	defer u.refreshing.Store(false)
 	ts, err := u.fetch()
 	ps, perr := u.fetchProjects()
+	st, serr := u.fetchStats()
 	u.app.QueueUpdateDraw(func() {
 		if err != nil {
 			u.setMsg(err.Error())
@@ -565,6 +612,13 @@ func (u *ui) refresh() {
 			u.setMsg(perr.Error())
 		} else {
 			u.projects = ps
+		}
+		if serr == nil {
+			u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
+			u.hasServerStats = true
+			u.statsProject = u.project
+		} else {
+			u.hasServerStats = false
 		}
 		u.render(ts)
 	})
@@ -576,6 +630,7 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 		msg := success
 		ts, fetchErr := u.fetch()
 		ps, projErr := u.fetchProjects()
+		st, statsErr := u.fetchStats()
 		u.app.QueueUpdateDraw(func() {
 			for _, cb := range callbacks {
 				cb(err)
@@ -592,6 +647,13 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			}
 			if projErr == nil {
 				u.projects = ps
+			}
+			if statsErr == nil {
+				u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
+				u.hasServerStats = true
+				u.statsProject = u.project
+			} else {
+				u.hasServerStats = false
 			}
 			if fetchErr == nil {
 				u.render(ts)
