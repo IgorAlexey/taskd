@@ -764,6 +764,28 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			http.Error(w, "invalid project", http.StatusBadRequest)
 			return
 		}
+		clearBody := req.Body != nil && *req.Body == ""
+		clearAsset := req.AssetPath != nil && *req.AssetPath == ""
+		if clearBody && clearAsset {
+			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
+			return
+		}
+		if (clearBody && req.AssetPath == nil) || (clearAsset && req.Body == nil) {
+			var curBody, curAssetPath string
+			err := db.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&curBody, &curAssetPath)
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			if (clearBody && curAssetPath == "") || (clearAsset && curBody == "") {
+				http.Error(w, "missing asset_path or body", http.StatusBadRequest)
+				return
+			}
+		}
 		res, err := db.Exec(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path)
 WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,

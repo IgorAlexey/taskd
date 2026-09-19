@@ -3925,3 +3925,122 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		}
 	})
 }
+func TestPatchEmptyBodyAndAssetPath(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "initial",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var res1 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res1); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res1.ID, map[string]any{
+		"body": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH body empty expected 400, got %d: %s", code, body)
+	}
+	var bodyVal string
+	err = db.QueryRow("SELECT body FROM tasks WHERE id = ?", res1.ID).Scan(&bodyVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if bodyVal != "initial" {
+		t.Fatalf("expected body unchanged, got %q", bodyVal)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"asset_path": "spec.md",
+		"project":    "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task with asset_path failed: %d: %s", code, body)
+	}
+	var res2 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res2); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res2.ID, map[string]any{
+		"asset_path": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH asset_path empty expected 400, got %d: %s", code, body)
+	}
+	var assetVal string
+	err = db.QueryRow("SELECT asset_path FROM tasks WHERE id = ?", res2.ID).Scan(&assetVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if assetVal != "spec.md" {
+		t.Fatalf("expected asset_path unchanged, got %q", assetVal)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":       "b",
+		"asset_path": "a",
+		"project":    "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task with both failed: %d: %s", code, body)
+	}
+	var res3 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res3); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res3.ID, map[string]any{
+		"body":       "",
+		"asset_path": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH both empty expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res3.ID, map[string]any{
+		"body": "",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH body empty with non-empty asset expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res3.ID, map[string]any{
+		"asset_path": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH asset empty with empty body expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res3.ID, map[string]any{
+		"body": "newb",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH body restore expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res3.ID, map[string]any{
+		"asset_path": "",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH asset clear with non-empty body expected 204, got %d: %s", code, body)
+	}
+}
