@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>taskd</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --surface: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --accent: #58a6ff;
+    --accent-hover: #79c0ff;
+    --pending: #d29922;
+    --leased: #1f6feb;
+    --done: #238636;
+    --danger: #f85149;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 16px;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #f0f6fc;
+  }
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  button, input, select, textarea {
+    font-family: inherit;
+    font-size: 13px;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+  }
+  button {
+    cursor: pointer;
+    background: #21262d;
+    font-weight: 500;
+    transition: background 0.15s ease;
+  }
+  button:hover { background: #30363d; }
+  button.primary {
+    background: var(--done);
+    border-color: rgba(240,246,252,0.1);
+    color: #ffffff;
+  }
+  button.primary:hover { background: #2ea043; }
+  .grid-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+  }
+  .stat-val {
+    font-size: 22px;
+    font-weight: 700;
+    color: #f0f6fc;
+    margin-top: 4px;
+  }
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .layout {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 16px;
+  }
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: 1fr; }
+  }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-header {
+    padding: 10px 14px;
+    background: #1c2128;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-weight: 600;
+    font-size: 13px;
+  }
+  .filter-bar {
+    display: flex;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: #161b22;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th, td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+  }
+  th {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 12px;
+  }
+  tr:hover td {
+    background: rgba(255,255,255,0.03);
+  }
+  tr.selected td {
+    background: rgba(88,166,255,0.1);
+  }
+  tr { cursor: pointer; }
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge-pending { background: rgba(210,153,34,0.15); color: var(--pending); border: 1px solid var(--pending); }
+  .badge-leased { background: rgba(31,111,235,0.15); color: var(--leased); border: 1px solid var(--leased); }
+  .badge-done { background: rgba(35,134,54,0.15); color: var(--done); border: 1px solid var(--done); }
+  .mono { font-family: var(--mono); font-size: 12px; }
+  .sidebar-section {
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-section:last-child { border-bottom: none; }
+  .field {
+    margin-bottom: 10px;
+  }
+  .field label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+  .field input, .field textarea, .field select {
+    width: 100%;
+  }
+  .field textarea {
+    resize: vertical;
+    min-height: 80px;
+  }
+  pre {
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+  }
+  #error-banner {
+    display: none;
+    background: rgba(248,81,73,0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <div id="error-banner"></div>
+  <header>
+    <h1>taskd</h1>
+    <div class="controls">
+      <label style="font-size: 12px; color: var(--text-muted);">
+        <input type="checkbox" id="auto-refresh" checked> Auto-refresh
+      </label>
+      <button id="refresh-btn" onclick="loadAll()">Refresh</button>
+    </div>
+  </header>
+
+  <div class="grid-stats">
+    <div class="card">
+      <div class="stat-label">Pending</div>
+      <div class="stat-val" id="stat-pending">0</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Leased</div>
+      <div class="stat-val" id="stat-leased">0</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Done</div>
+      <div class="stat-val" id="stat-done">0</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Total</div>
+      <div class="stat-val" id="stat-total">0</div>
+    </div>
+  </div>
+
+  <div class="layout">
+    <div class="panel">
+      <div class="panel-header">
+        <span>Task Queue</span>
+        <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>
+      </div>
+      <div class="filter-bar">
+        <label style="color: var(--text-muted); font-size: 12px;">Project:</label>
+        <select id="filter-project" onchange="loadTasks()">
+          <option value="">(all)</option>
+        </select>
+        <label style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Status:</label>
+        <select id="filter-status" onchange="loadTasks()">
+          <option value="">(all)</option>
+          <option value="pending">Pending</option>
+          <option value="leased">Leased</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+      <div style="overflow-x: auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Project</th>
+              <th>Status</th>
+              <th>Priority</th>
+              <th>Worker</th>
+              <th>Summary</th>
+            </tr>
+          </thead>
+          <tbody id="task-table-body">
+            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div class="panel">
+        <div class="panel-header">Task Details</div>
+        <div class="sidebar-section" id="task-details-content">
+          <p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header">Submit Task</div>
+        <div class="sidebar-section">
+          <form id="submit-task-form" onsubmit="submitTask(event)">
+            <div class="field">
+              <label>Project *</label>
+              <input type="text" id="form-project" required placeholder="e.g. default">
+            </div>
+            <div class="field">
+              <label>Priority</label>
+              <input type="number" id="form-priority" value="0">
+            </div>
+            <div class="field">
+              <label>Body</label>
+              <textarea id="form-body" placeholder="Task description or prompt..."></textarea>
+            </div>
+            <div class="field">
+              <label>Asset Path (optional)</label>
+              <input type="text" id="form-asset" placeholder="/path/to/asset">
+            </div>
+            <div class="field">
+              <label>Custom ID (optional)</label>
+              <input type="text" id="form-id" placeholder="auto-generated if empty">
+            </div>
+            <button type="submit" class="primary" style="width: 100%;">Submit Task</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedTaskId = null;
+    let refreshTimer = null;
+
+    function showError(msg) {
+      const b = document.getElementById('error-banner');
+      if (!msg) {
+        b.style.display = 'none';
+        return;
+      }
+      b.textContent = msg;
+      b.style.display = 'block';
+    }
+
+    async function fetchJSON(url, opts) {
+      try {
+        const res = await fetch(url, opts);
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || res.statusText);
+        }
+        showError(null);
+        if (res.status === 204) return null;
+        return await res.json();
+      } catch (err) {
+        showError(err.message);
+        throw err;
+      }
+    }
+
+    async function loadProjects() {
+      try {
+        const projects = await fetchJSON('/projects');
+        const select = document.getElementById('filter-project');
+        const current = select.value;
+        select.innerHTML = '<option value="">(all)</option>';
+        if (projects) {
+          for (const p of projects) {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            select.appendChild(opt);
+          }
+        }
+        select.value = current;
+      } catch (e) {
+        console.error('Failed to load projects:', e);
+      }
+    }
+
+    async function loadStats() {
+      const proj = document.getElementById('filter-project').value;
+      let url = '/stats';
+      if (proj) url += '?project=' + encodeURIComponent(proj);
+      try {
+        const stats = await fetchJSON(url);
+        if (!stats) return;
+        document.getElementById('stat-pending').textContent = stats.pending ?? 0;
+        document.getElementById('stat-leased').textContent = stats.leased ?? 0;
+        document.getElementById('stat-done').textContent = stats.done ?? 0;
+        document.getElementById('stat-total').textContent = stats.total ?? 0;
+      } catch (e) {
+        console.error('Failed to load stats:', e);
+      }
+    }
+
+    async function loadTasks() {
+      const proj = document.getElementById('filter-project').value;
+      const status = document.getElementById('filter-status').value;
+      let url = '/tasks?limit=200';
+      if (proj) url += '&project=' + encodeURIComponent(proj);
+      if (status) url += '&status=' + encodeURIComponent(status);
+
+      try {
+        const tasks = await fetchJSON(url);
+        const tbody = document.getElementById('task-table-body');
+        document.getElementById('queue-count').textContent = (tasks ? tasks.length : 0) + ' tasks';
+        if (!tasks || tasks.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td></tr>';
+          return;
+        }
+        tbody.innerHTML = '';
+        for (const t of tasks) {
+          const tr = document.createElement('tr');
+          if (t.id === selectedTaskId) tr.className = 'selected';
+          tr.onclick = () => selectTask(t.id);
+          const shortId = t.id.length > 10 ? t.id.slice(0, 8) + '…' : t.id;
+          const summary = t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : t.asset_path;
+          tr.innerHTML = `
+            <td class="mono" title="${t.id}">${shortId}</td>
+            <td>${escapeHTML(t.project)}</td>
+            <td><span class="badge badge-${t.status}">${t.status}</span></td>
+            <td>${t.priority}</td>
+            <td class="mono">${escapeHTML(t.worker || '')}</td>
+            <td>${escapeHTML(summary || '')}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+        if (selectedTaskId) {
+          loadTaskDetails(selectedTaskId);
+        }
+      } catch (e) {
+        console.error('Failed to load tasks:', e);
+      }
+    }
+
+    async function selectTask(id) {
+      selectedTaskId = id;
+      loadTasks();
+      loadTaskDetails(id);
+    }
+
+    async function loadTaskDetails(id) {
+      try {
+        const t = await fetchJSON('/tasks/' + encodeURIComponent(id));
+        const pane = document.getElementById('task-details-content');
+        if (!t) {
+          pane.innerHTML = '<p style="color: var(--text-muted);">Task not found</p>';
+          return;
+        }
+        let primStr = '';
+        if (t.primitives) {
+          primStr = typeof t.primitives === 'string' ? t.primitives : JSON.stringify(t.primitives, null, 2);
+        }
+        pane.innerHTML = `
+          <div class="field"><label>ID</label><span class="mono">${escapeHTML(t.id)}</span></div>
+          <div class="field"><label>Project</label><span>${escapeHTML(t.project)}</span></div>
+          <div class="field"><label>Status</label><span class="badge badge-${t.status}">${t.status}</span></div>
+          <div class="field"><label>Priority</label><span>${t.priority}</span></div>
+          ${t.worker ? `<div class="field"><label>Worker</label><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
+          ${t.lease_expires ? `<div class="field"><label>Lease Expires</label><span>${new Date(t.lease_expires * 1000).toLocaleString()}</span></div>` : ''}
+          ${t.asset_path ? `<div class="field"><label>Asset Path</label><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
+          <div class="field"><label>Body</label><pre>${escapeHTML(t.body || '')}</pre></div>
+          ${primStr ? `<div class="field"><label>Primitives</label><pre>${escapeHTML(primStr)}</pre></div>` : ''}
+        `;
+      } catch (e) {
+        console.error('Failed to load task details:', e);
+      }
+    }
+
+    async function submitTask(e) {
+      e.preventDefault();
+      const proj = document.getElementById('form-project').value.trim();
+      const body = document.getElementById('form-body').value;
+      const prio = parseInt(document.getElementById('form-priority').value, 10) || 0;
+      const asset = document.getElementById('form-asset').value.trim();
+      const customId = document.getElementById('form-id').value.trim();
+
+      const payload = {
+        project: proj,
+        body: body,
+        priority: prio
+      };
+      if (asset) payload.asset_path = asset;
+      if (customId) payload.id = customId;
+
+      try {
+        await fetchJSON('/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        document.getElementById('form-body').value = '';
+        document.getElementById('form-asset').value = '';
+        document.getElementById('form-id').value = '';
+        await loadAll();
+      } catch (err) {
+        console.error('Failed to submit task:', err);
+      }
+    }
+
+    function escapeHTML(str) {
+      if (!str) return '';
+      return String(str).replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag));
+    }
+
+    async function loadAll() {
+      await Promise.all([loadProjects(), loadStats(), loadTasks()]);
+    }
+
+    function setupAutoRefresh() {
+      const cb = document.getElementById('auto-refresh');
+      if (refreshTimer) clearInterval(refreshTimer);
+      if (cb.checked) {
+        refreshTimer = setInterval(loadAll, 3000);
+      }
+      cb.onchange = setupAutoRefresh;
+    }
+
+    loadAll();
+    setupAutoRefresh();
+  </script>
+</body>
+</html>

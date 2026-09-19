@@ -3162,3 +3162,128 @@ func TestRejectUnknownFields(t *testing.T) {
 		t.Fatalf("POST /tasks/{id}/done with unknown field expected 400, got %d: %s", code, body)
 	}
 }
+
+func TestWebUI(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/ui")
+	if err != nil {
+		t.Fatalf("GET /ui failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /ui, got %d", resp.StatusCode)
+	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.Contains(ct, "text/html") {
+		t.Fatalf("expected Content-Type text/html, got %q", ct)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("io.ReadAll failed: %v", err)
+	}
+	if !strings.Contains(string(body), "<html") {
+		t.Fatalf("expected <html in response body, got %s", string(body))
+	}
+	for _, substr := range []string{"Pending", "Leased", "Done", "Task Details", "Submit Task"} {
+		if !strings.Contains(string(body), substr) {
+			t.Fatalf("expected %q in UI response body", substr)
+		}
+	}
+
+	respSlash, err := http.Get(srv.URL + "/ui/")
+	if err != nil {
+		t.Fatalf("GET /ui/ failed: %v", err)
+	}
+	defer respSlash.Body.Close()
+	if respSlash.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /ui/, got %d", respSlash.StatusCode)
+	}
+
+	postResp, err := http.Post(srv.URL+"/ui", "text/plain", nil)
+	if err != nil {
+		t.Fatalf("POST /ui failed: %v", err)
+	}
+	postResp.Body.Close()
+	if postResp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for POST /ui, got %d", postResp.StatusCode)
+	}
+}
+
+func TestStats(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	getStats := func(query string) map[string]int {
+		resp, err := http.Get(srv.URL + "/stats" + query)
+		if err != nil {
+			t.Fatalf("GET /stats failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 OK from GET /stats, got %d", resp.StatusCode)
+		}
+		var st map[string]int
+		if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+			t.Fatalf("decode stats failed: %v", err)
+		}
+		return st
+	}
+
+	st := getStats("")
+	if st["total"] != 0 || st["pending"] != 0 || st["leased"] != 0 || st["done"] != 0 {
+		t.Fatalf("expected all zeros for empty db, got %+v", st)
+	}
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{"body": "t1", "project": "p1"})
+	if code != http.StatusCreated {
+		t.Fatalf("create t1 failed: %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	json.Unmarshal(body, &created)
+
+	st = getStats("")
+	if st["pending"] != 1 || st["total"] != 1 {
+		t.Fatalf("expected 1 pending and total 1, got %+v", st)
+	}
+
+	// Claim
+	post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1"})
+	st = getStats("")
+	if st["leased"] != 1 || st["pending"] != 0 {
+		t.Fatalf("expected 1 leased and 0 pending, got %+v", st)
+	}
+
+	// Done
+	post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]string{"worker": "w1"})
+	st = getStats("")
+	if st["done"] != 1 || st["leased"] != 0 || st["total"] != 1 {
+		t.Fatalf("expected 1 done, got %+v", st)
+	}
+
+	// Project filter
+	stP1 := getStats("?project=p1")
+	if stP1["done"] != 1 {
+		t.Fatalf("expected 1 done in p1, got %+v", stP1)
+	}
+	stP2 := getStats("?project=p2")
+	if stP2["total"] != 0 {
+		t.Fatalf("expected 0 in p2, got %+v", stP2)
+	}
+}

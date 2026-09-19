@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -250,9 +251,46 @@ func validTaskID(id string) bool {
 	return true
 }
 
+//go:embed index.html
+var uiHTML []byte
+
 func newHandler(db *sql.DB, lease int) http.Handler {
 	mux := http.NewServeMux()
 
+	uiHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(uiHTML)
+	}
+	mux.HandleFunc("GET /ui", uiHandler)
+	mux.HandleFunc("GET /ui/", uiHandler)
+	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, r *http.Request) {
+		project := r.URL.Query().Get("project")
+		now := time.Now().Unix()
+		query := `SELECT
+  COUNT(CASE WHEN status = 'pending' OR (status = 'leased' AND lease_expires < ?) THEN 1 END),
+  COUNT(CASE WHEN status = 'leased' AND lease_expires >= ? THEN 1 END),
+  COUNT(CASE WHEN status = 'done' THEN 1 END),
+  COUNT(*)
+FROM tasks`
+		var args []any
+		args = append(args, now, now)
+		if project != "" && project != "*" {
+			query += " WHERE project = ?"
+			args = append(args, project)
+		}
+		var pending, leased, done, total int
+		if err := db.QueryRow(query, args...).Scan(&pending, &leased, &done, &total); err != nil {
+			internalError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{
+			"pending": pending,
+			"leased":  leased,
+			"done":    done,
+			"total":   total,
+		})
+	})
 	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ID        string `json:"id"`
