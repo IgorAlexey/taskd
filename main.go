@@ -24,7 +24,8 @@ func openDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	const schema = `CREATE TABLE IF NOT EXISTS tasks (
+	steps := []string{
+		`CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   asset_path TEXT NOT NULL DEFAULT '',
   status TEXT DEFAULT 'pending',
@@ -35,10 +36,27 @@ func openDB(path string) (*sql.DB, error) {
   priority INTEGER NOT NULL DEFAULT 0
 );
 DROP INDEX IF EXISTS idx_tasks_claim;
-CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);`
-	if _, err := db.Exec(schema); err != nil {
+CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);`,
+		`ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);`,
+	}
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		db.Close()
 		return nil, err
+	}
+	if version == 0 {
+		var n int
+		db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks')").Scan(&n)
+		if n > 0 {
+			version = 1
+		}
+	}
+	for ; version < len(steps); version++ {
+		if _, err := db.Exec(steps[version] + fmt.Sprintf("\nPRAGMA user_version = %d;", version+1)); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
 	return db, nil
 }
@@ -72,12 +90,17 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 			AssetPath string `json:"asset_path"`
 			Body      string `json:"body"`
 			Priority  int    `json:"priority"`
+			Project   string `json:"project"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
 		if req.AssetPath == "" && req.Body == "" {
 			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
+			return
+		}
+		if req.Project == "" || req.Project == "*" {
+			http.Error(w, "missing project", http.StatusBadRequest)
 			return
 		}
 		if req.ID == "" {
@@ -88,7 +111,7 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 			}
 			req.ID = hex.EncodeToString(b[:])
 		}
-		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority) VALUES (?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, req.Priority)
+		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, req.Priority, req.Project)
 		if err != nil {
 			var se *sqlite.Error
 			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
@@ -105,7 +128,8 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 
 	mux.HandleFunc("POST /tasks/claim", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Worker string `json:"worker"`
+			Worker  string `json:"worker"`
+			Project string `json:"project"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
@@ -114,18 +138,27 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
+		if req.Project == "" {
+			req.Project = "*"
+		}
 		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?
 WHERE id = (
   SELECT id FROM tasks
-  WHERE status='pending' OR (status='leased' AND lease_expires < unixepoch())
+  WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))`
+		args := []any{req.Worker, lease}
+		if req.Project != "*" {
+			query += " AND project = ?"
+			args = append(args, req.Project)
+		}
+		query += `
   ORDER BY priority DESC, rowid ASC
   LIMIT 1
-) RETURNING id, asset_path, body, priority`
+) RETURNING id, asset_path, body, priority, project`
 		var (
-			id, assetPath, body string
-			priority            int
+			id, assetPath, body, project string
+			priority                     int
 		)
-		err := db.QueryRow(query, req.Worker, lease).Scan(&id, &assetPath, &body, &priority)
+		err := db.QueryRow(query, args...).Scan(&id, &assetPath, &body, &priority, &project)
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -140,11 +173,13 @@ WHERE id = (
 			AssetPath string `json:"asset_path"`
 			Body      string `json:"body"`
 			Priority  int    `json:"priority"`
+			Project   string `json:"project"`
 		}{
 			ID:        id,
 			AssetPath: assetPath,
 			Body:      body,
 			Priority:  priority,
+			Project:   project,
 		})
 	})
 
@@ -183,17 +218,28 @@ WHERE id = (
 
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		status := r.URL.Query().Get("status")
+		project := r.URL.Query().Get("project")
 		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
 		if err != nil || limit <= 0 {
 			limit = 100
 		}
-		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives FROM tasks"
-		args := []any{limit}
+		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks"
+		var where []string
+		var args []any
 		if status != "" {
-			query += " WHERE status = ?"
-			args = []any{status, limit}
+			where = append(where, "status = ?")
+			args = append(args, status)
 		}
-		rows, err := db.Query(query+" ORDER BY priority DESC, rowid ASC LIMIT ?", args...)
+		if project != "" {
+			where = append(where, "project = ?")
+			args = append(args, project)
+		}
+		if len(where) > 0 {
+			query += " WHERE " + strings.Join(where, " AND ")
+		}
+		query += " ORDER BY priority DESC, rowid ASC LIMIT ?"
+		args = append(args, limit)
+		rows, err := db.Query(query, args...)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -209,6 +255,7 @@ WHERE id = (
 			Priority     int             `json:"priority"`
 			Body         string          `json:"body"`
 			Primitives   json.RawMessage `json:"primitives"`
+			Project      string          `json:"project"`
 		}
 
 		tasks := make([]taskItem, 0)
@@ -219,7 +266,7 @@ WHERE id = (
 				leaseExpires sql.NullInt64
 				prim         []byte
 			)
-			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim); err != nil {
+			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project); err != nil {
 				internalError(w, err)
 				return
 			}

@@ -7,7 +7,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 
 type task struct {
 	ID           string          `json:"id"`
+	Project      string          `json:"project"`
 	AssetPath    string          `json:"asset_path"`
 	Status       string          `json:"status"`
 	Worker       string          `json:"worker"`
@@ -29,15 +32,16 @@ type task struct {
 var client = &http.Client{Timeout: 3 * time.Second}
 
 type ui struct {
-	url    string
-	app    *tview.Application
-	table  *tview.Table
-	body   *tview.TextView
-	status *tview.TextView
-	filter string
-	all    []task
-	shown  []task
-	msg    string
+	url     string
+	app     *tview.Application
+	table   *tview.Table
+	body    *tview.TextView
+	status  *tview.TextView
+	filter  string
+	project string
+	all     []task
+	shown   []task
+	msg     string
 }
 
 func (u *ui) fetch() ([]task, error) {
@@ -95,21 +99,21 @@ func (u *ui) render(all []task) {
 	counts := map[string]int{}
 	for _, t := range all {
 		counts[t.Status]++
-		if u.filter == "" || t.Status == u.filter {
+		if (u.filter == "" || t.Status == u.filter) && (u.project == "" || t.Project == u.project) {
 			u.shown = append(u.shown, t)
 		}
 	}
 	u.table.Clear()
-	for i, h := range []string{"STATUS", "PRI", "LEASE", "WORKER", "ID", "TITLE"} {
+	for i, h := range []string{"STATUS", "PRI", "PROJECT", "LEASE", "WORKER", "ID", "TITLE"} {
 		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false))
 	}
 	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
 	now, row := time.Now().Unix(), 1
 	for i, t := range u.shown {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
-		cells := []string{t.Status, fmt.Sprint(t.Priority), lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
+		cells := []string{t.Status, fmt.Sprint(t.Priority), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
 		for c, s := range cells {
-			u.table.SetCell(i+1, c, tview.NewTableCell(s).SetTextColor(colors[t.Status]).SetExpansion(c/5))
+			u.table.SetCell(i+1, c, tview.NewTableCell(s).SetTextColor(colors[t.Status]).SetExpansion(c/6))
 		}
 		if t.ID == keep.ID {
 			row = i + 1
@@ -117,8 +121,8 @@ func (u *ui) render(all []task) {
 	}
 	u.table.Select(row, 0)
 	u.showBody()
-	u.status.SetText(fmt.Sprintf(" %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [+/-] priority  [D] delete  [q] quit   %s",
-		cmp.Or(u.filter, "all"), counts["pending"], counts["leased"], counts["done"], u.msg))
+	u.status.SetText(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [p] project  [+/-] priority  [D] delete  [q] quit   %s",
+		cmp.Or(u.filter, "all"), cmp.Or(u.project, "all"), counts["pending"], counts["leased"], counts["done"], u.msg))
 }
 
 func (u *ui) showBody() {
@@ -169,6 +173,28 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		return tcell.NewEventKey(tcell.KeyUp, 0, 0)
 	case '0', '1', '2', '3':
 		u.filter = []string{"", "pending", "leased", "done"}[ev.Rune()-'0']
+		u.render(u.all)
+	case 'p':
+		seen := map[string]bool{}
+		for _, t := range u.all {
+			if t.Project != "" {
+				seen[t.Project] = true
+			}
+		}
+		projects := slices.Sorted(maps.Keys(seen))
+		next := ""
+		for i, p := range projects {
+			if p == u.project {
+				if i+1 < len(projects) {
+					next = projects[i+1]
+				}
+				break
+			}
+		}
+		if u.project == "" && len(projects) > 0 {
+			next = projects[0]
+		}
+		u.project = next
 		u.render(u.all)
 	case '+', '=', '-':
 		if ok {

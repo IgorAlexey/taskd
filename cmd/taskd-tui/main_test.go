@@ -14,9 +14,9 @@ import (
 func stub(t *testing.T) (*ui, *[]task) {
 	t.Helper()
 	tasks := []task{
-		{ID: "aaaaaaa1", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
-		{ID: "bbbbbbb2", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
-		{ID: "ccccccc3", Status: "done", Body: "third", Primitives: json.RawMessage(`{"commit":"x"}`)},
+		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
+		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
+		{ID: "ccccccc3", Project: "proj-b", Status: "done", Body: "third", Primitives: json.RawMessage(`{"commit":"x"}`)},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) { json.NewEncoder(w).Encode(tasks) })
@@ -49,14 +49,47 @@ func TestRenderAndKeys(t *testing.T) {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
 	u.render(ts)
-	if got := u.table.GetCell(1, 5).Text; got != "first task" {
+	if got := u.table.GetCell(0, 2).Text; got != "PROJECT" {
+		t.Fatalf("header cell = %q", got)
+	}
+	if got := u.table.GetCell(1, 2).Text; got != "proj-b" {
+		t.Fatalf("project cell = %q", got)
+	}
+	if got := u.table.GetCell(1, 6).Text; got != "first task" {
 		t.Fatalf("title cell = %q", got)
 	}
-	if got := u.table.GetCell(2, 2).Text; !strings.HasSuffix(got, "s") || got == "expired" {
+	if got := u.table.GetCell(2, 3).Text; !strings.HasSuffix(got, "s") || got == "expired" {
 		t.Fatalf("lease cell = %q", got)
+	}
+	if !strings.Contains(u.status.GetText(true), "project all") {
+		t.Fatalf("status line project = %q", u.status.GetText(true))
 	}
 	if !strings.Contains(u.status.GetText(true), "pending 1  leased 1  done 1") {
 		t.Fatalf("status = %q", u.status.GetText(true))
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'p', 0))
+	if u.project != "proj-a" || len(u.shown) != 1 || u.shown[0].ID != "bbbbbbb2" {
+		t.Fatalf("filter project proj-a: project=%q shown=%+v", u.project, u.shown)
+	}
+	if !strings.Contains(u.status.GetText(true), "project proj-a") {
+		t.Fatalf("status line project = %q", u.status.GetText(true))
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'p', 0))
+	if u.project != "proj-b" || len(u.shown) != 2 {
+		t.Fatalf("filter project proj-b: project=%q shown=%+v", u.project, u.shown)
+	}
+	if !strings.Contains(u.status.GetText(true), "project proj-b") {
+		t.Fatalf("status line project = %q", u.status.GetText(true))
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'p', 0))
+	if u.project != "" || len(u.shown) != 3 {
+		t.Fatalf("filter project all: project=%q shown=%+v", u.project, u.shown)
+	}
+	if !strings.Contains(u.status.GetText(true), "project all") {
+		t.Fatalf("status line project = %q", u.status.GetText(true))
 	}
 
 	u.keys(tcell.NewEventKey(tcell.KeyRune, '3', 0))

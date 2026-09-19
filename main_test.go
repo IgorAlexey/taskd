@@ -52,7 +52,7 @@ func TestFlow(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	code, body := post(t, srv.URL+"/tasks", map[string]string{"asset_path": "a.glb"})
+	code, body := post(t, srv.URL+"/tasks", map[string]string{"asset_path": "a.glb", "project": "p"})
 	if code != http.StatusCreated {
 		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
 	}
@@ -155,9 +155,20 @@ func TestValidation(t *testing.T) {
 		t.Fatalf("POST /tasks {} expected 400, got %d: %s", code, body)
 	}
 
+	code, body = post(t, srv.URL+"/tasks", map[string]string{"body": "x"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks without project expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{"body": "x", "project": "*"})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with project * expected 400, got %d: %s", code, body)
+	}
+
 	explicit := map[string]string{
 		"id":         "explicit-1",
 		"asset_path": "model.glb",
+		"project":    "p",
 	}
 	code, body = post(t, srv.URL+"/tasks", explicit)
 	if code != http.StatusCreated {
@@ -208,7 +219,7 @@ func TestExpiredLeaseReclaim(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	code, body := post(t, srv.URL+"/tasks", map[string]string{"asset_path": "scene.gltf"})
+	code, body := post(t, srv.URL+"/tasks", map[string]string{"asset_path": "scene.gltf", "project": "p"})
 	if code != http.StatusCreated {
 		t.Fatalf("enqueue expected 201, got %d: %s", code, body)
 	}
@@ -296,6 +307,7 @@ func TestConcurrentClaims(t *testing.T) {
 	for i := 0; i < numTasks; i++ {
 		code, body := post(t, srv.URL+"/tasks", map[string]string{
 			"asset_path": fmt.Sprintf("asset-%d.glb", i),
+			"project":    "p",
 		})
 		if code != http.StatusCreated {
 			t.Fatalf("enqueue task %d expected 201, got %d: %s", i, code, body)
@@ -319,7 +331,8 @@ func TestConcurrentClaims(t *testing.T) {
 			defer wg.Done()
 			<-start
 			code, body := post(t, srv.URL+"/tasks/claim", map[string]string{
-				"worker": worker,
+				"worker":  worker,
+				"project": "*",
 			})
 			var id string
 			if code == http.StatusOK {
@@ -464,6 +477,7 @@ func TestEnqueueBodyPriority(t *testing.T) {
 	code, body := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "# fix X\ndetails",
 		"priority": 5,
+		"project":  "p",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("POST /tasks with body and priority expected 201, got %d: %s", code, body)
@@ -497,7 +511,8 @@ func TestEnqueueBodyPriority(t *testing.T) {
 	}
 
 	code, body = post(t, srv.URL+"/tasks", map[string]any{
-		"body": "only body",
+		"body":    "only body",
+		"project": "p",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("POST /tasks with only body expected 201, got %d: %s", code, body)
@@ -539,6 +554,7 @@ func TestClaimPriorityOrder(t *testing.T) {
 	codeA, bodyA := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "task A",
 		"priority": 0,
+		"project":  "p",
 	})
 	if codeA != http.StatusCreated {
 		t.Fatalf("create A failed: %d: %s", codeA, bodyA)
@@ -553,6 +569,7 @@ func TestClaimPriorityOrder(t *testing.T) {
 	codeB, bodyB := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "task B",
 		"priority": 9,
+		"project":  "p",
 	})
 	if codeB != http.StatusCreated {
 		t.Fatalf("create B failed: %d: %s", codeB, bodyB)
@@ -567,6 +584,7 @@ func TestClaimPriorityOrder(t *testing.T) {
 	codeC, bodyC := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "task C",
 		"priority": 0,
+		"project":  "p",
 	})
 	if codeC != http.StatusCreated {
 		t.Fatalf("create C failed: %d: %s", codeC, bodyC)
@@ -662,6 +680,7 @@ func TestListTasks(t *testing.T) {
 		"asset_path": "model1.glb",
 		"body":       "first task",
 		"priority":   2,
+		"project":    "p",
 	})
 	if code1 != http.StatusCreated {
 		t.Fatalf("create task 1 failed: %d: %s", code1, body1)
@@ -676,6 +695,7 @@ func TestListTasks(t *testing.T) {
 	code2, body2 := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "second task",
 		"priority": 1,
+		"project":  "p",
 	})
 	if code2 != http.StatusCreated {
 		t.Fatalf("create task 2 failed: %d: %s", code2, body2)
@@ -705,7 +725,7 @@ func TestListTasks(t *testing.T) {
 	}
 
 	for _, taskMap := range allTasks {
-		requiredKeys := []string{"id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives"}
+		requiredKeys := []string{"id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project"}
 		for _, key := range requiredKeys {
 			if _, ok := taskMap[key]; !ok {
 				t.Fatalf("missing required key %q in task JSON: %v", key, taskMap)
@@ -763,6 +783,7 @@ func TestPatchTask(t *testing.T) {
 	code, body := post(t, srv.URL+"/tasks", map[string]any{
 		"body":     "initial body",
 		"priority": 1,
+		"project":  "p",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("create task failed: %d: %s", code, body)
@@ -836,7 +857,8 @@ func TestDeleteTask(t *testing.T) {
 	defer srv.Close()
 
 	code, body := post(t, srv.URL+"/tasks", map[string]any{
-		"body": "to delete",
+		"body":    "to delete",
+		"project": "p",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("create task failed: %d: %s", code, body)
@@ -878,7 +900,8 @@ func TestDeleteLeasedTask(t *testing.T) {
 	defer srv.Close()
 
 	code, body := post(t, srv.URL+"/tasks", map[string]any{
-		"body": "cannot delete leased",
+		"body":    "cannot delete leased",
+		"project": "p",
 	})
 	if code != http.StatusCreated {
 		t.Fatalf("create task failed: %d: %s", code, body)
@@ -917,5 +940,263 @@ func TestDeleteLeasedTask(t *testing.T) {
 	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
 	if code != http.StatusNotFound {
 		t.Fatalf("second DELETE expected 404, got %d: %s", code, body)
+	}
+}
+
+func TestClaimProject(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	codeA, bodyA := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task A",
+		"project": "x",
+	})
+	if codeA != http.StatusCreated {
+		t.Fatalf("enqueue A failed: %d: %s", codeA, bodyA)
+	}
+	var resA struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(bodyA, &resA); err != nil {
+		t.Fatalf("unmarshal A failed: %v", err)
+	}
+
+	codeB, bodyB := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task B",
+		"project": "y",
+	})
+	if codeB != http.StatusCreated {
+		t.Fatalf("enqueue B failed: %d: %s", codeB, bodyB)
+	}
+	var resB struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(bodyB, &resB); err != nil {
+		t.Fatalf("unmarshal B failed: %v", err)
+	}
+
+	type claimResp struct {
+		ID      string `json:"id"`
+		Body    string `json:"body"`
+		Project string `json:"project"`
+	}
+
+	codeY, dataY := post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "y",
+	})
+	if codeY != http.StatusOK {
+		t.Fatalf("claim project y expected 200, got %d: %s", codeY, dataY)
+	}
+	var claimY claimResp
+	if err := json.Unmarshal(dataY, &claimY); err != nil {
+		t.Fatalf("unmarshal claim y failed: %v", err)
+	}
+	if claimY.ID != resB.ID {
+		t.Fatalf("expected claim y to return task B (%q), got %q", resB.ID, claimY.ID)
+	}
+	if claimY.Project != "y" {
+		t.Fatalf("expected claim y project 'y', got %q", claimY.Project)
+	}
+
+	codeX, dataX := post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "x",
+	})
+	if codeX != http.StatusOK {
+		t.Fatalf("claim project x expected 200, got %d: %s", codeX, dataX)
+	}
+	var claimX claimResp
+	if err := json.Unmarshal(dataX, &claimX); err != nil {
+		t.Fatalf("unmarshal claim x failed: %v", err)
+	}
+	if claimX.ID != resA.ID {
+		t.Fatalf("expected claim x to return task A (%q), got %q", resA.ID, claimX.ID)
+	}
+	if claimX.Project != "x" {
+		t.Fatalf("expected claim x project 'x', got %q", claimX.Project)
+	}
+
+	codeZ, dataZ := post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "z",
+	})
+	if codeZ != http.StatusNoContent {
+		t.Fatalf("claim project z expected 204, got %d: %s", codeZ, dataZ)
+	}
+
+	codeEmpty, dataEmpty := post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker": "w1",
+	})
+	if codeEmpty != http.StatusNoContent {
+		t.Fatalf("claim without project after both leased expected 204, got %d: %s", codeEmpty, dataEmpty)
+	}
+
+	codeAll, dataAll := post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker": "w1",
+	})
+	if codeAll != http.StatusNoContent {
+		t.Fatalf("claim '*' after both leased expected 204, got %d: %s", codeAll, dataAll)
+	}
+}
+
+func TestListProjectFilter(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code1, body1 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task 1",
+		"project": "x",
+	})
+	if code1 != http.StatusCreated {
+		t.Fatalf("create task 1 failed: %d: %s", code1, body1)
+	}
+	var res1 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body1, &res1); err != nil {
+		t.Fatalf("unmarshal task 1 failed: %v", err)
+	}
+
+	code2, body2 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task 2",
+		"project": "x",
+	})
+	if code2 != http.StatusCreated {
+		t.Fatalf("create task 2 failed: %d: %s", code2, body2)
+	}
+	var res2 struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body2, &res2); err != nil {
+		t.Fatalf("unmarshal task 2 failed: %v", err)
+	}
+
+	code3, body3 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "task 3",
+		"project": "y",
+	})
+	if code3 != http.StatusCreated {
+		t.Fatalf("create task 3 failed: %d: %s", code3, body3)
+	}
+
+	claimCode, claimBody := post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "x",
+	})
+	if claimCode != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", claimCode, claimBody)
+	}
+	var claimResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(claimBody, &claimResp); err != nil {
+		t.Fatalf("unmarshal claim failed: %v", err)
+	}
+	if claimResp.ID != res1.ID {
+		t.Fatalf("expected claimed task to be task 1 (%q), got %q", res1.ID, claimResp.ID)
+	}
+
+	type taskItem struct {
+		ID      string `json:"id"`
+		Status  string `json:"status"`
+		Project string `json:"project"`
+		Body    string `json:"body"`
+	}
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?project=x", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=x expected 200, got %d: %s", code, body)
+	}
+	var tasksX []taskItem
+	if err := json.Unmarshal(body, &tasksX); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksX) != 2 {
+		t.Fatalf("expected 2 tasks for project x, got %d", len(tasksX))
+	}
+	for _, item := range tasksX {
+		if item.Project != "x" {
+			t.Fatalf("expected project 'x', got %q", item.Project)
+		}
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=y", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=y expected 200, got %d: %s", code, body)
+	}
+	var tasksY []taskItem
+	if err := json.Unmarshal(body, &tasksY); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v: %s", err, body)
+	}
+	if len(tasksY) != 1 {
+		t.Fatalf("expected 1 task for project y, got %d", len(tasksY))
+	}
+	if tasksY[0].Project != "y" {
+		t.Fatalf("expected project 'y', got %q", tasksY[0].Project)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=x&status=leased", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=x&status=leased expected 200, got %d: %s", code, body)
+	}
+	var leasedX []taskItem
+	if err := json.Unmarshal(body, &leasedX); err != nil {
+		t.Fatalf("unmarshal leased tasks failed: %v: %s", err, body)
+	}
+	if len(leasedX) != 1 {
+		t.Fatalf("expected 1 leased task for project x, got %d", len(leasedX))
+	}
+	if leasedX[0].ID != res1.ID {
+		t.Fatalf("expected leased task id %q, got %q", res1.ID, leasedX[0].ID)
+	}
+	if leasedX[0].Project != "x" || leasedX[0].Status != "leased" {
+		t.Fatalf("unexpected task fields: %+v", leasedX[0])
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=x&status=pending", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=x&status=pending expected 200, got %d: %s", code, body)
+	}
+	var pendingX []taskItem
+	if err := json.Unmarshal(body, &pendingX); err != nil {
+		t.Fatalf("unmarshal pending tasks failed: %v: %s", err, body)
+	}
+	if len(pendingX) != 1 {
+		t.Fatalf("expected 1 pending task for project x, got %d", len(pendingX))
+	}
+	if pendingX[0].ID != res2.ID {
+		t.Fatalf("expected pending task id %q, got %q", res2.ID, pendingX[0].ID)
+	}
+	if pendingX[0].Project != "x" || pendingX[0].Status != "pending" {
+		t.Fatalf("unexpected task fields: %+v", pendingX[0])
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=x&status=done", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=x&status=done expected 200, got %d: %s", code, body)
+	}
+	if strings.TrimSpace(string(body)) != "[]" {
+		t.Fatalf("expected [], got %q", string(body))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=nonexistent", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=nonexistent expected 200, got %d: %s", code, body)
+	}
+	if strings.TrimSpace(string(body)) != "[]" {
+		t.Fatalf("expected [], got %q", string(body))
 	}
 }
