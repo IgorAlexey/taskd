@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -362,24 +363,32 @@ func TestCreateForm(t *testing.T) {
 	u.app.QueueUpdateDraw(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'n', 0))
 	})
-	var form *tview.Form
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	var formErr string
+	u.app.QueueUpdate(func() {
+		form := u.form
+		if form == nil {
+			formErr = "expected form to be open after pressing n"
+			return
+		}
+		if got := form.GetFormItem(0).(*tview.InputField).GetText(); got != "taskd" {
+			formErr = fmt.Sprintf("default project = %q, want taskd", got)
+			return
+		}
+		if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "" {
+			formErr = fmt.Sprintf("default priority = %q, want blank", got)
+			return
+		}
+		if got := form.GetFormItem(2).(*tview.InputField).GetText(); got != "" {
+			formErr = fmt.Sprintf("default asset path = %q, want empty", got)
+			return
+		}
+		if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != "" {
+			formErr = fmt.Sprintf("default body = %q, want empty", got)
+			return
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing n")
-	}
-	if got := form.GetFormItem(0).(*tview.InputField).GetText(); got != "taskd" {
-		t.Fatalf("default project = %q, want taskd", got)
-	}
-	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "" {
-		t.Fatalf("default priority = %q, want blank", got)
-	}
-	if got := form.GetFormItem(2).(*tview.InputField).GetText(); got != "" {
-		t.Fatalf("default asset path = %q, want empty", got)
-	}
-	if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != "" {
-		t.Fatalf("default body = %q, want empty", got)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	screenText := func() string {
 		cells, _, _ := sim.GetContents()
@@ -395,19 +404,25 @@ func TestCreateForm(t *testing.T) {
 		s := screenText()
 		return strings.Contains(s, "aaaaaaa") && strings.Contains(s, "first task")
 	})
-	fx, fy, fw, fh := form.GetRect()
-	if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
-		t.Fatalf("expected centered bounded form, got rect (%d, %d, %d, %d)", fx, fy, fw, fh)
+	u.app.QueueUpdate(func() {
+		fx, fy, fw, fh := u.form.GetRect()
+		if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
+			formErr = fmt.Sprintf("expected centered bounded form, got rect (%d, %d, %d, %d)", fx, fy, fw, fh)
+		}
+	})
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	u.app.QueueUpdateDraw(func() {
 		u.form.InputHandler()(tcell.NewEventKey(tcell.KeyEscape, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after cancel")
-	}
 	mu.Lock()
 	count := len(*tasks)
 	mu.Unlock()
@@ -419,14 +434,15 @@ func TestCreateForm(t *testing.T) {
 		u.project = "proj-a"
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'n', 0))
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to be open after pressing n with project filter"
+		} else if got := u.form.GetFormItem(0).(*tview.InputField).GetText(); got != "proj-a" {
+			formErr = fmt.Sprintf("pre-filled project = %q, want proj-a", got)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing n with project filter")
-	}
-	if got := form.GetFormItem(0).(*tview.InputField).GetText(); got != "proj-a" {
-		t.Fatalf("pre-filled project = %q, want proj-a", got)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	u.app.QueueUpdateDraw(func() {
 		u.form.GetFormItem(1).(*tview.InputField).SetText("42")
@@ -445,12 +461,13 @@ func TestCreateForm(t *testing.T) {
 	if created.Project != "proj-a" || created.Priority != 42 || created.Body != "brand new task\n\nWhy: multi-line test\nDone when: ok" {
 		t.Fatalf("created task mismatch: %+v", created)
 	}
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after submit")
-	}
 }
 
 func TestMouseSupport(t *testing.T) {
@@ -904,55 +921,69 @@ func TestEditForm(t *testing.T) {
 		u.table.Select(1, 0)
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
 	})
-	var form *tview.Form
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	var formErr string
+	u.app.QueueUpdate(func() {
+		form := u.form
+		if form == nil {
+			formErr = "expected form to be open after pressing e"
+			return
+		}
+		projItem, ok := form.GetFormItemByLabel("Project").(*tview.InputField)
+		if !ok || projItem == nil {
+			formErr = fmt.Sprintf("expected project item to be *tview.InputField, got %T", form.GetFormItemByLabel("Project"))
+			return
+		}
+		if got := projItem.GetText(); got != "proj-b" {
+			formErr = fmt.Sprintf("pre-filled project = %q, want proj-b", got)
+			return
+		}
+		priItem, ok := form.GetFormItemByLabel("Priority").(*tview.InputField)
+		if !ok || priItem == nil {
+			formErr = fmt.Sprintf("expected pri item to be *tview.InputField, got %T", form.GetFormItemByLabel("Priority"))
+			return
+		}
+		if got := priItem.GetText(); got != "2" {
+			formErr = fmt.Sprintf("pre-filled priority = %q, want 2", got)
+			return
+		}
+		assetItem, ok := form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+		if !ok || assetItem == nil {
+			formErr = fmt.Sprintf("expected asset item to be *tview.InputField, got %T", form.GetFormItemByLabel("Asset Path"))
+			return
+		}
+		if got := assetItem.GetText(); got != "" {
+			formErr = fmt.Sprintf("pre-filled asset path = %q, want empty", got)
+			return
+		}
+		bodyItem, ok := form.GetFormItemByLabel("Body").(*tview.TextArea)
+		if !ok || bodyItem == nil {
+			formErr = fmt.Sprintf("expected body item to be *tview.TextArea, got %T", form.GetFormItemByLabel("Body"))
+			return
+		}
+		if got := bodyItem.GetText(); got != "first task\n\nWhy: a" {
+			formErr = fmt.Sprintf("pre-filled body = %q, want first task\\n\\nWhy: a", got)
+			return
+		}
+		fx, fy, fw, fh := form.GetRect()
+		if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
+			formErr = fmt.Sprintf("expected centered bounded form, got rect (%d, %d, %d, %d)", fx, fy, fw, fh)
+			return
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing e")
-	}
-	projItem, ok := form.GetFormItemByLabel("Project").(*tview.InputField)
-	if !ok || projItem == nil {
-		t.Fatalf("expected project item to be *tview.InputField, got %T", form.GetFormItemByLabel("Project"))
-	}
-	if got := projItem.GetText(); got != "proj-b" {
-		t.Fatalf("pre-filled project = %q, want proj-b", got)
-	}
-	priItem, ok := form.GetFormItemByLabel("Priority").(*tview.InputField)
-	if !ok || priItem == nil {
-		t.Fatalf("expected pri item to be *tview.InputField, got %T", form.GetFormItemByLabel("Priority"))
-	}
-	if got := priItem.GetText(); got != "2" {
-		t.Fatalf("pre-filled priority = %q, want 2", got)
-	}
-	assetItem, ok := form.GetFormItemByLabel("Asset Path").(*tview.InputField)
-	if !ok || assetItem == nil {
-		t.Fatalf("expected asset item to be *tview.InputField, got %T", form.GetFormItemByLabel("Asset Path"))
-	}
-	if got := assetItem.GetText(); got != "" {
-		t.Fatalf("pre-filled asset path = %q, want empty", got)
-	}
-	bodyItem, ok := form.GetFormItemByLabel("Body").(*tview.TextArea)
-	if !ok || bodyItem == nil {
-		t.Fatalf("expected body item to be *tview.TextArea, got %T", form.GetFormItemByLabel("Body"))
-	}
-	if got := bodyItem.GetText(); got != "first task\n\nWhy: a" {
-		t.Fatalf("pre-filled body = %q, want first task\\n\\nWhy: a", got)
-	}
-	fx, fy, fw, fh := form.GetRect()
-	if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
-		t.Fatalf("expected centered bounded form, got rect (%d, %d, %d, %d)", fx, fy, fw, fh)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
 		u.form.InputHandler()(tcell.NewEventKey(tcell.KeyEscape, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after cancel")
-	}
 	mu.Lock()
 	bodyUnchanged := (*tasks)[0].Body
 	priUnchanged := (*tasks)[0].Priority
@@ -966,25 +997,28 @@ func TestEditForm(t *testing.T) {
 	u.app.QueueUpdateDraw(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to be open after pressing e"
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing e")
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	u.app.QueueUpdateDraw(func() {
-		priItem = u.form.GetFormItemByLabel("Priority").(*tview.InputField)
+		priItem := u.form.GetFormItemByLabel("Priority").(*tview.InputField)
 		priItem.SetText("")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on invalid priority"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "priority") {
+			formErr = fmt.Sprintf("expected title to indicate priority error, got %q", title)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on invalid priority")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "priority") {
-		t.Fatalf("expected title to indicate priority error, got %q", title)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	mu.Lock()
 	priAfterInvalid := (*tasks)[0].Priority
@@ -994,47 +1028,51 @@ func TestEditForm(t *testing.T) {
 	}
 
 	u.app.QueueUpdateDraw(func() {
+		priItem := u.form.GetFormItemByLabel("Priority").(*tview.InputField)
 		priItem.SetText("2")
-		projItem = u.form.GetFormItemByLabel("Project").(*tview.InputField)
+		projItem := u.form.GetFormItemByLabel("Project").(*tview.InputField)
 		projItem.SetText("")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on invalid project"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "project") {
+			formErr = fmt.Sprintf("expected title to indicate project error, got %q", title)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on invalid project")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "project") {
-		t.Fatalf("expected title to indicate project error, got %q", title)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
+		projItem := u.form.GetFormItemByLabel("Project").(*tview.InputField)
 		projItem.SetText("proj-b")
-		bodyItem = u.form.GetFormItemByLabel("Body").(*tview.TextArea)
+		bodyItem := u.form.GetFormItemByLabel("Body").(*tview.TextArea)
 		bodyItem.SetText("", true)
-		assetItem = u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+		assetItem := u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
 		assetItem.SetText("")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on missing body and asset path"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "missing body or asset path") {
+			formErr = fmt.Sprintf("expected title to indicate missing body error, got %q", title)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on missing body and asset path")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "missing body or asset path") {
-		t.Fatalf("expected title to indicate missing body error, got %q", title)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
-		projItem = u.form.GetFormItemByLabel("Project").(*tview.InputField)
+		projItem := u.form.GetFormItemByLabel("Project").(*tview.InputField)
 		projItem.SetText("proj-updated")
-		priItem = u.form.GetFormItemByLabel("Priority").(*tview.InputField)
+		priItem := u.form.GetFormItemByLabel("Priority").(*tview.InputField)
 		priItem.SetText("5")
-		assetItem = u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+		assetItem := u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
 		assetItem.SetText("assets/task.json")
-		bodyItem = u.form.GetFormItemByLabel("Body").(*tview.TextArea)
+		bodyItem := u.form.GetFormItemByLabel("Body").(*tview.TextArea)
 		bodyItem.SetText("updated body\nwith multiple lines", false)
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
@@ -1048,12 +1086,13 @@ func TestEditForm(t *testing.T) {
 			(*tasks)[0].AssetPath == "assets/task.json"
 	})
 
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after submit")
-	}
 }
 
 func TestEditFormAssetOnly(t *testing.T) {
@@ -1088,31 +1127,40 @@ func TestEditFormAssetOnly(t *testing.T) {
 		u.table.Select(1, 0)
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
 	})
-	var form *tview.Form
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	var formErr string
+	u.app.QueueUpdate(func() {
+		form := u.form
+		if form == nil {
+			formErr = "expected form to be open after pressing e"
+			return
+		}
+		assetItem, ok := form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+		if !ok || assetItem == nil {
+			formErr = fmt.Sprintf("expected asset item, got %T", form.GetFormItemByLabel("Asset Path"))
+			return
+		}
+		if got := assetItem.GetText(); got != "orig/asset.txt" {
+			formErr = fmt.Sprintf("pre-filled asset path = %q, want orig/asset.txt", got)
+			return
+		}
+		bodyItem, ok := form.GetFormItemByLabel("Body").(*tview.TextArea)
+		if !ok || bodyItem == nil {
+			formErr = fmt.Sprintf("expected body item, got %T", form.GetFormItemByLabel("Body"))
+			return
+		}
+		if got := bodyItem.GetText(); got != "" {
+			formErr = fmt.Sprintf("pre-filled body = %q, want empty", got)
+			return
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing e")
-	}
-	assetItem, ok := form.GetFormItemByLabel("Asset Path").(*tview.InputField)
-	if !ok || assetItem == nil {
-		t.Fatalf("expected asset item, got %T", form.GetFormItemByLabel("Asset Path"))
-	}
-	if got := assetItem.GetText(); got != "orig/asset.txt" {
-		t.Fatalf("pre-filled asset path = %q, want orig/asset.txt", got)
-	}
-	bodyItem, ok := form.GetFormItemByLabel("Body").(*tview.TextArea)
-	if !ok || bodyItem == nil {
-		t.Fatalf("expected body item, got %T", form.GetFormItemByLabel("Body"))
-	}
-	if got := bodyItem.GetText(); got != "" {
-		t.Fatalf("pre-filled body = %q, want empty", got)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
+		assetItem := u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
 		assetItem.SetText("updated/asset.txt")
-		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
 	eventually(t, func() bool {
@@ -1121,12 +1169,13 @@ func TestEditFormAssetOnly(t *testing.T) {
 		return (*tasks)[0].AssetPath == "updated/asset.txt" && (*tasks)[0].Body == ""
 	})
 
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after submit")
-	}
 }
 
 func TestEditFormPriorityOnly(t *testing.T) {
@@ -1184,12 +1233,13 @@ func TestEditFormPriorityOnly(t *testing.T) {
 			(*tasks)[0].Project == "proj-b"
 	})
 
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after submit")
-	}
 }
 
 func TestTUIFlagsAndEnv(t *testing.T) {
@@ -1958,25 +2008,28 @@ func TestCreateFormValidation(t *testing.T) {
 	u.app.QueueUpdateDraw(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'n', 0))
 	})
-	var form *tview.Form
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	var formErr string
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to be open after pressing n"
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing n")
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on empty body"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "body") {
+			formErr = fmt.Sprintf("expected title to indicate body error, got %q", title)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on empty body")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "body") {
-		t.Fatalf("expected title to indicate body error, got %q", title)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	mu.Lock()
 	count := len(*tasks)
@@ -1991,17 +2044,17 @@ func TestCreateFormValidation(t *testing.T) {
 		u.form.GetFormItem(1).(*tview.InputField).SetText("-1")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on negative priority"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "priority") {
+			formErr = fmt.Sprintf("expected title to indicate priority error, got %q", title)
+		} else if got := u.form.GetFormItem(3).(*tview.TextArea).GetText(); got != testBody {
+			formErr = fmt.Sprintf("body buffer lost on invalid priority: %q", got)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on negative priority")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "priority") {
-		t.Fatalf("expected title to indicate priority error, got %q", title)
-	}
-	if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != testBody {
-		t.Fatalf("body buffer lost on invalid priority: %q", got)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	mu.Lock()
 	count = len(*tasks)
@@ -2015,20 +2068,19 @@ func TestCreateFormValidation(t *testing.T) {
 		u.form.GetFormItem(0).(*tview.InputField).SetText("")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on empty project"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "project") {
+			formErr = fmt.Sprintf("expected title to indicate project error, got %q", title)
+		} else if got := u.form.GetFormItem(3).(*tview.TextArea).GetText(); got != testBody {
+			formErr = fmt.Sprintf("body buffer lost on empty project: %q", got)
+		} else if got := u.form.GetFormItem(1).(*tview.InputField).GetText(); got != "7" {
+			formErr = fmt.Sprintf("priority buffer lost on empty project: %q", got)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on empty project")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "project") {
-		t.Fatalf("expected title to indicate project error, got %q", title)
-	}
-	if got := form.GetFormItem(3).(*tview.TextArea).GetText(); got != testBody {
-		t.Fatalf("body buffer lost on empty project: %q", got)
-	}
-	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "7" {
-		t.Fatalf("priority buffer lost on empty project: %q", got)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 	mu.Lock()
 	count = len(*tasks)
@@ -2041,14 +2093,15 @@ func TestCreateFormValidation(t *testing.T) {
 		u.form.GetFormItem(0).(*tview.InputField).SetText(" * ")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	u.app.QueueUpdate(func() {
+		if u.form == nil {
+			formErr = "expected form to stay open on wildcard project"
+		} else if title := u.form.GetTitle(); !strings.Contains(title, "project") {
+			formErr = fmt.Sprintf("expected title to indicate project error, got %q", title)
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to stay open on wildcard project")
-	}
-	if title := form.GetTitle(); !strings.Contains(title, "project") {
-		t.Fatalf("expected title to indicate project error, got %q", title)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
@@ -2066,12 +2119,13 @@ func TestCreateFormValidation(t *testing.T) {
 	if created.Project != "proj-test" || created.Priority != 7 || created.Body != testBody {
 		t.Fatalf("created task mismatch: %+v", created)
 	}
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after valid submit")
-	}
 }
 
 func TestManualRefresh(t *testing.T) {
@@ -2108,24 +2162,29 @@ func TestManualRefresh(t *testing.T) {
 	})
 	mu.Unlock()
 
-	if len(u.all) != 3 {
-		t.Fatalf("expected 3 tasks before refresh, got %d", len(u.all))
+	var beforeCount int
+	u.app.QueueUpdate(func() {
+		beforeCount = len(u.all)
+	})
+	if beforeCount != 3 {
+		t.Fatalf("expected 3 tasks before refresh, got %d", beforeCount)
 	}
 
 	ev := tcell.NewEventKey(tcell.KeyRune, 'r', 0)
-	if ret := u.keys(ev); ret != nil {
+	var ret *tcell.EventKey
+	u.app.QueueUpdateDraw(func() {
+		ret = u.keys(ev)
+	})
+	if ret != nil {
 		t.Fatalf("expected nil return for 'r' key, got %v", ret)
 	}
 
 	eventually(t, func() bool {
 		var count int
-		ch := make(chan struct{})
 		u.app.QueueUpdate(func() {
 			count = len(u.all)
-			close(ch)
 		})
-		<-ch
-		return count == 4
+		return count == 4 && !u.refreshing.Load()
 	})
 
 	mu.Lock()
@@ -2139,26 +2198,33 @@ func TestManualRefresh(t *testing.T) {
 	mu.Unlock()
 
 	evCap := tcell.NewEventKey(tcell.KeyRune, 'R', 0)
-	if ret := u.keys(evCap); ret != nil {
+	u.app.QueueUpdateDraw(func() {
+		ret = u.keys(evCap)
+	})
+	if ret != nil {
 		t.Fatalf("expected nil return for 'R' key, got %v", ret)
 	}
 
 	eventually(t, func() bool {
 		var count int
-		ch := make(chan struct{})
 		u.app.QueueUpdate(func() {
 			count = len(u.all)
-			close(ch)
 		})
-		<-ch
 		return count == 5
 	})
 
 	for range 20 {
-		if ret := u.keys(ev); ret != nil {
+		u.app.QueueUpdate(func() {
+			ret = u.keys(ev)
+		})
+		if ret != nil {
 			t.Fatalf("expected nil return for r key, got %v", ret)
 		}
 	}
+
+	eventually(t, func() bool {
+		return !u.refreshing.Load()
+	})
 }
 func TestClearErrorOnReconnect(t *testing.T) {
 	var mu sync.Mutex
@@ -2264,31 +2330,37 @@ func TestCreateFormAssetPath(t *testing.T) {
 	u.app.QueueUpdateDraw(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'n', 0))
 	})
-	var form *tview.Form
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	var formErr string
+	u.app.QueueUpdate(func() {
+		form := u.form
+		if form == nil {
+			formErr = "expected form to be open after pressing n"
+			return
+		}
+		if form.GetFormItemCount() < 4 {
+			formErr = fmt.Sprintf("expected at least 4 form items, got %d", form.GetFormItemCount())
+			return
+		}
+		assetItem, ok := form.GetFormItem(2).(*tview.InputField)
+		if !ok {
+			formErr = fmt.Sprintf("expected item 2 to be *tview.InputField, got %T", form.GetFormItem(2))
+			return
+		}
+		if got := assetItem.GetText(); got != "" {
+			formErr = fmt.Sprintf("default asset path = %q, want empty", got)
+			return
+		}
 	})
-	if form == nil {
-		t.Fatal("expected form to be open after pressing n")
-	}
-
-	if form.GetFormItemCount() < 4 {
-		t.Fatalf("expected at least 4 form items, got %d", form.GetFormItemCount())
-	}
-	assetItem, ok := form.GetFormItem(2).(*tview.InputField)
-	if !ok {
-		t.Fatalf("expected item 2 to be *tview.InputField, got %T", form.GetFormItem(2))
-	}
-	if got := assetItem.GetText(); got != "" {
-		t.Fatalf("default asset path = %q, want empty", got)
+	if formErr != "" {
+		t.Fatal(formErr)
 	}
 
 	u.app.QueueUpdateDraw(func() {
-		form.GetFormItem(0).(*tview.InputField).SetText("pipeline")
-		form.GetFormItem(1).(*tview.InputField).SetText("9")
-		form.GetFormItem(2).(*tview.InputField).SetText("assets/model.gltf")
-		form.GetFormItem(3).(*tview.TextArea).SetText("", true)
-		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+		u.form.GetFormItem(0).(*tview.InputField).SetText("pipeline")
+		u.form.GetFormItem(1).(*tview.InputField).SetText("9")
+		u.form.GetFormItem(2).(*tview.InputField).SetText("assets/model.gltf")
+		u.form.GetFormItem(3).(*tview.TextArea).SetText("", true)
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
 	eventually(t, func() bool {
@@ -2302,12 +2374,13 @@ func TestCreateFormAssetPath(t *testing.T) {
 	if created.Project != "pipeline" || created.Priority != 9 || created.AssetPath != "assets/model.gltf" || created.Body != "" {
 		t.Fatalf("created task mismatch: %+v", created)
 	}
-	u.app.QueueUpdateDraw(func() {
-		form = u.form
+	eventually(t, func() bool {
+		var closed bool
+		u.app.QueueUpdate(func() {
+			closed = (u.form == nil)
+		})
+		return closed
 	})
-	if form != nil {
-		t.Fatal("expected form to be closed after submit with asset path")
-	}
 }
 
 func TestProjectCyclingFromProjectsEndpoint(t *testing.T) {
