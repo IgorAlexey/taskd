@@ -367,12 +367,13 @@
               <th scope="col">Project</th>
               <th scope="col">Status</th>
               <th scope="col">Priority</th>
+              <th scope="col">Claims</th>
               <th scope="col">Worker</th>
               <th scope="col">Summary</th>
             </tr>
           </thead>
           <tbody id="task-table-body">
-            <tr><td colspan="6" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>
+            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>
           </tbody>
         </table>
       </div>
@@ -597,6 +598,7 @@
         status: t.status || '',
         badgeClass: 'badge badge-' + (t.status || 'unknown'),
         priority: String(t.priority ?? ''),
+        claimCount: String(t.claim_count ?? 0),
         worker: t.worker || '',
         summary: t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : (t.asset_path || '')
       };
@@ -612,6 +614,7 @@
         <td data-field="project">${escapeHTML(f.project)}</td>
         <td data-field="status"><span class="${escapeHTML(f.badgeClass)}">${escapeHTML(f.status)}</span></td>
         <td data-field="priority">${escapeHTML(f.priority)}</td>
+        <td data-field="claim_count">${escapeHTML(f.claimCount)}</td>
         <td data-field="worker" class="mono">${escapeHTML(f.worker)}</td>
         <td data-field="summary">${escapeHTML(f.summary)}</td>
       `;
@@ -630,6 +633,7 @@
       }
       setText(tr.querySelector('[data-field="project"]'), f.project);
       setText(tr.querySelector('[data-field="priority"]'), f.priority);
+      setText(tr.querySelector('[data-field="claim_count"]'), f.claimCount);
       setText(tr.querySelector('[data-field="worker"]'), f.worker);
       setText(tr.querySelector('[data-field="summary"]'), f.summary);
       const badge = tr.querySelector('[data-field="status"] .badge');
@@ -664,7 +668,7 @@
           let emptyRow = tbody.querySelector('tr:not([data-task-id])');
           if (!emptyRow) {
             emptyRow = document.createElement('tr');
-            emptyRow.innerHTML = '<td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
+            emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
             tbody.appendChild(emptyRow);
           }
           if (selectedTaskId) loadTaskDetails(selectedTaskId);
@@ -791,6 +795,7 @@
         <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
         <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
         <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
+        <div class="field"><span class="field-label">Claim Count</span><span>${escapeHTML(String(t.claim_count ?? 0))}</span></div>
         ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
         ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
         ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}

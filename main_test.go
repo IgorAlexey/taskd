@@ -3346,7 +3346,7 @@ func TestWebUI(t *testing.T) {
 	if !strings.Contains(string(body), "<html") {
 		t.Fatalf("expected <html in response body, got %s", string(body))
 	}
-	for _, substr := range []string{"Pending", "Leased", "Done", "Task Details", "Submit Task"} {
+	for _, substr := range []string{"Pending", "Leased", "Done", "Task Details", "Submit Task", "Claims", "Claim Count", "claim_count"} {
 		if !strings.Contains(string(body), substr) {
 			t.Fatalf("expected %q in UI response body", substr)
 		}
