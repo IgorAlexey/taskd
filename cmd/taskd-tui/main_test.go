@@ -1655,3 +1655,90 @@ func TestCreateFormValidation(t *testing.T) {
 		t.Fatal("expected form to be closed after valid submit")
 	}
 }
+
+func TestManualRefresh(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 3 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.root, true)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	mu.Lock()
+	*tasks = append(*tasks, task{
+		ID:       "ddddddd4",
+		Project:  "proj-c",
+		Status:   "pending",
+		Priority: 3,
+		Body:     "fourth task",
+	})
+	mu.Unlock()
+
+	if len(u.all) != 3 {
+		t.Fatalf("expected 3 tasks before refresh, got %d", len(u.all))
+	}
+
+	ev := tcell.NewEventKey(tcell.KeyRune, 'r', 0)
+	if ret := u.keys(ev); ret != nil {
+		t.Fatalf("expected nil return for 'r' key, got %v", ret)
+	}
+
+	eventually(t, func() bool {
+		var count int
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			count = len(u.all)
+			close(ch)
+		})
+		<-ch
+		return count == 4
+	})
+
+	mu.Lock()
+	*tasks = append(*tasks, task{
+		ID:       "eeeeeee5",
+		Project:  "proj-c",
+		Status:   "pending",
+		Priority: 4,
+		Body:     "fifth task",
+	})
+	mu.Unlock()
+
+	evCap := tcell.NewEventKey(tcell.KeyRune, 'R', 0)
+	if ret := u.keys(evCap); ret != nil {
+		t.Fatalf("expected nil return for 'R' key, got %v", ret)
+	}
+
+	eventually(t, func() bool {
+		var count int
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			count = len(u.all)
+			close(ch)
+		})
+		<-ch
+		return count == 5
+	})
+
+	for range 20 {
+		if ret := u.keys(ev); ret != nil {
+			t.Fatalf("expected nil return for r key, got %v", ret)
+		}
+	}
+}

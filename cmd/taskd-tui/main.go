@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -77,6 +78,7 @@ type ui struct {
 	msgRev                int
 	shownID               string
 	shownBody             string
+	refreshing            atomic.Bool
 }
 
 func (u *ui) fetch() ([]task, error) {
@@ -291,6 +293,10 @@ func (u *ui) showBody() {
 }
 
 func (u *ui) refresh() {
+	if !u.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	defer u.refreshing.Store(false)
 	ts, err := u.fetch()
 	u.app.QueueUpdateDraw(func() {
 		if err != nil {
@@ -439,6 +445,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case '0', '1', '2', '3':
 		u.filter = []string{"", "pending", "leased", "done"}[ev.Rune()-'0']
 		u.render(u.all)
+	case 'r', 'R':
+		go u.refresh()
 	case 'p':
 		seen := map[string]bool{}
 		for _, t := range u.all {
