@@ -9,10 +9,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -73,6 +71,7 @@ type ui struct {
 	icons                 bool
 	all                   []task
 	shown                 []task
+	projects              []string
 	pending, leased, done int
 	msg                   string
 	msgRev                int
@@ -97,6 +96,27 @@ func (u *ui) fetch() ([]task, error) {
 	}
 	var ts []task
 	return ts, json.NewDecoder(resp.Body).Decode(&ts)
+}
+
+func (u *ui) fetchProjects() ([]string, error) {
+	resp, err := client.Get(u.url + "/projects")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		body := strings.TrimSpace(string(b))
+		if body != "" {
+			return nil, fmt.Errorf("GET /projects: %s: %s", resp.Status, body)
+		}
+		return nil, fmt.Errorf("GET /projects: %s", resp.Status)
+	}
+	var projects []string
+	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+		return nil, err
+	}
+	return projects, nil
 }
 
 func (u *ui) call(method, path string, body any) error {
@@ -298,12 +318,18 @@ func (u *ui) refresh() {
 	}
 	defer u.refreshing.Store(false)
 	ts, err := u.fetch()
+	ps, perr := u.fetchProjects()
 	u.app.QueueUpdateDraw(func() {
 		if err != nil {
 			u.setMsg(err.Error())
 			return
 		}
-		u.setMsg("")
+		if perr != nil {
+			u.setMsg(perr.Error())
+		} else {
+			u.setMsg("")
+			u.projects = ps
+		}
 		u.render(ts)
 	})
 }
@@ -312,12 +338,22 @@ func (u *ui) act(method, path string, body any, success string) {
 	go func() {
 		err := u.call(method, path, body)
 		msg := success
-		if err != nil {
-			msg = err.Error()
-		}
 		ts, fetchErr := u.fetch()
+		ps, projErr := u.fetchProjects()
 		u.app.QueueUpdateDraw(func() {
-			u.setMsg(msg)
+			switch {
+			case err != nil:
+				u.setMsg(err.Error())
+			case fetchErr != nil:
+				u.setMsg(fetchErr.Error())
+			case projErr != nil:
+				u.setMsg(projErr.Error())
+			default:
+				u.setMsg(msg)
+			}
+			if projErr == nil {
+				u.projects = ps
+			}
 			if fetchErr == nil {
 				u.render(ts)
 			}
@@ -466,24 +502,17 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case 'r', 'R':
 		go u.refresh()
 	case 'p':
-		seen := map[string]bool{}
-		for _, t := range u.all {
-			if t.Project != "" {
-				seen[t.Project] = true
-			}
-		}
-		projects := slices.Sorted(maps.Keys(seen))
 		next := ""
-		for i, p := range projects {
+		for i, p := range u.projects {
 			if p == u.project {
-				if i+1 < len(projects) {
-					next = projects[i+1]
+				if i+1 < len(u.projects) {
+					next = u.projects[i+1]
 				}
 				break
 			}
 		}
-		if u.project == "" && len(projects) > 0 {
-			next = projects[0]
+		if u.project == "" && len(u.projects) > 0 {
+			next = u.projects[0]
 		}
 		u.project = next
 		u.render(u.all)

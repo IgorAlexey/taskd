@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -39,6 +41,17 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		mu.Lock()
 		defer mu.Unlock()
 		json.NewEncoder(w).Encode(tasks)
+	})
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen := map[string]bool{}
+		for _, t := range tasks {
+			if t.Project != "" {
+				seen[t.Project] = true
+			}
+		}
+		json.NewEncoder(w).Encode(slices.Sorted(maps.Keys(seen)))
 	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
@@ -132,6 +145,11 @@ func TestRenderAndKeys(t *testing.T) {
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
+	ps, err := u.fetchProjects()
+	if err != nil || len(ps) != 2 {
+		t.Fatalf("fetchProjects: %v %d", err, len(ps))
+	}
+	u.projects = ps
 	u.render(ts)
 	if got := u.table.GetCell(0, 2).Text; got != "PROJECT" {
 		t.Fatalf("header cell = %q", got)
@@ -1784,6 +1802,10 @@ func TestClearErrorOnReconnect(t *testing.T) {
 			http.Error(w, "daemon unavailable", http.StatusBadGateway)
 			return
 		}
+		if r.URL.Path == "/projects" {
+			json.NewEncoder(w).Encode([]string{"proj-a"})
+			return
+		}
 		json.NewEncoder(w).Encode(tasks)
 	}))
 	t.Cleanup(srv.Close)
@@ -1913,4 +1935,147 @@ func TestCreateFormAssetPath(t *testing.T) {
 	if form != nil {
 		t.Fatal("expected form to be closed after submit with asset path")
 	}
+}
+
+func TestProjectCyclingFromProjectsEndpoint(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]string{"proj-empty", "proj-loaded"})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := newUI(srv.URL, "", false)
+	ps, err := u.fetchProjects()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.projects = ps
+	u.all = []task{
+		{ID: "t1", Project: "proj-loaded", Status: "pending", Body: "task 1"},
+	}
+	u.render(u.all)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'p', 0))
+	if u.project != "proj-empty" {
+		t.Fatalf("expected cycle to proj-empty, got %q", u.project)
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'p', 0))
+	if u.project != "proj-loaded" {
+		t.Fatalf("expected cycle to proj-loaded, got %q", u.project)
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'p', 0))
+	if u.project != "" {
+		t.Fatalf("expected cycle to all (empty string), got %q", u.project)
+	}
+}
+
+func TestRefreshCachesProjects(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]task{})
+	})
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]string{"alpha", "beta"})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := newUI(srv.URL, "", false)
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.pages, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("query timeout")
+		}
+	}
+
+	u.refresh()
+	eventually(t, func() bool {
+		var projs []string
+		query(func() { projs = u.projects })
+		return len(projs) == 2 && projs[0] == "alpha" && projs[1] == "beta"
+	})
+}
+
+func TestRefreshSurfacesProjectsError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode([]task{
+			{ID: "t1", Project: "proj-1", Status: "pending", Body: "task 1"},
+		})
+	})
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "projects unavailable", http.StatusServiceUnavailable)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	u := newUI(srv.URL, "", false)
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.pages, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		select {
+		case <-ch:
+		case <-time.After(time.Second):
+			t.Fatal("query timeout")
+		}
+	}
+
+	u.refresh()
+	eventually(t, func() bool {
+		var msg string
+		var shown int
+		query(func() {
+			msg = u.msg
+			shown = len(u.shown)
+		})
+		return strings.Contains(msg, "503") && shown == 1
+	})
 }
