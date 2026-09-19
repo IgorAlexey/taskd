@@ -298,7 +298,7 @@ USAGE_EOF
 }
 
 prompt=""
-project=""
+project="${TASKD_PROJECT:-}"
 slot=""
 verbose=0
 action=""

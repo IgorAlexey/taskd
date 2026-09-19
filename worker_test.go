@@ -516,3 +516,113 @@ fi
 		t.Fatalf("expected runlog to contain iteration 2 output, got: %s", string(curBytes))
 	}
 }
+func TestWorkerHonorTaskdProjectEnv(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/tasks" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("[]"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	binDir := t.TempDir()
+	ompScript := filepath.Join(binDir, "omp")
+	scriptContent := "#!/bin/sh\necho \"CHILD_TASKD_PROJECT=$TASKD_PROJECT\"\nexit 130\n"
+	if err := os.WriteFile(ompScript, []byte(scriptContent), 0o755); err != nil {
+		t.Fatalf("write omp script: %v", err)
+	}
+
+	repoDir := t.TempDir()
+	if out, err := exec.Command("git", "-C", repoDir, "init", "-b", "main", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.name", "test").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "config", "user.email", "test@test.com").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v: %s", err, out)
+	}
+	dummyFile := filepath.Join(repoDir, "file.txt")
+	if err := os.WriteFile(dummyFile, []byte("hello"), 0o644); err != nil {
+		t.Fatalf("write dummy file: %v", err)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "add", "file.txt").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "commit", "-m", "test: initial commit", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repoDir, "remote", "add", "origin", repoDir).CombinedOutput(); err != nil {
+		t.Fatalf("git remote add: %v: %s", err, out)
+	}
+
+	wtBase := t.TempDir()
+	runDir := t.TempDir()
+
+	// 1. When TASKD_PROJECT is set in environment, worker defaults to that project.
+	cmd := exec.Command("/bin/sh", workerPath, "--slot", "1", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+		"TASKD_PROJECT=envproj",
+	}
+	out, _ := cmd.CombinedOutput()
+	outStr := string(out)
+	if !strings.Contains(outStr, "CHILD_TASKD_PROJECT=envproj") {
+		t.Fatalf("expected child to receive TASKD_PROJECT=envproj, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "project envproj") {
+		t.Fatalf("expected startup message to contain 'project envproj', got: %s", outStr)
+	}
+
+	// 2. When -p flag is explicitly passed, it overrides TASKD_PROJECT.
+	cmd = exec.Command("/bin/sh", workerPath, "--slot", "1", "-p", "flagoverride", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+		"TASKD_PROJECT=envproj",
+	}
+	out, _ = cmd.CombinedOutput()
+	outStr = string(out)
+	if !strings.Contains(outStr, "CHILD_TASKD_PROJECT=flagoverride") {
+		t.Fatalf("expected -p flag to override TASKD_PROJECT, got: %s", outStr)
+	}
+	if !strings.Contains(outStr, "project flagoverride") {
+		t.Fatalf("expected startup message to contain 'project flagoverride', got: %s", outStr)
+	}
+
+	// 3. When TASKD_PROJECT is unset, worker falls back to repo root basename.
+	cmd = exec.Command("/bin/sh", workerPath, "--slot", "1", "test prompt")
+	cmd.Dir = repoDir
+	cmd.Env = []string{
+		"PATH=" + binDir + ":" + os.Getenv("PATH"),
+		"USER=testuser",
+		"XDG_RUNTIME_DIR=" + runDir,
+		"TASKD_WT_BASE=" + wtBase,
+		"TASKD_URL=" + srv.URL,
+	}
+	out, _ = cmd.CombinedOutput()
+	outStr = string(out)
+	expectedDefault := filepath.Base(repoDir)
+	if !strings.Contains(outStr, "CHILD_TASKD_PROJECT="+expectedDefault) {
+		t.Fatalf("expected fallback to repo root basename %s, got: %s", expectedDefault, outStr)
+	}
+	if !strings.Contains(outStr, "project "+expectedDefault) {
+		t.Fatalf("expected startup message to contain 'project "+expectedDefault+"', got: %s", outStr)
+	}
+}
