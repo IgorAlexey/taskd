@@ -496,6 +496,24 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 	}()
 }
 
+const maxProjectLen = 64
+
+func validNameByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
+}
+
+func validProject(p string) bool {
+	if p == "" || len(p) > maxProjectLen {
+		return false
+	}
+	for i := range len(p) {
+		if !validNameByte(p[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 func centerModal(p tview.Primitive, width, height int) tview.Primitive {
 	return tview.NewGrid().
 		SetColumns(0, width, 0).
@@ -521,7 +539,7 @@ func (u *ui) showCreateForm() {
 	}
 	submit := func() {
 		pname := strings.TrimSpace(proj.GetText())
-		if pname == "" || pname == "*" {
+		if !validProject(pname) {
 			f.SetTitle(" new task (invalid project) ")
 			return
 		}
@@ -567,7 +585,7 @@ func (u *ui) showEditForm(t task) {
 	}
 	submit := func() {
 		pname := strings.TrimSpace(proj.GetText())
-		if pname == "" || pname == "*" {
+		if !validProject(pname) {
 			f.SetTitle(" edit task (invalid project) ")
 			return
 		}
