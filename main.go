@@ -51,13 +51,27 @@ func openDB(path string) (*sql.DB, error) {
 			return nil, err
 		}
 	}
-	clean := strings.TrimPrefix(path, "file:")
-	sep := "?"
-	if strings.Contains(clean, "?") {
-		sep = "&"
+	var u *url.URL
+	if strings.HasPrefix(path, "file:") {
+		var err error
+		u, err = url.Parse(path)
+		if err != nil {
+			return nil, err
+		}
+	} else if path == ":memory:" {
+		u = &url.URL{Scheme: "file", Opaque: ":memory:"}
+	} else {
+		abs, err := filepath.Abs(path)
+		if err != nil {
+			return nil, err
+		}
+		u = &url.URL{Scheme: "file", Path: abs}
 	}
-	dsn := fmt.Sprintf("file:%s%s_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", clean, sep)
-	db, err := sql.Open("sqlite", dsn)
+	q := u.Query()
+	q.Add("_pragma", "journal_mode(WAL)")
+	q.Add("_pragma", "busy_timeout(5000)")
+	u.RawQuery = q.Encode()
+	db, err := sql.Open("sqlite", u.String())
 	if err != nil {
 		return nil, err
 	}

@@ -2091,3 +2091,43 @@ func TestPatchProjectAndAssetPath(t *testing.T) {
 		t.Fatalf("expected asset_path cleared, got %q", aVal)
 	}
 }
+
+func TestOpenDBHashPath(t *testing.T) {
+	tempDir := t.TempDir()
+	dbDir := filepath.Join(tempDir, "test#dir")
+	dbPath := filepath.Join(dbDir, "taskd.db")
+	truncatedPath := filepath.Join(tempDir, "test")
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("expected database at %s, got error: %v", dbPath, err)
+	}
+	if _, err := os.Stat(truncatedPath); !os.IsNotExist(err) {
+		t.Fatalf("expected %s to not exist, but it exists", truncatedPath)
+	}
+
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("query tasks failed: %v", err)
+	}
+
+	qDir := filepath.Join(tempDir, "test?dir")
+	qPath := filepath.Join(qDir, "taskd.db")
+	qDB, err := openDB(qPath)
+	if err != nil {
+		t.Fatalf("openDB with question mark failed: %v", err)
+	}
+	defer qDB.Close()
+
+	if _, err := os.Stat(qPath); err != nil {
+		t.Fatalf("expected database at %s, got error: %v", qPath, err)
+	}
+	if err := qDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("query tasks with question mark failed: %v", err)
+	}
+}
