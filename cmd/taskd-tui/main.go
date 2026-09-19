@@ -303,6 +303,7 @@ func (u *ui) refresh() {
 			u.setMsg(err.Error())
 			return
 		}
+		u.setMsg("")
 		u.render(ts)
 	})
 }

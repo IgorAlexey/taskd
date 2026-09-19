@@ -1742,3 +1742,75 @@ func TestManualRefresh(t *testing.T) {
 		}
 	}
 }
+func TestClearErrorOnReconnect(t *testing.T) {
+	var mu sync.Mutex
+	fail := true
+	tasks := []task{
+		{ID: "aaaaaaa1", Project: "proj-a", Status: "pending", Priority: 1, Body: "reconnected task"},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if fail {
+			http.Error(w, "daemon unavailable", http.StatusBadGateway)
+			return
+		}
+		json.NewEncoder(w).Encode(tasks)
+	}))
+	t.Cleanup(srv.Close)
+
+	u := newUI(srv.URL, "", false)
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.root, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	u.refresh()
+	eventually(t, func() bool {
+		var msg, status string
+		query(func() {
+			msg = u.msg
+			status = u.status.GetText(true)
+		})
+		return strings.Contains(msg, "502") && strings.Contains(msg, "daemon unavailable") &&
+			strings.Contains(status, "502") && strings.Contains(status, "daemon unavailable")
+	})
+
+	mu.Lock()
+	fail = false
+	mu.Unlock()
+
+	u.refresh()
+	eventually(t, func() bool {
+		var msg, status string
+		var count int
+		query(func() {
+			msg = u.msg
+			status = u.status.GetText(true)
+			count = len(u.shown)
+		})
+		return count == 1 && msg == "" && !strings.Contains(status, "daemon unavailable")
+	})
+}
