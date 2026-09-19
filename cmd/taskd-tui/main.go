@@ -1041,6 +1041,12 @@ func newUI(url, project string, icons bool) *ui {
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody(); u.renderStatus() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
 	u.body.SetBorder(true).SetTitle(" task ").SetInputCapture(u.bodyKeys)
+	u.body.SetFocusFunc(func() {
+		u.body.SetBorderColor(tcell.ColorYellow).SetTitleColor(tcell.ColorYellow)
+	})
+	u.body.SetBlurFunc(func() {
+		u.body.SetBorderColor(tview.Styles.BorderColor).SetTitleColor(tview.Styles.TitleColor)
+	})
 	u.status = tview.NewTextView().SetWrap(false)
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 2, 0, false)
