@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -346,6 +347,29 @@ func internalError(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
+func writeTaskStateError(w http.ResponseWriter, db *sql.DB, id string) {
+	var status string
+	err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "task not found", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	switch status {
+	case "done":
+		http.Error(w, "task is done", http.StatusConflict)
+	case "leased":
+		http.Error(w, "task is leased", http.StatusConflict)
+	case "pending":
+		http.Error(w, "task is pending", http.StatusConflict)
+	default:
+		http.Error(w, "task state conflict", http.StatusConflict)
+	}
+}
+
 func cleanWorker(raw string) (string, bool) {
 	worker := strings.TrimSpace(raw)
 	return worker, worker != ""
@@ -600,21 +624,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		err := db.QueryRow(query, worker, lease, id).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
-			var status string
-			err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
-			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, "task not found", http.StatusNotFound)
-				return
-			}
-			if err != nil {
-				internalError(w, err)
-				return
-			}
-			if status == "done" {
-				http.Error(w, "task is done", http.StatusConflict)
-				return
-			}
-			http.Error(w, "task is leased", http.StatusConflict)
+			writeTaskStateError(w, db, id)
 			return
 		}
 		if err != nil {
@@ -667,6 +677,35 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 				return
 			}
 			http.Error(w, "task not leased by worker", http.StatusConflict)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})
+	mux.HandleFunc("POST /tasks/{id}/close", func(w http.ResponseWriter, r *http.Request) {
+		for k := range r.URL.Query() {
+			http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
+			return
+		}
+		var buf [1]byte
+		n, err := r.Body.Read(buf[:])
+		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
+			http.Error(w, "unexpected request body", http.StatusBadRequest)
+			return
+		}
+		id := r.PathValue("id")
+		res, err := db.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL
+WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unixepoch())`, id)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		aff, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if aff == 0 {
+			writeTaskStateError(w, db, id)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -970,21 +1009,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if n == 0 {
-			var status string
-			err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&status)
-			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, "task not found", http.StatusNotFound)
-				return
-			}
-			if err != nil {
-				internalError(w, err)
-				return
-			}
-			if status == "done" {
-				http.Error(w, "task is done", http.StatusConflict)
-				return
-			}
-			http.Error(w, "task is leased", http.StatusConflict)
+			writeTaskStateError(w, db, r.PathValue("id"))
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

@@ -518,33 +518,47 @@ func (u *ui) showEditForm(t task) {
 	u.app.SetFocus(f)
 }
 
-func (u *ui) showDeleteConfirm(t task) {
+func taskLabel(t task) string {
 	title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
-	name := t.ID
-	if title != "" && title != t.ID {
-		name = fmt.Sprintf("%s (%s)", t.ID, title)
+	if title == "" || title == t.ID {
+		return t.ID
 	}
+	return fmt.Sprintf("%s (%s)", t.ID, title)
+}
+
+func (u *ui) confirm(page, text, button string, do func()) {
 	m := tview.NewModal()
-	m.SetText(fmt.Sprintf("Delete task %s?\nDeleted tasks cannot be recovered.", tview.Escape(name)))
-	m.AddButtons([]string{"Delete", "Cancel"}).SetFocus(1)
-	close := func() {
-		u.modal = nil
-		u.pages.RemovePage("delete")
-		u.app.SetFocus(u.table)
-	}
+	m.SetText(text)
+	m.AddButtons([]string{button, "Cancel"}).SetFocus(1)
 	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-		close()
+		u.modal = nil
+		u.pages.RemovePage(page)
+		u.app.SetFocus(u.table)
 		if buttonIndex == 0 {
-			path := "/tasks/" + t.ID
-			if t.Status == "done" {
-				path += "?force=true"
-			}
-			u.act("DELETE", path, nil, "deleted task "+short(t.ID))
+			do()
 		}
 	})
 	u.modal = m
-	u.pages.AddPage("delete", m, false, true)
+	u.pages.AddPage(page, m, false, true)
 	u.app.SetFocus(m)
+}
+
+func (u *ui) showDeleteConfirm(t task) {
+	text := fmt.Sprintf("Delete task %s?\nDeleted tasks cannot be recovered.", tview.Escape(taskLabel(t)))
+	u.confirm("delete", text, "Delete", func() {
+		path := "/tasks/" + t.ID
+		if t.Status == "done" {
+			path += "?force=true"
+		}
+		u.act("DELETE", path, nil, "deleted task "+short(t.ID))
+	})
+}
+
+func (u *ui) showCompleteConfirm(t task) {
+	text := fmt.Sprintf("Complete task %s?\nThe task is marked done without a worker result.", tview.Escape(taskLabel(t)))
+	u.confirm("complete", text, "Complete", func() {
+		u.act("POST", "/tasks/"+t.ID+"/close", nil, "completed task "+short(t.ID))
+	})
 }
 
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
@@ -632,6 +646,14 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case 'D':
 		if ok {
 			u.showDeleteConfirm(t)
+		}
+	case 'x':
+		if ok {
+			if t.Status == "done" {
+				u.setMsg("task is already done")
+				break
+			}
+			u.showCompleteConfirm(t)
 		}
 	case 'n':
 		u.showCreateForm()
@@ -726,6 +748,7 @@ Keyboard shortcuts:
   c              Claim selected pending task
   u              Release selected leased task back to pending
   D              Delete selected task
+  x              Complete selected task
   y              Copy task ID to clipboard
   q              Quit
 `)

@@ -29,6 +29,16 @@ var (
 	claimCalls   []string
 )
 
+type closeCall struct {
+	uri  string
+	body int64
+}
+
+var (
+	closeMu    sync.Mutex
+	closeCalls []closeCall
+)
+
 func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	t.Helper()
 	var mu sync.Mutex
@@ -41,6 +51,9 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	claimMu.Lock()
 	claimCalls = nil
 	claimMu.Unlock()
+	closeMu.Lock()
+	closeCalls = nil
+	closeMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
@@ -185,6 +198,31 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		mu.Unlock()
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"id": "ddddddd4"})
+	})
+	mux.HandleFunc("POST /tasks/{id}/close", func(w http.ResponseWriter, r *http.Request) {
+		closeMu.Lock()
+		closeCalls = append(closeCalls, closeCall{uri: r.URL.RequestURI(), body: r.ContentLength})
+		closeMu.Unlock()
+		id := r.PathValue("id")
+		mu.Lock()
+		defer mu.Unlock()
+		for i, tk := range tasks {
+			if tk.ID != id {
+				continue
+			}
+			switch {
+			case tk.Status == "done":
+				http.Error(w, "task is done", http.StatusConflict)
+			case tk.Status == "leased" && tk.LeaseExpires >= time.Now().Unix():
+				http.Error(w, "task is leased", http.StatusConflict)
+			default:
+				tasks[i].Status = "done"
+				tasks[i].Worker, tasks[i].LeaseExpires = "", 0
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -2361,5 +2399,158 @@ func TestReleaseLeasedTask(t *testing.T) {
 	})
 	if msg := message(); !strings.Contains(msg, "released task bbbbbbb") {
 		t.Fatalf("expected release confirmation, got %q", msg)
+	}
+}
+
+func TestTUICompleteTask(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+
+	finished := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(finished)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-finished
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+	press := func(r rune) {
+		u.app.QueueUpdateDraw(func() {
+			u.keys(tcell.NewEventKey(tcell.KeyRune, r, 0))
+		})
+	}
+	modalKey := func(k tcell.Key) {
+		u.app.QueueUpdateDraw(func() {
+			u.modal.InputHandler()(tcell.NewEventKey(k, 0, 0), nil)
+		})
+	}
+	statusOf := func(id string) string {
+		mu.Lock()
+		defer mu.Unlock()
+		for _, tk := range *tasks {
+			if tk.ID == id {
+				return tk.Status
+			}
+		}
+		return ""
+	}
+	calls := func() []closeCall {
+		closeMu.Lock()
+		defer closeMu.Unlock()
+		return slices.Clone(closeCalls)
+	}
+
+	var modal *tview.Modal
+	var status string
+
+	press('2')
+	press('x')
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+	modalKey(tcell.KeyLeft)
+	modalKey(tcell.KeyEnter)
+	eventually(t, func() bool {
+		query(func() { status = u.status.GetText(true) })
+		return strings.Contains(status, "task is leased")
+	})
+	if s := statusOf("bbbbbbb2"); s != "leased" {
+		t.Fatalf("expected live-leased task untouched, got %q", s)
+	}
+	leased := calls()
+	if len(leased) != 1 || leased[0].uri != "/tasks/bbbbbbb2/close" {
+		t.Fatalf("expected one close request for the leased task, got %+v", leased)
+	}
+
+	press('1')
+	press('x')
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+	modalKey(tcell.KeyEscape)
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal == nil
+	})
+	if s := statusOf("aaaaaaa1"); s != "pending" {
+		t.Fatalf("expected pending task after cancel, got %q", s)
+	}
+	if n := len(calls()); n != 1 {
+		t.Fatalf("expected no close request after cancel, got %d", n)
+	}
+
+	press('x')
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+	modalKey(tcell.KeyLeft)
+	modalKey(tcell.KeyEnter)
+	eventually(t, func() bool {
+		query(func() { modal = u.modal })
+		return modal == nil
+	})
+	eventually(t, func() bool { return statusOf("aaaaaaa1") == "done" })
+	eventually(t, func() bool {
+		var seen bool
+		query(func() {
+			status = u.status.GetText(true)
+			for _, tk := range u.all {
+				if tk.ID == "aaaaaaa1" && tk.Status == "done" {
+					seen = true
+				}
+			}
+		})
+		return seen && strings.Contains(status, "completed task ")
+	})
+
+	completed := calls()
+	if len(completed) != 2 {
+		t.Fatalf("expected exactly one close request for the pending task, got %+v", completed)
+	}
+	if last := completed[1]; last.uri != "/tasks/aaaaaaa1/close" || last.body != 0 {
+		t.Fatalf("expected a bare close request carrying no worker, got %+v", last)
+	}
+
+	press('3')
+	press('x')
+	eventually(t, func() bool {
+		query(func() { modal, status = u.modal, u.status.GetText(true) })
+		return strings.Contains(status, "already done")
+	})
+	if modal != nil {
+		t.Fatal("done task must not open a confirmation modal")
+	}
+	if n := len(calls()); n != 2 {
+		t.Fatalf("expected no close request for done task, got %d calls", n)
+	}
+
+	var buf bytes.Buffer
+	printUsage(&buf)
+	if out := buf.String(); !strings.Contains(out, "x              Complete selected task") {
+		t.Fatalf("help output missing x shortcut:\n%s", out)
 	}
 }

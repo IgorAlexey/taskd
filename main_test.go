@@ -50,6 +50,79 @@ func post(t *testing.T, url string, body any) (int, []byte) {
 	return resp.StatusCode, data
 }
 
+func createTask(t *testing.T, srvURL, project string) string {
+	t.Helper()
+	code, body := post(t, srvURL+"/tasks", map[string]any{
+		"asset_path": "a.blend",
+		"project":    project,
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created task: %v", err)
+	}
+	return created.ID
+}
+
+func claimTask(t *testing.T, srvURL, project, worker string) {
+	t.Helper()
+	code, body := post(t, srvURL+"/tasks/claim", map[string]any{
+		"worker":  worker,
+		"project": project,
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim task failed: %d: %s", code, body)
+	}
+}
+
+func getTask(t *testing.T, srvURL, id string) (string, string) {
+	t.Helper()
+	code, body := do(t, http.MethodGet, srvURL+"/tasks/"+id, nil)
+	if code != http.StatusOK {
+		t.Fatalf("get task %s expected 200, got %d: %s", id, code, body)
+	}
+	var item struct {
+		Status     string          `json:"status"`
+		Primitives json.RawMessage `json:"primitives"`
+	}
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal task %s: %v", id, err)
+	}
+	return item.Status, string(item.Primitives)
+}
+
+func assertUnattributed(t *testing.T, db *sql.DB, srvURL, id string) {
+	t.Helper()
+	code, body := do(t, http.MethodGet, srvURL+"/tasks/"+id, nil)
+	if code != http.StatusOK {
+		t.Fatalf("get task %s expected 200, got %d: %s", id, code, body)
+	}
+	var item struct {
+		Worker       string `json:"worker"`
+		LeaseExpires int64  `json:"lease_expires"`
+	}
+	if err := json.Unmarshal(body, &item); err != nil {
+		t.Fatalf("unmarshal task %s: %v", id, err)
+	}
+	if item.Worker != "" || item.LeaseExpires != 0 {
+		t.Fatalf("closed task %s: worker %q lease_expires %d, want unattributed", id, item.Worker, item.LeaseExpires)
+	}
+	var (
+		worker       sql.NullString
+		leaseExpires sql.NullInt64
+	)
+	if err := db.QueryRow("SELECT worker, lease_expires FROM tasks WHERE id = ?", id).Scan(&worker, &leaseExpires); err != nil {
+		t.Fatalf("select task %s: %v", id, err)
+	}
+	if worker.Valid || leaseExpires.Valid {
+		t.Fatalf("closed task %s: worker %v lease_expires %v, want NULL columns", id, worker, leaseExpires)
+	}
+}
+
 func TestFlow(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -5006,5 +5079,115 @@ func TestReleaseRejectsExpiredLease(t *testing.T) {
 	}
 	if item.Status != "pending" || item.Worker != "" {
 		t.Fatalf("expected status pending and empty worker after release, got %+v", item)
+	}
+}
+
+func TestCloseTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 60))
+	defer srv.Close()
+
+	pending := createTask(t, srv.URL, "p1")
+	code, body := post(t, srv.URL+"/tasks/"+pending+"/close", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("close pending expected 204, got %d: %s", code, body)
+	}
+	if status, _ := getTask(t, srv.URL, pending); status != "done" {
+		t.Fatalf("close pending: status %q != %q", status, "done")
+	}
+	assertUnattributed(t, db, srv.URL, pending)
+
+	expired := createTask(t, srv.URL, "p2")
+	claimTask(t, srv.URL, "p2", "w1")
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", expired); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+expired+"/close", nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("close expired lease expected 204, got %d: %s", code, body)
+	}
+	if status, _ := getTask(t, srv.URL, expired); status != "done" {
+		t.Fatalf("close expired lease: status %q != %q", status, "done")
+	}
+	assertUnattributed(t, db, srv.URL, expired)
+
+	code, body = post(t, srv.URL+"/tasks/nonexistent-id/close", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("close missing id expected 404, got %d: %s", code, body)
+	}
+
+	untouched := createTask(t, srv.URL, "p3")
+	code, body = post(t, srv.URL+"/tasks/"+untouched+"/close?force=true", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("close with query parameter expected 400, got %d: %s", code, body)
+	}
+	if !strings.Contains(string(body), "unknown query parameter: force") {
+		t.Fatalf("close with query parameter: body %s", body)
+	}
+	if status, _ := getTask(t, srv.URL, untouched); status != "pending" {
+		t.Fatalf("close with query parameter: status %q != %q", status, "pending")
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+untouched+"/close", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("close with body expected 400, got %d: %s", code, body)
+	}
+	if !strings.Contains(string(body), "unexpected request body") {
+		t.Fatalf("close with body: body %s", body)
+	}
+	if status, _ := getTask(t, srv.URL, untouched); status != "pending" {
+		t.Fatalf("close with body: status %q != %q", status, "pending")
+	}
+}
+
+func TestCloseTaskRefusesLiveWork(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 60))
+	defer srv.Close()
+
+	leased := createTask(t, srv.URL, "p1")
+	claimTask(t, srv.URL, "p1", "w1")
+	code, body := post(t, srv.URL+"/tasks/"+leased+"/close", nil)
+	if code != http.StatusConflict {
+		t.Fatalf("close live lease expected 409, got %d: %s", code, body)
+	}
+	if !strings.Contains(string(body), "task is leased") {
+		t.Fatalf("close live lease: body %s", body)
+	}
+	if status, _ := getTask(t, srv.URL, leased); status != "leased" {
+		t.Fatalf("close live lease: status %q != %q", status, "leased")
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+leased+"/done", map[string]any{
+		"worker":     "w1",
+		"primitives": map[string]any{"kept": true},
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("worker done after refused close expected 204, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+leased+"/close", nil)
+	if code != http.StatusConflict {
+		t.Fatalf("close already-done expected 409, got %d: %s", code, body)
+	}
+	if !strings.Contains(string(body), "task is done") {
+		t.Fatalf("close already-done: body %s", body)
+	}
+	status, prim := getTask(t, srv.URL, leased)
+	if status != "done" {
+		t.Fatalf("close already-done: status %q != %q", status, "done")
+	}
+	if prim != `{"kept":true}` {
+		t.Fatalf("close already-done: primitives %s", prim)
 	}
 }
