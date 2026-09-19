@@ -117,3 +117,68 @@ func TestHalfPageScroll(t *testing.T) {
 		t.Fatalf("small height: expected row 5, got %d", r)
 	}
 }
+
+func TestBodyPaneVimScroll(t *testing.T) {
+	u, _, _ := stub(t)
+
+	var body string
+	for i := 1; i <= 30; i++ {
+		body += fmt.Sprintf("body line %d\n", i)
+	}
+	tasks := []task{
+		{
+			ID:      "t1",
+			Project: "proj-a",
+			Status:  "pending",
+			Body:    body,
+		},
+	}
+	u.render(tasks)
+	u.table.Select(1, 0)
+	u.showBody()
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.body.SetRect(0, 0, 80, 10)
+	u.body.Draw(sim)
+
+	evJ := tcell.NewEventKey(tcell.KeyRune, 'j', 0)
+	evK := tcell.NewEventKey(tcell.KeyRune, 'k', 0)
+
+	row0, _ := u.body.GetScrollOffset()
+	if row0 != 0 {
+		t.Fatalf("expected initial scroll offset 0, got %d", row0)
+	}
+
+	handler := u.body.InputHandler()
+	handler(evJ, nil)
+	u.body.Draw(sim)
+	row1, _ := u.body.GetScrollOffset()
+	if row1 != 1 {
+		t.Fatalf("expected scroll offset 1 after 'j', got %d", row1)
+	}
+
+	handler(evJ, nil)
+	u.body.Draw(sim)
+	row2, _ := u.body.GetScrollOffset()
+	if row2 != 2 {
+		t.Fatalf("expected scroll offset 2 after second 'j', got %d", row2)
+	}
+
+	handler(evK, nil)
+	u.body.Draw(sim)
+	row3, _ := u.body.GetScrollOffset()
+	if row3 != 1 {
+		t.Fatalf("expected scroll offset 1 after 'k', got %d", row3)
+	}
+
+	handler(evK, nil)
+	u.body.Draw(sim)
+	row4, _ := u.body.GetScrollOffset()
+	if row4 != 0 {
+		t.Fatalf("expected scroll offset 0 after second 'k', got %d", row4)
+	}
+}
