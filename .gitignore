@@ -5,3 +5,4 @@
 /taskd.db
 /taskd.db-shm
 /taskd.db-wal
+/worker
