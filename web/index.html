@@ -86,6 +86,7 @@
     transition: background 0.15s ease;
   }
   button:hover { background: #30363d; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
   button.primary {
     background: var(--done);
     border-color: rgba(240,246,252,0.1);
@@ -366,7 +367,11 @@
     <section class="panel" aria-labelledby="queue-heading">
       <div class="panel-header">
         <h2 id="queue-heading">Task Queue</h2>
-        <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>
+          <button type="button" id="prev-page-btn" onclick="prevPage()" disabled aria-label="Previous page" style="padding: 2px 8px; font-size: 12px;">Prev</button>
+          <button type="button" id="next-page-btn" onclick="nextPage()" disabled aria-label="Next page" style="padding: 2px 8px; font-size: 12px;">Next</button>
+        </div>
       </div>
       <div class="filter-bar" role="group" aria-label="Task filters">
         <label for="filter-project" style="color: var(--text-muted); font-size: 12px;">Project:</label>
@@ -457,6 +462,9 @@
     let shownTaskRaw = '';
     let currentTask = null;
     let isEditingTask = false;
+    const PAGE_SIZE = 200;
+    let currentPage = 1;
+    let totalTasks = 0;
     // The project filter, the status filter and the selected task are the
     // state a reader can see, so they live in the URL: a link reproduces
     // the view and a reload keeps it. Filters replace the history entry,
@@ -468,18 +476,21 @@
       return {
         project: q.get('project') || '',
         status: q.get('status') || '',
-        task: q.get('task') || ''
+        task: q.get('task') || '',
+        page: q.get('page') || ''
       };
     }
 
     function currentURLState() {
       const projEl = document.getElementById('filter-project');
       const statusEl = document.getElementById('filter-status');
-      return {
+      const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: statusEl ? statusEl.value : '',
         task: selectedTaskId || ''
       };
+      if (currentPage > 1) state.page = String(currentPage);
+      return state;
     }
 
     function syncURL(push) {
@@ -488,6 +499,7 @@
       if (state.project) q.set('project', state.project);
       if (state.status) q.set('status', state.status);
       if (state.task) q.set('task', state.task);
+      if (state.page) q.set('page', state.page);
       const query = q.toString();
       const url = location.pathname + (query ? '?' + query : '') + location.hash;
       if (push && url !== location.pathname + location.search + location.hash) {
@@ -512,6 +524,8 @@
       setFilter(projEl, state.project);
       setFilter(document.getElementById('filter-status'), state.status);
       selectedTaskId = state.task || null;
+      const parsedPage = parseInt(state.page || '1', 10);
+      currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
       if (!selectedTaskId) resetTaskDetails();
     }
 
@@ -519,6 +533,7 @@
       // The widget is what the reader sees, so it wins over a project
       // the URL named but /projects has not confirmed yet.
       pendingProject = '';
+      currentPage = 1;
       syncURL(false);
       loadTasks();
       loadStats();
@@ -541,7 +556,7 @@
       b.style.display = 'block';
     }
 
-    async function fetchJSON(url, opts) {
+    async function fetchJSON(url, opts, withHeaders) {
       try {
         const res = await fetch(url, opts);
         if (!res.ok) {
@@ -549,13 +564,16 @@
           throw new Error(txt || res.statusText || ('HTTP ' + res.status));
         }
         showError(null);
-        if (res.status === 204) return null;
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('application/json')) {
-          return await res.json();
+        if (res.status === 204) return withHeaders ? { data: null, headers: res.headers } : null;
+        const ct = (res.headers && res.headers.get('content-type')) || '';
+        let data = null;
+        if (ct.includes('application/json') || typeof res.json === 'function') {
+          data = await res.json();
+        } else {
+          const txt = await res.text();
+          data = txt ? JSON.parse(txt) : null;
         }
-        const txt = await res.text();
-        return txt ? JSON.parse(txt) : null;
+        return withHeaders ? { data, headers: res.headers } : data;
       } catch (err) {
         showError(err.message);
         throw err;
@@ -685,32 +703,60 @@
       const statusEl = document.getElementById('filter-status');
       const proj = projEl ? projEl.value : '';
       const status = statusEl ? statusEl.value : '';
-      let url = '/tasks?limit=200';
-      if (proj) url += '&project=' + encodeURIComponent(proj);
-      if (status) url += '&status=' + encodeURIComponent(status);
+      while (true) {
+        const offset = (currentPage - 1) * PAGE_SIZE;
+        let url = '/tasks?limit=' + PAGE_SIZE;
+        if (offset > 0) url += '&offset=' + offset;
+        if (proj) url += '&project=' + encodeURIComponent(proj);
+        if (status) url += '&status=' + encodeURIComponent(status);
 
-      try {
-        const tasks = await fetchJSON(url);
-        const tbody = document.getElementById('task-table-body');
-        const countEl = document.getElementById('queue-count');
-        const count = Array.isArray(tasks) ? tasks.length : 0;
-        if (countEl) countEl.textContent = count + ' tasks';
+        try {
+          const res = await fetchJSON(url, null, true);
+          const tasks = (res && res.data) || [];
+          const totalHdr = res && res.headers && res.headers.get('X-Total-Count');
+          const parsedTotal = parseInt(totalHdr, 10);
+          const total = Number.isFinite(parsedTotal) ? parsedTotal : (Array.isArray(tasks) ? tasks.length : 0);
+          totalTasks = total;
 
-        if (!tbody) return;
-
-        if (!Array.isArray(tasks) || tasks.length === 0) {
-          for (const tr of Array.from(tbody.querySelectorAll('tr[data-task-id]'))) {
-            tr.remove();
+          const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
+          if (currentPage > maxPage && total > 0) {
+            currentPage = maxPage;
+            syncURL(false);
+            continue;
           }
-          let emptyRow = tbody.querySelector('tr:not([data-task-id])');
-          if (!emptyRow) {
-            emptyRow = document.createElement('tr');
-            emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
-            tbody.appendChild(emptyRow);
+
+          const tbody = document.getElementById('task-table-body');
+          const countEl = document.getElementById('queue-count');
+          if (countEl) {
+            if (total === 0 || !Array.isArray(tasks) || tasks.length === 0) {
+              countEl.textContent = '0 tasks';
+            } else {
+              const start = offset + 1;
+              const end = Math.min(offset + tasks.length, total);
+              countEl.textContent = `Showing ${start}-${end} of ${total}`;
+            }
           }
-          if (selectedTaskId) loadTaskDetails(selectedTaskId);
-          return;
-        }
+
+          const prevBtn = document.getElementById('prev-page-btn');
+          if (prevBtn) prevBtn.disabled = (currentPage <= 1);
+          const nextBtn = document.getElementById('next-page-btn');
+          if (nextBtn) nextBtn.disabled = (currentPage >= maxPage);
+
+          if (!tbody) return;
+
+          if (!Array.isArray(tasks) || tasks.length === 0) {
+            for (const tr of Array.from(tbody.querySelectorAll('tr[data-task-id]'))) {
+              tr.remove();
+            }
+            let emptyRow = tbody.querySelector('tr:not([data-task-id])');
+            if (!emptyRow) {
+              emptyRow = document.createElement('tr');
+              emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
+              tbody.appendChild(emptyRow);
+            }
+            if (selectedTaskId) loadTaskDetails(selectedTaskId);
+            return;
+          }
 
         const placeholder = tbody.querySelector('tr:not([data-task-id])');
         if (placeholder) {
@@ -751,10 +797,13 @@
         }
 
         if (selectedTaskId) loadTaskDetails(selectedTaskId);
+        return;
       } catch (e) {
         console.error('Failed to load tasks:', e);
+        return;
       }
     }
+  }
 
     function selectTask(id) {
       if (!id) return;
@@ -768,6 +817,23 @@
         }
       }
       loadTaskDetails(id);
+    }
+
+    async function prevPage() {
+      if (currentPage > 1) {
+        currentPage--;
+        syncURL(true);
+        await loadTasks();
+      }
+    }
+
+    async function nextPage() {
+      const maxPage = Math.max(1, Math.ceil(totalTasks / PAGE_SIZE));
+      if (currentPage < maxPage) {
+        currentPage++;
+        syncURL(true);
+        await loadTasks();
+      }
     }
 
     function setupRowActivation() {

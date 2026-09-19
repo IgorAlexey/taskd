@@ -3,8 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -401,5 +405,170 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.DoneDeletedPaneReset {
 		t.Errorf("pane not reset after done delete")
+	}
+}
+func TestWebUIPagination(t *testing.T) {
+	ui := string(uiHTML)
+
+	if !strings.Contains(ui, `id="prev-page-btn"`) {
+		t.Fatal("expected id=\"prev-page-btn\" in web/index.html")
+	}
+	if !strings.Contains(ui, `id="next-page-btn"`) {
+		t.Fatal("expected id=\"next-page-btn\" in web/index.html")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/pagination.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	type pageState struct {
+		CountText    string `json:"countText"`
+		PrevDisabled bool   `json:"prevDisabled"`
+		NextDisabled bool   `json:"nextDisabled"`
+		RowCount     int    `json:"rowCount"`
+		FirstTaskId  string `json:"firstTaskId"`
+		FetchURL     string `json:"fetchURL"`
+		URL          string `json:"url"`
+	}
+	var got struct {
+		Initial     pageState `json:"initial"`
+		Page2       pageState `json:"page2"`
+		BackToPage1 pageState `json:"backToPage1"`
+		DirectPage2 pageState `json:"directPage2"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.Initial.CountText != "Showing 1-200 of 250" {
+		t.Errorf("initial count = %q, want %q", got.Initial.CountText, "Showing 1-200 of 250")
+	}
+	if !got.Initial.PrevDisabled {
+		t.Errorf("initial prev button should be disabled")
+	}
+	if got.Initial.NextDisabled {
+		t.Errorf("initial next button should be enabled")
+	}
+	if got.Initial.RowCount != 200 {
+		t.Errorf("initial row count = %d, want 200", got.Initial.RowCount)
+	}
+	if got.Initial.FirstTaskId != "task-000" {
+		t.Errorf("initial first task = %q, want task-000", got.Initial.FirstTaskId)
+	}
+	if got.Initial.URL != "/ui" {
+		t.Errorf("initial URL = %q, want /ui", got.Initial.URL)
+	}
+
+	if got.Page2.CountText != "Showing 201-250 of 250" {
+		t.Errorf("page2 count = %q, want %q", got.Page2.CountText, "Showing 201-250 of 250")
+	}
+	if got.Page2.PrevDisabled {
+		t.Errorf("page2 prev button should be enabled")
+	}
+	if !got.Page2.NextDisabled {
+		t.Errorf("page2 next button should be disabled")
+	}
+	if got.Page2.RowCount != 50 {
+		t.Errorf("page2 row count = %d, want 50", got.Page2.RowCount)
+	}
+	if got.Page2.FirstTaskId != "task-200" {
+		t.Errorf("page2 first task = %q, want task-200", got.Page2.FirstTaskId)
+	}
+	if !strings.Contains(got.Page2.FetchURL, "offset=200") {
+		t.Errorf("page2 fetch URL = %q, want offset=200", got.Page2.FetchURL)
+	}
+
+	if got.Page2.URL != "/ui?page=2" {
+		t.Errorf("page2 URL = %q, want /ui?page=2", got.Page2.URL)
+	}
+	if got.BackToPage1.CountText != "Showing 1-200 of 250" {
+		t.Errorf("backToPage1 count = %q, want %q", got.BackToPage1.CountText, "Showing 1-200 of 250")
+	}
+	if !got.BackToPage1.PrevDisabled {
+		t.Errorf("backToPage1 prev button should be disabled")
+	}
+	if got.BackToPage1.NextDisabled {
+		t.Errorf("backToPage1 next button should be enabled")
+	}
+	if got.BackToPage1.RowCount != 200 {
+		t.Errorf("backToPage1 row count = %d, want 200", got.BackToPage1.RowCount)
+	}
+	if got.BackToPage1.FirstTaskId != "task-000" {
+		t.Errorf("backToPage1 first task = %q, want task-000", got.BackToPage1.FirstTaskId)
+	}
+	if got.BackToPage1.URL != "/ui" {
+		t.Errorf("backToPage1 URL = %q, want /ui", got.BackToPage1.URL)
+	}
+	if got.DirectPage2.URL != "/ui?page=2" || got.DirectPage2.CountText != "Showing 201-250 of 250" || got.DirectPage2.FirstTaskId != "task-200" {
+		t.Errorf("direct load with ?page=2 failed: %+v", got.DirectPage2)
+	}
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatalf("db.Begin failed: %v", err)
+	}
+	for i := 0; i < 250; i++ {
+		id := fmt.Sprintf("task-%03d", i)
+		if _, err := tx.Exec("INSERT INTO tasks (id, project, status, priority, body) VALUES (?, 'p1', 'pending', 1, 'b')", id); err != nil {
+			t.Fatalf("insert task %d failed: %v", i, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("tx.Commit failed: %v", err)
+	}
+
+	resp, err := http.Get(srv.URL + "/tasks?limit=200")
+	if err != nil {
+		t.Fatalf("GET /tasks?limit=200 failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if totalHdr := resp.Header.Get("X-Total-Count"); totalHdr != "250" {
+		t.Fatalf("expected X-Total-Count: 250, got %q", totalHdr)
+	}
+	var page1 []struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&page1); err != nil {
+		t.Fatalf("decode page 1 failed: %v", err)
+	}
+	if len(page1) != 200 {
+		t.Fatalf("expected 200 tasks on page 1, got %d", len(page1))
+	}
+
+	resp2, err := http.Get(srv.URL + "/tasks?limit=50&offset=200")
+	if err != nil {
+		t.Fatalf("GET /tasks?limit=50&offset=200 failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	var page2 []struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&page2); err != nil {
+		t.Fatalf("decode page 2 failed: %v", err)
+	}
+	if len(page2) != 50 {
+		t.Fatalf("expected 50 tasks on page 2, got %d", len(page2))
+	}
+	if page2[0].ID != "task-200" {
+		t.Fatalf("expected first task of tail page to be task-200, got %q", page2[0].ID)
 	}
 }
