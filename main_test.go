@@ -1968,3 +1968,126 @@ func TestListTasksOffset(t *testing.T) {
 		}
 	}
 }
+
+func TestPatchProjectAndAssetPath(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "move test",
+		"project": "old-p",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"project": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH empty project expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"body":    "updated",
+		"project": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH empty project with body expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"project": "*",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH wildcard project expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"body":    "updated",
+		"project": "*",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("PATCH wildcard project with body expected 400, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"project":    "new-p",
+		"asset_path": "docs/spec.md",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH project and asset_path expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=new-p", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=new-p expected 200, got %d: %s", code, body)
+	}
+
+	var items []struct {
+		ID        string `json:"id"`
+		Project   string `json:"project"`
+		AssetPath string `json:"asset_path"`
+	}
+	if err := json.Unmarshal(body, &items); err != nil {
+		t.Fatalf("unmarshal list failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 task in new-p, got %d", len(items))
+	}
+	if items[0].ID != res.ID || items[0].Project != "new-p" || items[0].AssetPath != "docs/spec.md" {
+		t.Fatalf("unexpected task data: %+v", items[0])
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"asset_path": "docs/updated.md",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH asset_path only expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"project": "final-p",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH project only expected 204, got %d: %s", code, body)
+	}
+
+	var pVal, aVal string
+	err = db.QueryRow("SELECT project, asset_path FROM tasks WHERE id = ?", res.ID).Scan(&pVal, &aVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if pVal != "final-p" {
+		t.Fatalf("expected project %q, got %q", "final-p", pVal)
+	}
+	if aVal != "docs/updated.md" {
+		t.Fatalf("expected asset_path %q, got %q", "docs/updated.md", aVal)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"asset_path": "",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH clear asset_path expected 204, got %d: %s", code, body)
+	}
+	err = db.QueryRow("SELECT asset_path FROM tasks WHERE id = ?", res.ID).Scan(&aVal)
+	if err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if aVal != "" {
+		t.Fatalf("expected asset_path cleared, got %q", aVal)
+	}
+}

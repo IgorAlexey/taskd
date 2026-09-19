@@ -467,20 +467,26 @@ WHERE id = (
 	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Body     *string `json:"body"`
-			Priority *int    `json:"priority"`
+			Body      *string `json:"body"`
+			Priority  *int    `json:"priority"`
+			Project   *string `json:"project"`
+			AssetPath *string `json:"asset_path"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.Body == nil && req.Priority == nil {
+		if req.Body == nil && req.Priority == nil && req.Project == nil && req.AssetPath == nil {
 			http.Error(w, "missing fields to update", http.StatusBadRequest)
 			return
 		}
+		if req.Project != nil && (*req.Project == "" || *req.Project == "*") {
+			http.Error(w, "invalid project", http.StatusBadRequest)
+			return
+		}
 		res, err := db.Exec(`UPDATE tasks
-SET body = COALESCE(?, body), priority = COALESCE(?, priority)
+SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path)
 WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
-			req.Body, req.Priority, r.PathValue("id"))
+			req.Body, req.Priority, req.Project, req.AssetPath, r.PathValue("id"))
 		if err != nil {
 			internalError(w, err)
 			return
