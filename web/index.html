@@ -277,6 +277,8 @@
   }
   #error-banner {
     display: none;
+    align-items: center;
+    justify-content: space-between;
     background: rgba(248,81,73,0.15);
     border: 1px solid var(--danger);
     color: var(--danger);
@@ -284,6 +286,19 @@
     border-radius: 6px;
     margin-bottom: 16px;
     font-size: 13px;
+  }
+  .error-banner-dismiss {
+    background: none;
+    border: none;
+    color: var(--danger);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 4px;
+    margin-left: 8px;
+  }
+  .error-banner-dismiss:hover {
+    color: #ff7b72;
   }
   .error-summary {
     display: none;
@@ -337,7 +352,10 @@
 </head>
 <body>
   <a class="skip-link" href="#queue">Skip to task queue</a>
-  <div id="error-banner"></div>
+  <div id="error-banner" role="alert">
+    <span id="error-banner-text"></span>
+    <button type="button" class="error-banner-dismiss" onclick="showError(null)" aria-label="Dismiss error">&times;</button>
+  </div>
   <header>
     <h1>taskd</h1>
     <div class="controls">
@@ -624,10 +642,17 @@
       if (!b) return;
       if (!msg) {
         b.style.display = 'none';
+        const t = document.getElementById('error-banner-text');
+        if (t) t.textContent = '';
         return;
       }
-      b.textContent = msg;
-      b.style.display = 'block';
+      const t = document.getElementById('error-banner-text');
+      if (t) {
+        t.textContent = msg;
+      } else {
+        b.textContent = msg;
+      }
+      b.style.display = 'flex';
     }
 
     async function fetchJSON(url, opts, withHeaders) {
@@ -637,7 +662,6 @@
           const txt = await res.text();
           throw new Error(txt || res.statusText || ('HTTP ' + res.status));
         }
-        showError(null);
         if (res.status === 204) return withHeaders ? { data: null, headers: res.headers } : null;
         const ct = (res.headers && res.headers.get('content-type')) || '';
         let data = null;

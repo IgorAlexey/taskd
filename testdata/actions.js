@@ -54,11 +54,13 @@ global.confirm = () => {
   return confirmAnswer;
 };
 
+const bannerText = element();
 const els = {
   'filter-project': element(),
   'filter-status': element(),
   'task-details-content': element(),
   'error-banner': element(),
+  'error-banner-text': bannerText,
   'task-table-body': element(),
   'queue-count': element(),
   'stat-pending': element(),
@@ -66,6 +68,11 @@ const els = {
   'stat-done': element(),
   'stat-total': element(),
 };
+
+Object.defineProperty(els['error-banner'], 'textContent', {
+  get() { return bannerText.textContent; },
+  set(v) { bannerText.textContent = v; },
+});
 
 const document = {
   getElementById: id => {
@@ -84,7 +91,7 @@ const history = {
 const window = { addEventListener() {} };
 
 const fetchStub = async (url, opts = {}) => {
-  calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
+  opts = opts || {}; calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
   if (url.startsWith('/projects')) return response(200, ['p1']);
   if (url.startsWith('/stats')) return response(200, { pending: 1, leased: 1, done: 1, total: 3 });
   if (url.endsWith('/done')) return response(204, null);
@@ -164,6 +171,9 @@ const api = new Function(
   await els['delete-task-btn'].onclick();
   results.leasedDeleteErrorBanner = els['error-banner'].textContent.includes('task is leased');
   results.leasedDeletePaneKept = !els['task-details-content'].innerHTML.includes('Select a task');
+
+  await api.loadTasks();
+  results.errorBannerSurvivesPoll = els['error-banner'].textContent.includes('task is leased') && els['error-banner'].style.display !== 'none';
 
   calls.length = 0;
   await els['release-task-btn'].onclick();

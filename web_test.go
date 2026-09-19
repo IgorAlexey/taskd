@@ -364,6 +364,7 @@ func TestWebUITaskActions(t *testing.T) {
 		LeasedHasRelease        bool
 		LeasedDeleteErrorBanner bool
 		LeasedDeletePaneKept    bool
+		ErrorBannerSurvivesPoll bool
 		ReleaseCall             *struct {
 			URL    string
 			Method string
@@ -410,6 +411,15 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.LeasedDeleteErrorBanner || !got.LeasedDeletePaneKept {
 		t.Errorf("leased delete 409 mismatch: banner=%v paneKept=%v", got.LeasedDeleteErrorBanner, got.LeasedDeletePaneKept)
+	}
+	if !got.ErrorBannerSurvivesPoll {
+		t.Error("expected error banner to survive subsequent successful fetch")
+	}
+	if !regexp.MustCompile(`<div[^>]*id="error-banner"[^>]*role="alert"`).MatchString(ui) {
+		t.Fatalf("expected role=alert on #error-banner in web/index.html")
+	}
+	if !strings.Contains(ui, `class="error-banner-dismiss"`) {
+		t.Fatalf("expected dismiss button on #error-banner in web/index.html")
 	}
 
 	if got.ReleaseCall == nil || got.ReleaseCall.URL != "/tasks/t-leased/release" || got.ReleaseCall.Method != "POST" || got.ReleaseCall.Body["worker"] != "w-1" {
