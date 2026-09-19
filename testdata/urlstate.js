@@ -53,6 +53,10 @@ function boot(search, world) {
     'error-banner': element(),
     'task-table-body': element(),
     'queue-count': element(),
+    'stat-pending': element(),
+    'stat-leased': element(),
+    'stat-done': element(),
+    'stat-total': element(),
   };
   const document = {
     getElementById: id => els[id] || null,
@@ -74,13 +78,21 @@ function boot(search, world) {
     addEventListener(name, fn) { if (name === 'popstate') onpopstate = fn; },
   };
   const listFetches = [];
+  const statsFetches = [];
   const fetchStub = async url => {
     if (url.startsWith('/projects')) {
       return world.projectsFail
         ? response(500, 'projects unavailable')
         : response(200, world.projects);
     }
-    if (url.startsWith('/stats')) return response(200, { pending: 0, leased: 0, done: 0, total: 0 });
+    if (url.startsWith('/stats')) {
+      statsFetches.push(url);
+      const q = url.includes('?') ? new URLSearchParams(url.slice(url.indexOf('?'))) : null;
+      const proj = q ? q.get('project') : '';
+      const stats = (proj && world.projectStats && world.projectStats[proj]) ||
+        world.stats || { pending: 0, leased: 0, done: 0, total: 0 };
+      return response(200, stats);
+    }
     if (url.startsWith('/tasks/')) {
       const id = decodeURIComponent(url.slice('/tasks/'.length));
       const t = world.tasks.find(x => x.id === id);
@@ -99,7 +111,7 @@ function boot(search, world) {
     ' currentURLState, get selected() { return selectedTaskId; }};'
   )(document, location, history, window, fetchStub, console, () => 0, () => {});
   return {
-    api, els, history, location, listFetches,
+    api, els, history, location, listFetches, statsFetches,
     url: () => location.pathname + location.search,
     pane: () => {
       const h = els['task-details-content'].innerHTML;
@@ -179,5 +191,23 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
     list: w.listFetches[0],
   };
 
+
+  w = boot('', {
+    ...world,
+    projectStats: {
+      p1: { pending: 4, leased: 2, done: 1, total: 7 },
+    },
+  });
+  await settle();
+  w.els['filter-project'].value = 'p1';
+  w.api.onFilterChange();
+  await settle();
+  out.projectFilterStats = {
+    url: w.statsFetches[w.statsFetches.length - 1],
+    pending: w.els['stat-pending'].textContent,
+    leased: w.els['stat-leased'].textContent,
+    done: w.els['stat-done'].textContent,
+    total: w.els['stat-total'].textContent,
+  };
   process.stdout.write(JSON.stringify(out, null, 1));
 })();

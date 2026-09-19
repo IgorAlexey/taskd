@@ -184,6 +184,13 @@ func TestWebUIURLState(t *testing.T) {
 			URL     string `json:"url"`
 			List    string
 		}
+		ProjectFilterStats struct {
+			URL     string `json:"url"`
+			Pending int
+			Leased  int
+			Done    int
+			Total   int
+		}
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -245,6 +252,13 @@ func TestWebUIURLState(t *testing.T) {
 	if got.ProjectsDown.List != "/tasks?limit=200&status=pending" {
 		t.Errorf("projects down list = %q, want no project filter",
 			got.ProjectsDown.List)
+	}
+
+	if got.ProjectFilterStats.URL != "/stats?project=p1" {
+		t.Errorf("project filter stats request = %q, want /stats?project=p1", got.ProjectFilterStats.URL)
+	}
+	if got.ProjectFilterStats.Pending != 4 || got.ProjectFilterStats.Total != 7 {
+		t.Errorf("project filter stats cards = %+v, want pending: 4, total: 7", got.ProjectFilterStats)
 	}
 }
 func TestWebUITaskDetailsGuard(t *testing.T) {
