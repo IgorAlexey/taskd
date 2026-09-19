@@ -751,6 +751,8 @@
 
     function rowFields(t) {
       const tid = String(t.id || '');
+      const title = String(t.body || '').replace(/^[ \t\r\n]+/, '').split('\n', 1)[0].replace(/\r+$/, '');
+      const chars = [...title];
       return {
         id: tid,
         shortId: tid.length > 10 ? tid.slice(0, 8) + '…' : tid,
@@ -760,7 +762,7 @@
         priority: String(t.priority ?? ''),
         claimCount: String(t.claim_count ?? 0),
         worker: t.worker || '',
-        summary: t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : (t.asset_path || '')
+        summary: chars.length ? (chars.length > 50 ? chars.slice(0, 50).join('') + '…' : title) : (t.asset_path || '')
       };
     }
     function createRow(t, isSelected) {

@@ -608,3 +608,62 @@ func TestWebUIPagination(t *testing.T) {
 		t.Fatalf("expected first task of tail page to be task-200, got %q", page2[0].ID)
 	}
 }
+
+func TestWebUIRowSummaryFirstLine(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/summary.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	var got struct {
+		Summary map[string]string `json:"summary"`
+		RowHTML map[string]string `json:"rowHTML"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("decode harness output failed: %v\n%s", err, out)
+	}
+
+	want := map[string]string{
+		"multiline":     "Fix the parser",
+		"crlf":          "Windows title",
+		"leadingBlank":  "Indented title",
+		"longFirstLine": strings.Repeat("A", 50) + "\u2026",
+		"blankOnly":     "models/car.glb",
+		"emptyBody":     "models/car.glb",
+		"noBodyNoAsset": "",
+		"singleLine":    "just one line",
+		"emoji":         "x" + strings.Repeat("\U0001F680", 49) + "\u2026",
+		"markup":        "<img src=x onerror=alert(1)> & co",
+	}
+	for name, exp := range want {
+		if got.Summary[name] != exp {
+			t.Errorf("summary[%s] = %q, want %q", name, got.Summary[name], exp)
+		}
+	}
+	cellRe := regexp.MustCompile(`(?s)<td data-field="summary">(.*?)</td>`)
+	for name, html := range got.RowHTML {
+		cell := cellRe.FindStringSubmatch(html)
+		if cell == nil {
+			t.Errorf("no summary cell in row html for %s", name)
+			continue
+		}
+		if strings.ContainsAny(cell[1], "\r\n") {
+			t.Errorf("summary cell for %s holds a line break: %q", name, cell[1])
+		}
+	}
+	markup := cellRe.FindStringSubmatch(got.RowHTML["markup"])
+	if markup == nil || markup[1] != "&lt;img src=x onerror=alert(1)&gt; &amp; co" {
+		t.Errorf("markup summary cell was not escaped: %q", got.RowHTML["markup"])
+	}
+}
