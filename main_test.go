@@ -5,6 +5,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -1634,6 +1636,48 @@ func TestValidateEmptyDBAndAddr(t *testing.T) {
 	}
 	if cfg.addr != ":9090" {
 		t.Fatalf("expected trimmed addr ':9090', got %q", cfg.addr)
+	}
+}
+
+func TestCLIUsageAndUnexpectedArgs(t *testing.T) {
+	var buf bytes.Buffer
+	_, err := parseFlags([]string{"-h"}, &buf)
+	if !errors.Is(err, flag.ErrHelp) {
+		t.Fatalf("expected ErrHelp for -h, got: %v", err)
+	}
+	usage := buf.String()
+
+	for _, want := range []string{"Usage of taskd", "taskd", "/tasks/claim", "Endpoints:", "Examples:", "-addr", "-db"} {
+		if !strings.Contains(usage, want) {
+			t.Fatalf("usage output missing %q:\n%s", want, usage)
+		}
+	}
+
+	for _, flagArg := range []string{"-help", "--help"} {
+		_, err := parseFlags([]string{flagArg}, io.Discard)
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp for %q, got: %v", flagArg, err)
+		}
+	}
+
+	for _, extra := range []string{"unexpected-arg", "start", ":8080", "help"} {
+		_, err := parseFlags([]string{extra}, io.Discard)
+		if err == nil {
+			t.Fatalf("expected error for unexpected arg %q, got nil", extra)
+		}
+		if !strings.Contains(err.Error(), "unexpected argument") {
+			t.Fatalf("expected 'unexpected argument' in error for %q, got: %v", extra, err)
+		}
+	}
+
+	for _, extra := range []string{"unexpected-arg", "start"} {
+		_, err := parseFlags([]string{"-addr", ":9090", extra}, io.Discard)
+		if err == nil {
+			t.Fatalf("expected error for trailing unexpected arg %q, got nil", extra)
+		}
+		if !strings.Contains(err.Error(), "unexpected argument") {
+			t.Fatalf("expected 'unexpected argument' in error for %q, got: %v", extra, err)
+		}
 	}
 }
 

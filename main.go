@@ -1103,9 +1103,45 @@ type config struct {
 	corsOrigin string
 }
 
-func parseFlags(args []string) (config, error) {
+func printUsage(fs *flag.FlagSet) {
+	w := fs.Output()
+	fmt.Fprintf(w, "Usage of %s:\n\n", fs.Name())
+	fmt.Fprintf(w, "taskd is a lightweight task queue daemon backed by SQLite.\n\nOptions:\n")
+	fs.PrintDefaults()
+	fmt.Fprintf(w, `
+HTTP Endpoints:
+  GET    /tasks              list tasks
+  POST   /tasks              create a task
+  POST   /tasks/claim        claim next pending task
+  GET    /tasks/{id}         get task details
+  PATCH  /tasks/{id}         update task body or priority
+  POST   /tasks/{id}/claim   claim a specific task
+  POST   /tasks/{id}/done    complete task with result
+  POST   /tasks/{id}/close   close task without result
+  POST   /tasks/{id}/touch   extend task lease duration
+  POST   /tasks/{id}/release release leased task back to pending
+  DELETE /tasks/{id}         delete task
+  GET    /projects           list active projects
+  GET    /stats              task queue statistics
+  GET    /ui                 web interface
+
+Examples:
+  taskd                                      run daemon on :8080 with taskd.db
+  taskd -addr :9090 -db custom.db            run on custom port and database
+  taskd -lease 600                           use 10 minute task lease duration
+  taskd -backup backup.db                    backup database to file and exit
+`)
+}
+
+func parseFlags(args []string, out ...io.Writer) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("taskd", flag.ContinueOnError)
+	if len(out) > 0 && out[0] != nil {
+		fs.SetOutput(out[0])
+	}
+	fs.Usage = func() {
+		printUsage(fs)
+	}
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
@@ -1113,6 +1149,10 @@ func parseFlags(args []string) (config, error) {
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
+	}
+	if len(fs.Args()) > 0 {
+		fs.Usage()
+		return cfg, fmt.Errorf("unexpected argument: %s", fs.Args()[0])
 	}
 	cfg.dbPath = strings.TrimSpace(cfg.dbPath)
 	if cfg.dbPath == "" {
