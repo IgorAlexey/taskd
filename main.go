@@ -24,8 +24,12 @@ func openDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
-	steps := []string{
-		`CREATE TABLE IF NOT EXISTS tasks (
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		db.Close()
+		return nil, err
+	}
+	const fullSchema = `CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   asset_path TEXT NOT NULL DEFAULT '',
   status TEXT DEFAULT 'pending',
@@ -33,27 +37,45 @@ func openDB(path string) (*sql.DB, error) {
   lease_expires INTEGER,
   primitives JSON,
   body TEXT NOT NULL DEFAULT '',
-  priority INTEGER NOT NULL DEFAULT 0
+  priority INTEGER NOT NULL DEFAULT 0,
+  project TEXT NOT NULL DEFAULT ''
 );
 DROP INDEX IF EXISTS idx_tasks_claim;
-CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);`,
-		`ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT '';
-CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);`,
-	}
-	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
-		db.Close()
-		return nil, err
-	}
+CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);`
 	if version == 0 {
-		var n int
-		db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks')").Scan(&n)
-		if n > 0 {
+		var tableExists int
+		if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&tableExists); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if tableExists == 0 {
+			if _, err := db.Exec(fullSchema + "\nPRAGMA user_version = 2;"); err != nil {
+				db.Close()
+				return nil, err
+			}
+			return db, nil
+		}
+		var hasProject int
+		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='project'").Scan(&hasProject); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if hasProject > 0 {
+			version = 2
+		} else {
 			version = 1
 		}
+		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d;", version)); err != nil {
+			db.Close()
+			return nil, err
+		}
 	}
-	for ; version < len(steps); version++ {
-		if _, err := db.Exec(steps[version] + fmt.Sprintf("\nPRAGMA user_version = %d;", version+1)); err != nil {
+	if version < 2 {
+		migrationV2 := `ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT '';
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);
+PRAGMA user_version = 2;`
+		if _, err := db.Exec(migrationV2); err != nil {
 			db.Close()
 			return nil, err
 		}
