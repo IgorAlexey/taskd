@@ -65,7 +65,7 @@ type ui struct {
 	table                 *tview.Table
 	body                  *tview.TextView
 	status                *tview.TextView
-	root                  tview.Primitive
+	pages                 *tview.Pages
 	form                  *tview.Form
 	modal                 *tview.Modal
 	filter                string
@@ -325,6 +325,13 @@ func (u *ui) act(method, path string, body any, success string) {
 	}()
 }
 
+func centerModal(p tview.Primitive, width, height int) tview.Primitive {
+	return tview.NewGrid().
+		SetColumns(0, width, 0).
+		SetRows(0, height, 0).
+		AddItem(p, 1, 1, 1, 1, 0, 0, true)
+}
+
 func (u *ui) showCreateForm() {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" new task ")
@@ -336,7 +343,8 @@ func (u *ui) showCreateForm() {
 	body := f.GetFormItem(2).(*tview.TextArea)
 	close := func() {
 		u.form = nil
-		u.app.SetRoot(u.root, true).SetFocus(u.table)
+		u.pages.RemovePage("create")
+		u.app.SetFocus(u.table)
 	}
 	submit := func() {
 		pname := strings.TrimSpace(proj.GetText())
@@ -363,7 +371,8 @@ func (u *ui) showCreateForm() {
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
-	u.app.SetRoot(f, true)
+	u.pages.AddPage("create", centerModal(f, 60, 15), true, true)
+	u.app.SetFocus(f)
 }
 
 func (u *ui) showEditForm(t task) {
@@ -375,7 +384,8 @@ func (u *ui) showEditForm(t task) {
 	f.AddFormItem(body).AddFormItem(pri)
 	close := func() {
 		u.form = nil
-		u.app.SetRoot(u.root, true).SetFocus(u.table)
+		u.pages.RemovePage("edit")
+		u.app.SetFocus(u.table)
 	}
 	submit := func() {
 		p, err := strconv.Atoi(pri.GetText())
@@ -391,7 +401,8 @@ func (u *ui) showEditForm(t task) {
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
-	u.app.SetRoot(f, true)
+	u.pages.AddPage("edit", centerModal(f, 60, 15), true, true)
+	u.app.SetFocus(f)
 }
 
 func (u *ui) showDeleteConfirm(t task) {
@@ -405,7 +416,8 @@ func (u *ui) showDeleteConfirm(t task) {
 	m.AddButtons([]string{"Delete", "Cancel"})
 	close := func() {
 		u.modal = nil
-		u.app.SetRoot(u.root, true).SetFocus(u.table)
+		u.pages.RemovePage("delete")
+		u.app.SetFocus(u.table)
 	}
 	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		close()
@@ -418,7 +430,8 @@ func (u *ui) showDeleteConfirm(t task) {
 		}
 	})
 	u.modal = m
-	u.app.SetRoot(m, true)
+	u.pages.AddPage("delete", m, false, true)
+	u.app.SetFocus(m)
 }
 
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
@@ -592,7 +605,8 @@ func newUI(url, project string, icons bool) *ui {
 	u.status = tview.NewTextView().SetWrap(false)
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 2, 0, false)
-	u.root = flex
+	u.pages = tview.NewPages().AddPage("main", flex, true, true)
+	u.app.SetRoot(u.pages, true)
 	return u
 }
 
@@ -610,7 +624,7 @@ func main() {
 			u.refresh()
 		}
 	}()
-	if err := u.app.SetRoot(u.root, true).Run(); err != nil {
+	if err := u.app.SetRoot(u.pages, true).Run(); err != nil {
 		fmt.Println(err)
 	}
 }

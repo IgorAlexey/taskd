@@ -213,6 +213,7 @@ func TestCreateForm(t *testing.T) {
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
 	}
+	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
 	done := make(chan struct{})
 	go func() {
@@ -242,6 +243,24 @@ func TestCreateForm(t *testing.T) {
 	}
 	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != "" {
 		t.Fatalf("default body = %q, want empty", got)
+	}
+	screenText := func() string {
+		cells, _, _ := sim.GetContents()
+		var sb strings.Builder
+		for _, c := range cells {
+			for _, r := range c.Runes {
+				sb.WriteRune(r)
+			}
+		}
+		return sb.String()
+	}
+	eventually(t, func() bool {
+		s := screenText()
+		return strings.Contains(s, "aaaaaaa") && strings.Contains(s, "first task")
+	})
+	fx, fy, fw, fh := form.GetRect()
+	if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
+		t.Fatalf("expected centered bounded form, got rect (%d, %d, %d, %d)", fx, fy, fw, fh)
 	}
 	u.app.QueueUpdateDraw(func() {
 		u.form.InputHandler()(tcell.NewEventKey(tcell.KeyEscape, 0, 0), nil)
@@ -311,7 +330,7 @@ func TestMouseSupport(t *testing.T) {
 	}
 	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
-	u.app.SetRoot(u.root, true)
+	u.app.SetRoot(u.pages, true)
 
 	done := make(chan struct{})
 	go func() {
@@ -446,7 +465,7 @@ func TestBodyFocusAndScroll(t *testing.T) {
 	}
 	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
-	u.app.SetRoot(u.root, true)
+	u.app.SetRoot(u.pages, true)
 
 	done := make(chan struct{})
 	go func() {
@@ -715,6 +734,7 @@ func TestEditForm(t *testing.T) {
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
 	}
+	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
 	done := make(chan struct{})
 	go func() {
@@ -750,6 +770,10 @@ func TestEditForm(t *testing.T) {
 	}
 	if got := priItem.GetText(); got != "2" {
 		t.Fatalf("pre-filled priority = %q, want 2", got)
+	}
+	fx, fy, fw, fh := form.GetRect()
+	if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
+		t.Fatalf("expected centered bounded form, got rect (%d, %d, %d, %d)", fx, fy, fw, fh)
 	}
 
 	u.app.QueueUpdateDraw(func() {
@@ -1164,7 +1188,7 @@ func TestTUIStatusLayout(t *testing.T) {
 	}
 	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
-	u.app.SetRoot(u.root, true)
+	u.app.SetRoot(u.pages, true)
 
 	done := make(chan struct{})
 	go func() {
@@ -1464,7 +1488,7 @@ func TestFetchServerError(t *testing.T) {
 		}
 		sim.SetSize(80, 25)
 		u.app.SetScreen(sim)
-		u.app.SetRoot(u.root, true)
+		u.app.SetRoot(u.pages, true)
 
 		done := make(chan struct{})
 		go func() {
@@ -1669,7 +1693,7 @@ func TestManualRefresh(t *testing.T) {
 		t.Fatal(err)
 	}
 	u.app.SetScreen(sim)
-	u.app.SetRoot(u.root, true)
+	u.app.SetRoot(u.pages, true)
 	done := make(chan struct{})
 	go func() {
 		u.app.Run()
@@ -1766,7 +1790,7 @@ func TestClearErrorOnReconnect(t *testing.T) {
 	}
 	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
-	u.app.SetRoot(u.root, true)
+	u.app.SetRoot(u.pages, true)
 
 	done := make(chan struct{})
 	go func() {
