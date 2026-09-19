@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -122,5 +124,94 @@ func TestOpenDBCurrentSchema(t *testing.T) {
 	}
 	if mode != "wal" {
 		t.Fatalf("expected journal_mode 'wal', got %q", mode)
+	}
+}
+
+func TestOpenDBRefusesForeignFile(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "foreign.db")
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("setup open: %v", err)
+	}
+	if _, err := raw.Exec("CREATE TABLE notes(id INTEGER PRIMARY KEY, txt TEXT); INSERT INTO notes VALUES(1,'my important data');"); err != nil {
+		raw.Close()
+		t.Fatalf("setup exec: %v", err)
+	}
+	raw.Close()
+
+	before, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read before: %v", err)
+	}
+
+	db, err := openDB(dbPath)
+	if err == nil {
+		db.Close()
+		t.Fatal("openDB adopted a foreign database, want an error")
+	}
+	if !strings.Contains(err.Error(), dbPath) {
+		t.Fatalf("error %q does not name %q", err, dbPath)
+	}
+
+	after, err := os.ReadFile(dbPath)
+	if err != nil {
+		t.Fatalf("read after: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("openDB wrote to a foreign database before refusing it")
+	}
+}
+
+func TestOpenDBRefusesMissingTasksTable(t *testing.T) {
+	for version := 1; version <= schemaVersion; version++ {
+		dbPath := filepath.Join(t.TempDir(), fmt.Sprintf("v%d.db", version))
+		raw, err := sql.Open("sqlite", dbPath)
+		if err != nil {
+			t.Fatalf("setup open: %v", err)
+		}
+		if _, err := raw.Exec(fmt.Sprintf("PRAGMA user_version = %d;", version)); err != nil {
+			raw.Close()
+			t.Fatalf("setup pragma: %v", err)
+		}
+		raw.Close()
+
+		db, err := openDB(dbPath)
+		if err == nil {
+			db.Close()
+			t.Fatalf("openDB accepted version %d without a tasks table, want an error", version)
+		}
+		msg := err.Error()
+		for _, want := range []string{dbPath, fmt.Sprint(version)} {
+			if !strings.Contains(msg, want) {
+				t.Fatalf("error %q does not name %q", msg, want)
+			}
+		}
+	}
+}
+
+func TestOpenDBAdoptsLegacyUnversioned(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy.db")
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("setup open: %v", err)
+	}
+	if _, err := raw.Exec("CREATE TABLE tasks (id TEXT PRIMARY KEY, asset_path TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'pending', worker TEXT, lease_expires INTEGER, primitives JSON);"); err != nil {
+		raw.Close()
+		t.Fatalf("setup exec: %v", err)
+	}
+	raw.Close()
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB refused a legacy unversioned taskd database: %v", err)
+	}
+	defer db.Close()
+
+	var version int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("query user_version: %v", err)
+	}
+	if version != schemaVersion {
+		t.Fatalf("legacy db migrated to %d, want %d", version, schemaVersion)
 	}
 }

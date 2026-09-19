@@ -55,6 +55,18 @@ var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4}
 
 const schemaVersion = len(migrations) + 1
 
+func rowExists(db *sql.DB, query string) (bool, error) {
+	var dummy int
+	err := db.QueryRow(query).Scan(&dummy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func openDB(path string) (*sql.DB, error) {
 	if dir := dbDir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -94,27 +106,44 @@ func openDB(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("database %s has schema version %d, this binary supports %d", path, version, schemaVersion)
 	}
-	if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
-		db.Close()
-		return nil, err
-	}
 	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
 DROP INDEX IF EXISTS idx_tasks_claim;
 CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority ASC);
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);`
-	if version == 0 {
-		var tableExists int
-		if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='tasks'").Scan(&tableExists); err != nil {
+	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if !hasTasks {
+		if version != 0 {
+			db.Close()
+			return nil, fmt.Errorf("database %s has schema version %d but no tasks table", path, version)
+		}
+		used, err := rowExists(db, "SELECT 1 FROM sqlite_master LIMIT 1")
+		if err != nil {
 			db.Close()
 			return nil, err
 		}
-		if tableExists == 0 {
-			if _, err := db.Exec(fullSchema + fmt.Sprintf("\nPRAGMA user_version = %d;", schemaVersion)); err != nil {
-				db.Close()
-				return nil, err
-			}
-			return db, nil
+		if used {
+			db.Close()
+			return nil, fmt.Errorf("database %s is not a taskd database", path)
 		}
+		if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if _, err := db.Exec(fullSchema + fmt.Sprintf("\nPRAGMA user_version = %d;", schemaVersion)); err != nil {
+			db.Close()
+			return nil, err
+		}
+		return db, nil
+	}
+	if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if version == 0 {
 		var hasProject int
 		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='project'").Scan(&hasProject); err != nil {
 			db.Close()
