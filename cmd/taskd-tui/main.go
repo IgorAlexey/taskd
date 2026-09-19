@@ -297,7 +297,7 @@ func (u *ui) render(all []task) {
 	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
 	now, row := time.Now().Unix(), u.selectedRow()
 	for i, t := range u.shown {
-		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
+		title := taskTitle(t)
 		cells := []string{
 			statusText(t.Status, u.icons),
 			priorityText(t.Priority, u.icons),
@@ -555,8 +555,14 @@ func (u *ui) showEditForm(t task) {
 	u.app.SetFocus(f)
 }
 
+func taskTitle(t task) string {
+	b := strings.TrimLeft(t.Body, " \t\r\n")
+	line, _, _ := strings.Cut(b, "\n")
+	return cmp.Or(strings.TrimRight(line, "\r"), t.AssetPath)
+}
+
 func taskLabel(t task) string {
-	title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
+	title := taskTitle(t)
 	if title == "" || title == t.ID {
 		return t.ID
 	}
