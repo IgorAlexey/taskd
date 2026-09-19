@@ -61,6 +61,24 @@
     outline: 3px solid var(--accent);
     outline-offset: 2px;
   }
+  .skip-link {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    z-index: 10;
+    clip-path: inset(50%);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .skip-link:focus {
+    clip-path: none;
+  }
   button {
     cursor: pointer;
     background: #21262d;
@@ -115,6 +133,7 @@
     overflow: hidden;
   }
   .panel-header {
+    margin: 0;
     padding: 10px 14px;
     background: #1c2128;
     border-bottom: 1px solid var(--border);
@@ -123,6 +142,11 @@
     align-items: center;
     font-weight: 600;
     font-size: 13px;
+  }
+  .panel-header h2 {
+    margin: 0;
+    font-size: inherit;
+    font-weight: inherit;
   }
   .filter-bar {
     display: flex;
@@ -284,6 +308,7 @@
 </style>
 </head>
 <body>
+  <a class="skip-link" href="#queue">Skip to task queue</a>
   <div id="error-banner"></div>
   <header>
     <h1>taskd</h1>
@@ -295,6 +320,7 @@
     </div>
   </header>
 
+  <main>
   <div class="grid-stats">
     <div class="card">
       <div class="stat-label">Pending</div>
@@ -315,12 +341,12 @@
   </div>
 
   <div class="layout">
-    <div class="panel">
+    <section class="panel" aria-labelledby="queue-heading">
       <div class="panel-header">
-        <span>Task Queue</span>
+        <h2 id="queue-heading">Task Queue</h2>
         <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>
       </div>
-      <div class="filter-bar">
+      <div class="filter-bar" role="group" aria-label="Task filters">
         <label for="filter-project" style="color: var(--text-muted); font-size: 12px;">Project:</label>
         <select id="filter-project" onchange="loadTasks()">
           <option value="">(all)</option>
@@ -333,7 +359,7 @@
           <option value="done">Done</option>
         </select>
       </div>
-      <div style="overflow-x: auto;">
+      <div id="queue" tabindex="-1" style="overflow-x: auto;">
         <table>
           <thead>
             <tr>
@@ -350,18 +376,18 @@
           </tbody>
         </table>
       </div>
-    </div>
+    </section>
 
     <div style="display: flex; flex-direction: column; gap: 16px;">
-      <div class="panel">
-        <div class="panel-header">Task Details</div>
+      <section class="panel" aria-labelledby="details-heading">
+        <h2 class="panel-header" id="details-heading">Task Details</h2>
         <div class="sidebar-section" id="task-details-content">
           <p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>
         </div>
-      </div>
+      </section>
 
-      <div class="panel">
-        <div class="panel-header">Submit Task</div>
+      <section class="panel" aria-labelledby="submit-heading">
+        <h2 class="panel-header" id="submit-heading">Submit Task</h2>
         <div class="sidebar-section">
           <form id="submit-task-form" onsubmit="submitTask(event)" novalidate>
             <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1">
@@ -395,9 +421,10 @@
             <button type="submit" class="primary" style="width: 100%;">Submit Task</button>
           </form>
         </div>
-      </div>
+      </section>
     </div>
   </div>
+  </main>
 
   <script>
     let selectedTaskId = null;
