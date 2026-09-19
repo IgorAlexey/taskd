@@ -50,6 +50,27 @@ Once running, view and manage tasks in your browser via `GET /ui` at
 `http://localhost:8080/ui`, or launch the terminal user interface in
 `cmd/taskd-tui` with `go run ./cmd/taskd-tui`.
 
+## Lease conflicts
+
+`done`, `touch`, `release`, and `bury` require a live lease held by the
+calling worker; `claim`, `close`, `kick`, and `PATCH /tasks/{id}` require
+a task in the matching state. A refused call answers `404 Not Found` with
+`task not found`, or `409 Conflict` with one of these `{"error": ...}`
+messages:
+
+- `lease has expired`: the lease was yours and ran out.
+- `task not leased by worker`: the lease belongs to another worker, live
+  or expired.
+- `task is leased`: another worker is on the task right now.
+- `task is pending`, `task is buried`, `task is done`: nobody leases the
+  task right now.
+- `task state conflict`: unknown status, worth a bug report.
+
+Whichever one you get, the instruction is the same: you do not hold the
+task, so drop the work. The wording tells a human reading the log which
+way it went, and is not a stable signal, since a worker that claims the
+task between your call and the answer changes it.
+
 ## Backup
 
 A plain cp of the .db is not a backup: WAL mode leaves data in the wal file.

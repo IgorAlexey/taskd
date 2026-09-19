@@ -429,9 +429,12 @@ func internalError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, "internal error")
 }
 
-func writeTaskStateError(w http.ResponseWriter, db *sql.DB, id string) {
-	var status string
-	err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
+func writeTaskStateError(w http.ResponseWriter, q queryer, id, worker string) {
+	var (
+		status string
+		holder sql.NullString
+	)
+	err := q.QueryRow("SELECT status, worker FROM tasks WHERE id = ?", id).Scan(&status, &holder)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -444,7 +447,14 @@ func writeTaskStateError(w http.ResponseWriter, db *sql.DB, id string) {
 	case "done":
 		writeError(w, http.StatusConflict, "task is done")
 	case "leased":
-		writeError(w, http.StatusConflict, "task is leased")
+		switch {
+		case worker == "":
+			writeError(w, http.StatusConflict, "task is leased")
+		case holder.String == worker:
+			writeError(w, http.StatusConflict, "lease has expired")
+		default:
+			writeError(w, http.StatusConflict, "task not leased by worker")
+		}
 	case "pending":
 		writeError(w, http.StatusConflict, "task is pending")
 	case "buried":
@@ -474,18 +484,34 @@ func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return worker, true
 }
 
-func taskNotFoundOrConflict(w http.ResponseWriter, db *sql.DB, id string) {
-	var exists int
-	err := db.QueryRow("SELECT 1 FROM tasks WHERE id = ?", id).Scan(&exists)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "task not found")
-		return
-	}
+func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) bool {
+	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()"
+	args = append(args, id, worker)
+	tx, err := db.Begin()
 	if err != nil {
 		internalError(w, err)
-		return
+		return false
 	}
-	writeError(w, http.StatusConflict, "task not leased by worker")
+	defer tx.Rollback()
+	res, err := tx.Exec(query, args...)
+	if err != nil {
+		internalError(w, err)
+		return false
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		internalError(w, err)
+		return false
+	}
+	if n == 0 {
+		writeTaskStateError(w, tx, id, worker)
+		return false
+	}
+	if err := tx.Commit(); err != nil {
+		internalError(w, err)
+		return false
+	}
+	return true
 }
 
 type queryer interface {
@@ -838,7 +864,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		err := db.QueryRow(query, worker, lease, id).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
-			writeTaskStateError(w, db, id)
+			writeTaskStateError(w, db, id, "")
 			return
 		}
 		if err != nil {
@@ -873,18 +899,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		res, err := db.Exec("UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", prim, id, req.Worker)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if n == 0 {
-			taskNotFoundOrConflict(w, db, id)
+		if !updateLeased(w, db, "status='done', primitives=?", id, req.Worker, prim) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -912,7 +927,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if aff == 0 {
-			writeTaskStateError(w, db, id)
+			writeTaskStateError(w, db, id, "")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -926,18 +941,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() + ? WHERE id = ? AND status = 'leased' AND worker = ? AND lease_expires >= unixepoch()", lease, id, worker)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if n == 0 {
-			taskNotFoundOrConflict(w, db, id)
+		if !updateLeased(w, db, "lease_expires = unixepoch() + ?", id, worker, lease) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -951,18 +955,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", id, worker)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if n == 0 {
-			taskNotFoundOrConflict(w, db, id)
+		if !updateLeased(w, db, "status='pending', worker=NULL, lease_expires=NULL", id, worker) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -988,18 +981,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority) WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()", req.Priority, id, worker)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if n == 0 {
-			taskNotFoundOrConflict(w, db, id)
+		if !updateLeased(w, db, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.Priority) {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1026,7 +1008,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if aff == 0 {
-			writeTaskStateError(w, db, id)
+			writeTaskStateError(w, db, id, "")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1415,7 +1397,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if n == 0 {
-			writeTaskStateError(w, db, id)
+			writeTaskStateError(w, db, id, "")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

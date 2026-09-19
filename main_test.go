@@ -126,6 +126,46 @@ func assertUnattributed(t *testing.T, db *sql.DB, srvURL, id string) {
 	}
 }
 
+func conflictServer(t *testing.T) (*sql.DB, *httptest.Server) {
+	t.Helper()
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	srv := httptest.NewServer(newHandler(db, 300))
+	t.Cleanup(srv.Close)
+	return db, srv
+}
+
+func expireLease(t *testing.T, db *sql.DB, id string) {
+	t.Helper()
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = ?", id); err != nil {
+		t.Fatalf("expire lease of %s: %v", id, err)
+	}
+}
+
+func assertConflict(t *testing.T, code int, body []byte, want string) {
+	t.Helper()
+	if code != http.StatusConflict {
+		t.Fatalf("expected 409, got %d: %s", code, body)
+	}
+	assertErrorBody(t, body, want)
+}
+
+func assertErrorBody(t *testing.T, body []byte, want string) {
+	t.Helper()
+	var payload struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("unmarshal error body %q: %v", body, err)
+	}
+	if payload.Error != want {
+		t.Fatalf("error %q, want %q", payload.Error, want)
+	}
+}
+
 func TestFlow(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -5124,13 +5164,9 @@ func TestDoneRejectsExpiredLease(t *testing.T) {
 	}
 
 	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]string{"worker": "z"})
-	if code != http.StatusConflict {
-		t.Fatalf("done with expired lease expected 409, got %d: %s", code, body)
-	}
+	assertConflict(t, code, body, "lease has expired")
 	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]string{"worker": "z"})
-	if code != http.StatusConflict {
-		t.Fatalf("touch with expired lease expected 409, got %d: %s", code, body)
-	}
+	assertConflict(t, code, body, "lease has expired")
 
 	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
 	if code != http.StatusOK {
@@ -5197,9 +5233,7 @@ func TestReleaseRejectsExpiredLease(t *testing.T) {
 	}
 
 	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/release", map[string]string{"worker": "z"})
-	if code != http.StatusConflict {
-		t.Fatalf("release with expired lease expected 409, got %d: %s", code, body)
-	}
+	assertConflict(t, code, body, "lease has expired")
 
 	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
 	if code != http.StatusOK {
