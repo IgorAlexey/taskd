@@ -143,6 +143,10 @@ func (u *ui) call(method, path string, body any) error {
 	return nil
 }
 
+func short(id string) string {
+	return id[:min(7, len(id))]
+}
+
 func (u *ui) selectedRow() int {
 	r, _ := u.table.GetSelection()
 	if len(u.shown) == 0 {
@@ -240,7 +244,7 @@ func (u *ui) render(all []task) {
 	now, row := time.Now().Unix(), u.selectedRow()
 	for i, t := range u.shown {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
-		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
+		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, short(t.ID), title}
 		for c, s := range cells {
 			u.table.SetCell(i+1, c, tview.NewTableCell(tview.Escape(s)).SetTextColor(colors[t.Status]).SetExpansion(c/6))
 		}
@@ -498,7 +502,7 @@ func (u *ui) showDeleteConfirm(t task) {
 			if t.Status == "done" {
 				path += "?force=true"
 			}
-			u.act("DELETE", path, nil, "deleted task "+t.ID[:min(7, len(t.ID))])
+			u.act("DELETE", path, nil, "deleted task "+short(t.ID))
 		}
 	})
 	u.modal = m
@@ -554,6 +558,14 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			if pri := max(0, t.Priority+d); pri != t.Priority {
 				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
 			}
+		}
+	case 'u':
+		if ok {
+			if t.Status != "leased" {
+				u.setMsg("task is not leased")
+				break
+			}
+			u.act("POST", "/tasks/"+t.ID+"/release", map[string]string{"worker": t.Worker}, "released task "+short(t.ID))
 		}
 	case 'D':
 		if ok {
@@ -629,6 +641,7 @@ Keyboard shortcuts:
   + / =          Increase task priority
   -              Decrease task priority
   n              Create new task
+  u              Release selected leased task back to pending
   D              Delete selected task
   y              Copy task ID to clipboard
   q              Quit

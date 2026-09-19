@@ -21,8 +21,10 @@ import (
 )
 
 var (
-	deleteMu    sync.Mutex
-	deleteCalls []string
+	deleteMu     sync.Mutex
+	deleteCalls  []string
+	releaseMu    sync.Mutex
+	releaseCalls []string
 )
 
 func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
@@ -31,6 +33,9 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	deleteMu.Lock()
 	deleteCalls = nil
 	deleteMu.Unlock()
+	releaseMu.Lock()
+	releaseCalls = nil
+	releaseMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
@@ -95,6 +100,30 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /tasks/{id}/release", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		json.NewDecoder(r.Body).Decode(&req)
+		mu.Lock()
+		defer mu.Unlock()
+		releaseMu.Lock()
+		releaseCalls = append(releaseCalls, r.PathValue("id")+" "+req.Worker)
+		releaseMu.Unlock()
+		for i := range tasks {
+			if tasks[i].ID != r.PathValue("id") {
+				continue
+			}
+			if tasks[i].Status != "leased" || tasks[i].Worker != req.Worker {
+				http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+				return
+			}
+			tasks[i].Status, tasks[i].Worker, tasks[i].LeaseExpires = "pending", "", 0
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		http.Error(w, "task not found", http.StatusNotFound)
 	})
@@ -2164,5 +2193,119 @@ func TestShowBodyAssetPath(t *testing.T) {
 	}
 	if strings.Contains(text, strings.Repeat("-", 60)) {
 		t.Fatalf("task without body must not draw a separator: %q", text)
+	}
+}
+
+func TestReleaseLeasedTask(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.pages, true)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+	message := func() string {
+		var msg string
+		query(func() { msg = u.msg })
+		return msg
+	}
+	calls := func() []string {
+		releaseMu.Lock()
+		defer releaseMu.Unlock()
+		return slices.Clone(releaseCalls)
+	}
+	press := func() {
+		if ret := u.keys(tcell.NewEventKey(tcell.KeyRune, 'u', 0)); ret != nil {
+			t.Fatalf("expected nil return for 'u' key, got %v", ret)
+		}
+	}
+	rowOf := func(id string) int {
+		row := 0
+		query(func() {
+			for i, tk := range u.shown {
+				if tk.ID == id {
+					row = i + 1
+				}
+			}
+		})
+		if row == 0 {
+			t.Fatalf("task %s not shown", id)
+		}
+		return row
+	}
+
+	// 'u' on a pending task must not hit the daemon.
+	row := rowOf("aaaaaaa1")
+	query(func() { u.table.Select(row, 0) })
+	press()
+	if msg := message(); !strings.Contains(msg, "not leased") {
+		t.Fatalf("expected not-leased message, got %q", msg)
+	}
+	if got := calls(); len(got) != 0 {
+		t.Fatalf("pending task must not be released, got %v", got)
+	}
+
+	// A stale row releases with the worker it shows and loses to the daemon.
+	mu.Lock()
+	for i := range *tasks {
+		if (*tasks)[i].ID == "bbbbbbb2" {
+			(*tasks)[i].Worker = "w2"
+		}
+	}
+	mu.Unlock()
+	row = rowOf("bbbbbbb2")
+	query(func() { u.table.Select(row, 0) })
+	press()
+	eventually(t, func() bool { return len(calls()) == 1 })
+	if got := calls()[0]; got != "bbbbbbb2 w1" {
+		t.Fatalf("release call = %q, want %q", got, "bbbbbbb2 w1")
+	}
+	eventually(t, func() bool { return strings.Contains(message(), "409") })
+
+	// With the table caught up the release goes through.
+	row = rowOf("bbbbbbb2")
+	query(func() { u.table.Select(row, 0) })
+	press()
+	eventually(t, func() bool { return len(calls()) == 2 })
+	if got := calls()[1]; got != "bbbbbbb2 w2" {
+		t.Fatalf("release call = %q, want %q", got, "bbbbbbb2 w2")
+	}
+	eventually(t, func() bool {
+		var status string
+		query(func() {
+			for _, tk := range u.all {
+				if tk.ID == "bbbbbbb2" {
+					status = tk.Status
+				}
+			}
+		})
+		return status == "pending"
+	})
+	if msg := message(); !strings.Contains(msg, "released task bbbbbbb") {
+		t.Fatalf("expected release confirmation, got %q", msg)
 	}
 }
