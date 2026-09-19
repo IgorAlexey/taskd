@@ -5203,3 +5203,218 @@ func TestCloseTaskRefusesLiveWork(t *testing.T) {
 		t.Fatalf("close already-done: primitives %s", prim)
 	}
 }
+
+func TestRoot(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("GET / expected 302, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/ui" {
+		t.Fatalf("GET / expected Location /ui, got %q", loc)
+	}
+
+	req, err = http.NewRequest(http.MethodHead, srv.URL+"/", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("HEAD / expected 302, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/ui" {
+		t.Fatalf("HEAD / expected Location /ui, got %q", loc)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/?project=test", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusFound {
+		t.Fatalf("GET /?project=test expected 302, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/ui?project=test" {
+		t.Fatalf("GET /?project=test expected Location /ui?project=test, got %q", loc)
+	}
+
+	resp, err = http.Get(srv.URL + "/")
+	if err != nil {
+		t.Fatalf("http.Get / failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET / following redirect expected 200, got %d", resp.StatusCode)
+	}
+}
+
+func TestTrailingSlash(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	client := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		want   string
+	}{
+		{http.MethodGet, "/tasks/", "/tasks"},
+		{http.MethodGet, "/tasks/?project=test", "/tasks?project=test"},
+		{http.MethodGet, "/stats/", "/stats"},
+		{http.MethodGet, "/projects/", "/projects"},
+		{http.MethodPost, "/tasks/", "/tasks"},
+		{http.MethodGet, "/ui/", "/ui"},
+	} {
+		req, err := http.NewRequest(tc.method, srv.URL+tc.path, nil)
+		if err != nil {
+			t.Fatalf("new request %s %s failed: %v", tc.method, tc.path, err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("client.Do %s %s failed: %v", tc.method, tc.path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusPermanentRedirect {
+			t.Fatalf("%s %s expected 308, got %d", tc.method, tc.path, resp.StatusCode)
+		}
+		if loc := resp.Header.Get("Location"); loc != tc.want {
+			t.Fatalf("%s %s expected Location %q, got %q", tc.method, tc.path, tc.want, loc)
+		}
+	}
+
+	respSlash, err := http.Get(srv.URL + "/ui/")
+	if err != nil {
+		t.Fatalf("http.Get /ui/ failed: %v", err)
+	}
+	defer respSlash.Body.Close()
+	if respSlash.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ui/ following redirect expected 200, got %d", respSlash.StatusCode)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/ui", nil)
+	if err != nil {
+		t.Fatalf("new request GET /ui failed: %v", err)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do GET /ui failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /ui expected 200, got %d", resp.StatusCode)
+	}
+
+	code, body := post(t, srv.URL+"/tasks/", map[string]string{"asset_path": "a.glb", "project": "p"})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks/ following 308 redirect expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created task failed: %v", err)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/tasks/"+created.ID+"/", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPermanentRedirect {
+		t.Fatalf("GET /tasks/{id}/ expected 308, got %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/tasks/"+created.ID {
+		t.Fatalf("GET /tasks/{id}/ expected Location %q, got %q", "/tasks/"+created.ID, loc)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/bogus/", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("GET /bogus/ expected 404, got %d", resp.StatusCode)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"//evil.com/", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if loc := resp.Header.Get("Location"); strings.HasPrefix(loc, "//evil.com") {
+		t.Fatalf("unexpected protocol-relative redirect to %q", loc)
+	}
+
+	corsSrv := httptest.NewServer(newHandlerWithCORS(db, 300, "http://example.com"))
+	defer corsSrv.Close()
+
+	req, err = http.NewRequest(http.MethodGet, corsSrv.URL+"/tasks/", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("Origin", "http://example.com")
+	resp, err = client.Do(req)
+	if err != nil {
+		t.Fatalf("client.Do failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusPermanentRedirect {
+		t.Fatalf("CORS GET /tasks/ expected 308, got %d", resp.StatusCode)
+	}
+	if origin := resp.Header.Get("Access-Control-Allow-Origin"); origin != "http://example.com" {
+		t.Fatalf("CORS GET /tasks/ expected Access-Control-Allow-Origin http://example.com, got %q", origin)
+	}
+}

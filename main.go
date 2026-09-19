@@ -454,6 +454,12 @@ func validProject(p string) bool {
 //go:embed web/index.html
 var uiHTML []byte
 
+func redirectWithQuery(w http.ResponseWriter, r *http.Request, path string, code int) {
+	if r.URL.RawQuery != "" {
+		path += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, path, code)
+}
 func newHandler(db *sql.DB, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, "")
 }
@@ -465,8 +471,10 @@ func newHandlerWithCORS(db *sql.DB, lease int, corsOrigin string) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(uiHTML)
 	}
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		redirectWithQuery(w, r, "/ui", http.StatusFound)
+	})
 	mux.HandleFunc("GET /ui", uiHandler)
-	mux.HandleFunc("GET /ui/", uiHandler)
 	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, r *http.Request) {
 		project := r.URL.Query().Get("project")
 		now := time.Now().Unix()
@@ -1078,6 +1086,22 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		if originMatched {
 			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
 			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
+		}
+		if strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
+			cleanReq := *r
+			cleanURL := *r.URL
+			cleanURL.Path = strings.TrimSuffix(cleanURL.Path, "/")
+			if cleanURL.RawPath != "" {
+				cleanURL.RawPath = strings.TrimSuffix(cleanURL.RawPath, "/")
+			}
+			cleanReq.URL = &cleanURL
+			if _, matched := mux.Handler(&cleanReq); matched != "" {
+				target := cleanURL.EscapedPath()
+				if strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") {
+					redirectWithQuery(w, r, target, http.StatusPermanentRedirect)
+					return
+				}
+			}
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		mux.ServeHTTP(w, r)
