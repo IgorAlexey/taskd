@@ -64,6 +64,7 @@ func TestProjectScopedCounts(t *testing.T) {
 
 func TestStatusBarIndex(t *testing.T) {
 	u := newUI("http://localhost:8080", "", false)
+	u.filter = ""
 	all := []task{
 		{ID: "a1", Project: "proj-a", Status: "pending", Body: "first"},
 		{ID: "a2", Project: "proj-a", Status: "pending", Body: "second"},

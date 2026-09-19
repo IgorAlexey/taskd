@@ -9,6 +9,7 @@ import (
 
 func TestSearchFilter(t *testing.T) {
 	u := newUI("http://localhost:8080", "", false)
+	u.filter = ""
 	all := []task{
 		{ID: "aaaa1111", Project: "proj-a", Status: "pending", Body: "rebuild zebra manifest", Worker: "worker1"},
 		{ID: "bbbb2222", Project: "proj-b", Status: "leased", Body: "deploy pipeline", Worker: "ZEBRA-runner"},

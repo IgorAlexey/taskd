@@ -84,7 +84,7 @@ func TestHelpModalContentAndDismissEsc(t *testing.T) {
 	requiredKeybindings := []string{
 		"[j/k] move",
 		"[g/G] top/bottom",
-		"[0-3] filter status",
+		"[0-4] filter status",
 		"[p] cycle project",
 		"[n] new task",
 		"[e] edit task",

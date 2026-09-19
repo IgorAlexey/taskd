@@ -298,7 +298,16 @@ func (u *ui) render(all []task) {
 		case "done":
 			u.done++
 		}
-		if (u.filter == "" || t.Status == u.filter) && matchTask(t, qLower) {
+		var matchFilter bool
+		switch u.filter {
+		case "live":
+			matchFilter = t.Status != "done"
+		case "":
+			matchFilter = true
+		default:
+			matchFilter = t.Status == u.filter
+		}
+		if matchFilter && matchTask(t, qLower) {
 			u.shown = append(u.shown, t)
 		}
 	}
@@ -379,7 +388,7 @@ func (u *ui) renderStatus() {
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
 		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), statusCols-uniseg.StringWidth(idx)) + idx
-	line2 := " [j/k] [0-3] filt [p] proj [n] new [e] edit [+/-] pri [D] del [z] zoom [q] quit"
+	line2 := " [j/k] [0-4] filt [p] proj [n] new [e] edit [+/-] pri [D] del [z] zoom [q] quit"
 	if u.searching {
 		line2 = truncWidth("/"+u.query, statusCols)
 	} else if u.msg != "" {
@@ -688,7 +697,7 @@ func (u *ui) showHelp() {
 	m.SetText(tview.Escape("Keyboard Shortcuts\n\n" +
 		"[j/k] move\n" +
 		"[g/G] top/bottom\n" +
-		"[0-3] filter status\n" +
+		"[0-4] filter status\n" +
 		"[p] cycle project\n" +
 		"[n] new task\n" +
 		"[e] edit task\n" +
@@ -818,8 +827,11 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		if len(u.shown) > 0 {
 			u.table.Select(len(u.shown), 0)
 		}
-	case '0', '1', '2', '3':
-		u.filter = []string{"", "pending", "leased", "done"}[ev.Rune()-'0']
+	case '0', '1', '2', '3', '4':
+		u.filter = []string{"", "pending", "leased", "done", "live"}[ev.Rune()-'0']
+		u.render(u.all)
+	case 'l':
+		u.filter = "live"
 		u.render(u.all)
 	case 'r', 'R':
 		go u.refresh()
@@ -1036,6 +1048,7 @@ Keyboard shortcuts:
   1              Filter pending tasks
   2              Filter leased tasks
   3              Filter done tasks
+  4, l           Filter live tasks (pending and leased)
   p              Cycle project filter
   + / =          Raise task priority (lower number)
   -              Lower task priority (higher number)
@@ -1088,6 +1101,7 @@ func newUI(url, project string, icons bool) *ui {
 		project: project,
 		icons:   icons,
 		worker:  defaultWorker(),
+		filter:  "live",
 		app:     tview.NewApplication().EnableMouse(true),
 	}
 	u.app.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {

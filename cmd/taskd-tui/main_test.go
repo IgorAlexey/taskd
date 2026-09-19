@@ -235,6 +235,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	u := newUI(srv.URL, "", false)
+	u.filter = ""
 	return u, &tasks, &mu
 }
 
@@ -1278,6 +1279,7 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 
 	t.Run("ui project filter initialization", func(t *testing.T) {
 		u := newUI("http://localhost:8080", "proj-a", false)
+		u.filter = ""
 		if u.url != "http://localhost:8080" {
 			t.Fatalf("expected url http://localhost:8080, got %q", u.url)
 		}
@@ -1399,6 +1401,7 @@ func TestNerdFontIcons(t *testing.T) {
 
 	t.Run("ascii fallback rendering", func(t *testing.T) {
 		u := newUI("http://localhost:8080", "", false)
+		u.filter = ""
 		tasks := []task{
 			{ID: "t1", Status: "pending", Priority: 0, Body: "task 1"},
 			{ID: "t2", Status: "leased", Priority: 1, Body: "task 2"},
@@ -1427,6 +1430,7 @@ func TestNerdFontIcons(t *testing.T) {
 
 	t.Run("nerd font glyph rendering", func(t *testing.T) {
 		u := newUI("http://localhost:8080", "", true)
+		u.filter = ""
 		tasks := []task{
 			{ID: "t1", Status: "pending", Priority: 0, Body: "task 1"},
 			{ID: "t2", Status: "leased", Priority: 1, Body: "task 2"},
@@ -2924,5 +2928,83 @@ func TestRefreshMessage(t *testing.T) {
 			})
 			return msg == testMsg && strings.Contains(status, testMsg)
 		})
+	}
+}
+func TestDefaultViewHidesDone(t *testing.T) {
+	u := newUI("http://localhost:8080", "", false)
+	if u.filter != "live" {
+		t.Fatalf("expected default filter to be %q, got %q", "live", u.filter)
+	}
+	tasks := []task{
+		{ID: "t1", Status: "pending", Priority: 1, Body: "pending task"},
+		{ID: "t2", Status: "leased", Priority: 2, Body: "leased task"},
+		{ID: "t3", Status: "done", Priority: 3, Body: "done task"},
+	}
+	u.render(tasks)
+	if len(u.shown) != 2 {
+		t.Fatalf("expected 2 tasks shown in default live view, got %d", len(u.shown))
+	}
+	for _, tk := range u.shown {
+		if tk.Status == "done" {
+			t.Fatalf("done task %s should be hidden in default live view", tk.ID)
+		}
+	}
+	if !strings.Contains(u.status.GetText(true), "live") {
+		t.Fatalf("status line %q should show 'live' filter name", u.status.GetText(true))
+	}
+	if !strings.Contains(u.status.GetText(true), "pending 1  leased 1  done 1") {
+		t.Fatalf("status line %q should show counts for all tasks", u.status.GetText(true))
+	}
+
+	// Press 0: show everything (including done)
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
+	if u.filter != "" {
+		t.Fatalf("expected filter '' after pressing 0, got %q", u.filter)
+	}
+	if len(u.shown) != 3 {
+		t.Fatalf("expected all 3 tasks shown after pressing 0, got %d", len(u.shown))
+	}
+	if !strings.Contains(u.status.GetText(true), "all") {
+		t.Fatalf("status line %q should show 'all' filter name", u.status.GetText(true))
+	}
+
+	// Press 4: re-enter live view
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '4', 0))
+	if u.filter != "live" {
+		t.Fatalf("expected filter 'live' after pressing 4, got %q", u.filter)
+	}
+	if len(u.shown) != 2 {
+		t.Fatalf("expected 2 tasks shown after pressing 4, got %d", len(u.shown))
+	}
+
+	// Press 3: done only
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '3', 0))
+	if u.filter != "done" {
+		t.Fatalf("expected filter 'done' after pressing 3, got %q", u.filter)
+	}
+	if len(u.shown) != 1 || u.shown[0].ID != "t3" {
+		t.Fatalf("expected only done task shown after pressing 3, got %+v", u.shown)
+	}
+	if !strings.Contains(u.status.GetText(true), "done") {
+		t.Fatalf("status line %q should show 'done' filter name", u.status.GetText(true))
+	}
+
+	// Press l: re-enter live view
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'l', 0))
+	if u.filter != "live" {
+		t.Fatalf("expected filter 'live' after pressing l, got %q", u.filter)
+	}
+	if len(u.shown) != 2 {
+		t.Fatalf("expected 2 tasks shown after pressing l, got %d", len(u.shown))
+	}
+
+	// Empty live state message
+	u.filter = "live"
+	u.render([]task{{ID: "t3", Status: "done", Priority: 3, Body: "done task"}})
+	if len(u.shown) != 0 {
+		t.Fatalf("expected 0 tasks shown when all tasks are done, got %d", len(u.shown))
+	}
+	if got := u.emptyState(); !strings.Contains(got, "No live tasks. Press '0' to show all.") {
+		t.Fatalf("empty state = %q, want 'No live tasks. Press '0' to show all.'", got)
 	}
 }
