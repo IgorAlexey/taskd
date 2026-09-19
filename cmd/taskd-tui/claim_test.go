@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"slices"
 	"strings"
@@ -153,4 +154,78 @@ func TestClaimKeyConflict(t *testing.T) {
 	h.press('c')
 
 	eventually(t, func() bool { return strings.Contains(h.message(), "409") })
+}
+
+func TestClaimCountDisplay(t *testing.T) {
+	u := newUI("http://127.0.0.1:1", "", false)
+	tasks := []task{
+		{
+			ID:         "task-0",
+			Project:    "proj-a",
+			Status:     "pending",
+			ClaimCount: 0,
+			Body:       "unclaimed task",
+		},
+		{
+			ID:         "task-1",
+			Project:    "proj-a",
+			Status:     "leased",
+			Worker:     "w1",
+			ClaimCount: 1,
+			Body:       "claimed once",
+		},
+		{
+			ID:         "task-retried",
+			Project:    "proj-b",
+			Status:     "pending",
+			ClaimCount: 5,
+			Body:       "poison pill retry backlog",
+		},
+	}
+	u.render(tasks)
+
+	if got := u.table.GetCell(0, 6).Text; got != "CLAIMS" {
+		t.Fatalf("claims header = %q, want CLAIMS", got)
+	}
+	if got := u.table.GetCell(1, 6).Text; got != "0" {
+		t.Fatalf("row 1 claims = %q, want 0", got)
+	}
+	if got := u.table.GetCell(2, 6).Text; got != "1" {
+		t.Fatalf("row 2 claims = %q, want 1", got)
+	}
+	if got := u.table.GetCell(3, 6).Text; got != "5" {
+		t.Fatalf("row 3 claims = %q, want 5", got)
+	}
+
+	u.table.Select(1, 0)
+	u.showBody()
+	body0 := u.body.GetText(true)
+	if !strings.Contains(body0, "Claims:  0") {
+		t.Fatalf("expected Claims:  0 in detail pane, got: %q", body0)
+	}
+
+	u.table.Select(2, 0)
+	u.showBody()
+	body1 := u.body.GetText(true)
+	if !strings.Contains(body1, "Claims:  1") {
+		t.Fatalf("expected Claims:  1 in detail pane, got: %q", body1)
+	}
+
+	u.table.Select(3, 0)
+	u.showBody()
+	body5 := u.body.GetText(true)
+	if !strings.Contains(body5, "Claims:  5") {
+		t.Fatalf("expected Claims:  5 in detail pane, got: %q", body5)
+	}
+}
+
+func TestTaskJSONDeserializationClaimCount(t *testing.T) {
+	raw := `{"id":"t-1","project":"p","asset_path":"","status":"pending","worker":"","lease_expires":0,"priority":2,"claim_count":7,"body":"hello"}`
+	var tk task
+	if err := json.Unmarshal([]byte(raw), &tk); err != nil {
+		t.Fatalf("unmarshal task JSON: %v", err)
+	}
+	if tk.ClaimCount != 7 {
+		t.Fatalf("deserialized claim_count = %d, want 7", tk.ClaimCount)
+	}
 }

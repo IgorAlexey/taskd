@@ -259,7 +259,10 @@ func TestRenderAndKeys(t *testing.T) {
 	if got := u.table.GetCell(1, 2).Text; got != "proj-b" {
 		t.Fatalf("project cell = %q", got)
 	}
-	if got := u.table.GetCell(1, 6).Text; got != "first task" {
+	if got := u.table.GetCell(0, 6).Text; got != "CLAIMS" {
+		t.Fatalf("claims header cell = %q", got)
+	}
+	if got := u.table.GetCell(1, 7).Text; got != "first task" {
 		t.Fatalf("title cell = %q", got)
 	}
 	if got := u.table.GetCell(2, 3).Text; !strings.HasSuffix(got, "s") || got == "expired" {

@@ -45,7 +45,7 @@ func TestTableColumnWidthLimits(t *testing.T) {
 		}
 	}
 
-	if got := tview.Unescape(u.table.GetCell(1, 6).Text); got != longTitle {
+	if got := tview.Unescape(u.table.GetCell(1, 7).Text); got != longTitle {
 		t.Fatalf("task title was truncated: got %q, want %q", got, longTitle)
 	}
 	if got := tview.Unescape(u.table.GetCell(2, 2).Text); got != "short" {

@@ -25,10 +25,10 @@ func TestEscapeTableCells(t *testing.T) {
 		row, col int
 		want     string
 	}{
-		{"title", 1, 6, "[URGENT] rebuild index"},
+		{"title", 1, 7, "[URGENT] rebuild index"},
 		{"project", 1, 2, "[proj]"},
 		{"worker", 1, 4, "[w1]"},
-		{"asset title", 2, 6, "[stage] asset.gltf"},
+		{"asset title", 2, 7, "[stage] asset.gltf"},
 	} {
 		cell := u.table.GetCell(tc.row, tc.col)
 		if got := tview.Unescape(cell.Text); got != tc.want {

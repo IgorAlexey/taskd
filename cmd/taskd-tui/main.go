@@ -34,6 +34,7 @@ type task struct {
 	Worker       string          `json:"worker"`
 	LeaseExpires int64           `json:"lease_expires"`
 	Priority     int             `json:"priority"`
+	ClaimCount   int             `json:"claim_count"`
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
 }
@@ -266,7 +267,7 @@ func (u *ui) render(all []task) {
 		}
 	}
 	u.table.Clear()
-	for i, h := range []string{"STATUS", "PRI", "PROJECT", "LEASE", "WORKER", "ID", "TITLE"} {
+	for i, h := range []string{"STATUS", "PRI", "PROJECT", "LEASE", "WORKER", "ID", "CLAIMS", "TITLE"} {
 		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false))
 	}
 	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
@@ -280,10 +281,15 @@ func (u *ui) render(all []task) {
 			lease(t, now),
 			truncWidth(t.Worker, maxMetaWidth),
 			short(t.ID),
+			strconv.Itoa(t.ClaimCount),
 			title,
 		}
 		for c, s := range cells {
-			u.table.SetCell(i+1, c, tview.NewTableCell(tview.Escape(s)).SetTextColor(colors[t.Status]).SetExpansion(c/6))
+			exp := 0
+			if c == len(cells)-1 {
+				exp = 1
+			}
+			u.table.SetCell(i+1, c, tview.NewTableCell(tview.Escape(s)).SetTextColor(colors[t.Status]).SetExpansion(exp))
 		}
 		if t.ID == keep.ID {
 			row = i + 1
@@ -355,6 +361,7 @@ func metaHeader(t task) string {
 	fmt.Fprintf(&b, "ID:      %s\n", t.ID)
 	fmt.Fprintf(&b, "Project: %s\n", t.Project)
 	fmt.Fprintf(&b, "Status:  %s\n", t.Status)
+	fmt.Fprintf(&b, "Claims:  %d\n", t.ClaimCount)
 	if t.Worker != "" {
 		fmt.Fprintf(&b, "Worker:  %s\n", t.Worker)
 	}
