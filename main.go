@@ -499,34 +499,34 @@ func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
 	return worker, true
 }
 
-func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) bool {
-	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch()"
+func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) (leaseEnvelope, bool) {
+	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch() RETURNING id, lease_expires, status"
 	args = append(args, id, worker)
+	var (
+		env     leaseEnvelope
+		expires sql.NullInt64
+	)
 	tx, err := db.Begin()
 	if err != nil {
 		internalError(w, err)
-		return false
+		return env, false
 	}
 	defer tx.Rollback()
-	res, err := tx.Exec(query, args...)
-	if err != nil {
-		internalError(w, err)
-		return false
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		internalError(w, err)
-		return false
-	}
-	if n == 0 {
+	err = tx.QueryRow(query, args...).Scan(&env.ID, &expires, &env.Status)
+	if errors.Is(err, sql.ErrNoRows) {
 		writeTaskStateError(w, tx, id, worker)
-		return false
+		return env, false
 	}
+	if err != nil {
+		internalError(w, err)
+		return env, false
+	}
+	env.LeaseExpires = expires.Int64
 	if err := tx.Commit(); err != nil {
 		internalError(w, err)
-		return false
+		return env, false
 	}
-	return true
+	return env, true
 }
 
 type queryer interface {
@@ -641,6 +641,12 @@ func (t *taskItem) normalize(now int64) {
 		t.Worker = ""
 		t.LeaseExpires = 0
 	}
+}
+
+type leaseEnvelope struct {
+	ID           string `json:"id"`
+	LeaseExpires int64  `json:"lease_expires"`
+	Status       string `json:"status"`
 }
 
 const maxTaskIDLen = 128
@@ -914,7 +920,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		if !updateLeased(w, db, "status='done', primitives=?", id, req.Worker, prim) {
+		if _, ok := updateLeased(w, db, "status='done', primitives=?", id, req.Worker, prim); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -956,10 +962,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if !updateLeased(w, db, "lease_expires = unixepoch() + ?", id, worker, lease) {
+		env, ok := updateLeased(w, db, "lease_expires = unixepoch() + ?", id, worker, lease)
+		if !ok {
 			return
 		}
-		w.WriteHeader(http.StatusNoContent)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(env)
 	}
 	releaseIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		worker, ok := decodeWorker(w, r)
@@ -970,7 +978,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if !updateLeased(w, db, "status='pending', worker=NULL, lease_expires=NULL", id, worker) {
+		if _, ok := updateLeased(w, db, "status='pending', worker=NULL, lease_expires=NULL", id, worker); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -996,7 +1004,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if !updateLeased(w, db, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.Priority) {
+		if _, ok := updateLeased(w, db, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.Priority); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1576,7 +1584,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/claim   claim a specific task
   POST   /tasks/{id}/done    complete task with result
   POST   /tasks/{id}/close   close task without result
-  POST   /tasks/{id}/touch   extend task lease duration
+  POST   /tasks/{id}/touch   extend lease, returns new expiration
   POST   /tasks/{id}/release release leased task back to pending
   POST   /tasks/{id}/bury    park a blocked task
   POST   /tasks/{id}/kick    return a parked task to pending

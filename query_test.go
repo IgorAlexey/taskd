@@ -109,8 +109,8 @@ func TestUnknownQueryParams(t *testing.T) {
 	}
 
 	code, respBody = post(t, srv.URL+"/tasks/"+t2+"/touch", map[string]any{"worker": "w1"})
-	if code != http.StatusNoContent {
-		t.Fatalf("touch task %s expected 204, got %d: %s", t2, code, respBody)
+	if code != http.StatusOK {
+		t.Fatalf("touch task %s expected 200, got %d: %s", t2, code, respBody)
 	}
 
 	code, respBody = post(t, srv.URL+"/tasks/"+t2+"/release", map[string]any{"worker": "w1"})

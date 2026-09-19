@@ -205,7 +205,12 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 				return
 			}
 			tasks[i].LeaseExpires = time.Now().Unix() + 300
-			w.WriteHeader(http.StatusNoContent)
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"id":            tasks[i].ID,
+				"lease_expires": tasks[i].LeaseExpires,
+				"status":        "leased",
+			})
 			return
 		}
 		http.Error(w, "task not found", http.StatusNotFound)

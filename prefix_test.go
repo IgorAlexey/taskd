@@ -146,8 +146,8 @@ func TestMutatingPrefixRoutes(t *testing.T) {
 	}
 
 	code, body = post(t, srv.URL+"/tasks/prefix-single/touch", map[string]string{"worker": "worker-a"})
-	if code != http.StatusNoContent {
-		t.Fatalf("POST touch unique prefix expected 204, got %d: %s", code, body)
+	if code != http.StatusOK {
+		t.Fatalf("POST touch unique prefix expected 200, got %d: %s", code, body)
 	}
 
 	code, body = post(t, srv.URL+"/tasks/prefix-single/release", map[string]string{"worker": "worker-a"})
