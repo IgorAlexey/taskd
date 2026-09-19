@@ -549,11 +549,11 @@ func TestMouseSupport(t *testing.T) {
 	})
 }
 
-func TestPriorityFloorIsOne(t *testing.T) {
+func TestPriorityKeyAdjust(t *testing.T) {
 	var patches int
 	var mu sync.Mutex
 	tasks := []task{
-		{ID: "t1", Project: "p1", Status: "pending", Priority: 2, Body: "task 1"},
+		{ID: "t1", Project: "p1", Status: "pending", Priority: 1, Body: "task 1"},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
@@ -563,9 +563,11 @@ func TestPriorityFloorIsOne(t *testing.T) {
 	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var p struct{ Priority int }
-		json.NewDecoder(r.Body).Decode(&p)
-		if p.Priority < 1 {
-			t.Errorf("server received priority below the key floor: %d", p.Priority)
+		if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+			t.Errorf("decode patch: %v", err)
+		}
+		if p.Priority < 0 {
+			t.Errorf("server received priority below zero: %d", p.Priority)
 		}
 		mu.Lock()
 		patches++
@@ -588,25 +590,9 @@ func TestPriorityFloorIsOne(t *testing.T) {
 	eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return patches == 1 && tasks[0].Priority == 1
+		return patches == 1 && tasks[0].Priority == 0
 	})
 
-	ts, _ = u.fetch()
-	u.render(ts)
-	u.table.Select(1, 0)
-
-	u.keys(tcell.NewEventKey(tcell.KeyRune, '+', 0))
-	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
-
-	eventually(t, func() bool {
-		mu.Lock()
-		defer mu.Unlock()
-		return patches == 2 && tasks[0].Priority == 2
-	})
-
-	mu.Lock()
-	tasks[0].Priority = 0
-	mu.Unlock()
 	ts, _ = u.fetch()
 	u.render(ts)
 	u.table.Select(1, 0)
@@ -616,7 +602,30 @@ func TestPriorityFloorIsOne(t *testing.T) {
 	eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return patches == 3 && tasks[0].Priority == 1
+		return patches == 2 && tasks[0].Priority == 1
+	})
+
+	ts, _ = u.fetch()
+	u.render(ts)
+	u.table.Select(1, 0)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '=', 0))
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return patches == 3 && tasks[0].Priority == 0
+	})
+
+	ts, _ = u.fetch()
+	u.render(ts)
+	u.table.Select(1, 0)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '=', 0))
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '-', 0))
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return patches == 4 && tasks[0].Priority == 1
 	})
 }
 

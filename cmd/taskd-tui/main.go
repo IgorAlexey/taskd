@@ -1025,9 +1025,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			if d < 0 && t.Priority == 0 {
 				break
 			}
-			if pri := max(1, t.Priority+d); pri != t.Priority {
-				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
-			}
+			pri := t.Priority + d
+			u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
 		}
 	case 'c':
 		if ok {
