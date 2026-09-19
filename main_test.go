@@ -2986,3 +2986,107 @@ func TestValidateNonNegativePriority(t *testing.T) {
 		t.Fatalf("PATCH /tasks zero priority expected 204, got %d: %s", code, body)
 	}
 }
+func TestListAssetPathFilter(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code1, body1 := post(t, srv.URL+"/tasks", map[string]any{
+		"asset_path": "models/car.glb",
+		"project":    "p1",
+	})
+	if code1 != http.StatusCreated {
+		t.Fatalf("create task 1 failed: %d: %s", code1, body1)
+	}
+
+	code2, body2 := post(t, srv.URL+"/tasks", map[string]any{
+		"asset_path": "models/tree.glb",
+		"project":    "p1",
+	})
+	if code2 != http.StatusCreated {
+		t.Fatalf("create task 2 failed: %d: %s", code2, body2)
+	}
+
+	code3, body3 := post(t, srv.URL+"/tasks", map[string]any{
+		"asset_path": "models/car.glb",
+		"project":    "p2",
+	})
+	if code3 != http.StatusCreated {
+		t.Fatalf("create task 3 failed: %d: %s", code3, body3)
+	}
+
+	code4, body4 := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "no-asset",
+		"project": "p1",
+	})
+	if code4 != http.StatusCreated {
+		t.Fatalf("create task 4 failed: %d: %s", code4, body4)
+	}
+
+	type taskItem struct {
+		ID        string `json:"id"`
+		AssetPath string `json:"asset_path"`
+		Project   string `json:"project"`
+		Body      string `json:"body"`
+	}
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?project=p1&asset_path=models/car.glb", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=p1&asset_path=models/car.glb expected 200, got %d: %s", code, body)
+	}
+	var filtered []taskItem
+	if err := json.Unmarshal(body, &filtered); err != nil {
+		t.Fatalf("unmarshal filtered tasks failed: %v: %s", err, body)
+	}
+	if len(filtered) != 1 {
+		t.Fatalf("expected 1 task with asset_path models/car.glb and project p1, got %d", len(filtered))
+	}
+	if filtered[0].AssetPath != "models/car.glb" || filtered[0].Project != "p1" {
+		t.Fatalf("unexpected task item: %+v", filtered[0])
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?asset_path=models/car.glb", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?asset_path=models/car.glb expected 200, got %d: %s", code, body)
+	}
+	var carAll []taskItem
+	if err := json.Unmarshal(body, &carAll); err != nil {
+		t.Fatalf("unmarshal carAll tasks failed: %v: %s", err, body)
+	}
+	if len(carAll) != 2 {
+		t.Fatalf("expected 2 tasks with asset_path models/car.glb, got %d", len(carAll))
+	}
+	for _, item := range carAll {
+		if item.AssetPath != "models/car.glb" {
+			t.Fatalf("expected asset_path models/car.glb, got %s", item.AssetPath)
+		}
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=p1&asset_path=models/nonexistent.glb", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=p1&asset_path=models/nonexistent.glb expected 200, got %d: %s", code, body)
+	}
+	if strings.TrimSpace(string(body)) != "[]" {
+		t.Fatalf("expected empty list for nonexistent asset_path, got %q", string(body))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=p1&asset_path=", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?project=p1&asset_path= expected 200, got %d: %s", code, body)
+	}
+	var emptyAsset []taskItem
+	if err := json.Unmarshal(body, &emptyAsset); err != nil {
+		t.Fatalf("unmarshal emptyAsset tasks failed: %v: %s", err, body)
+	}
+	if len(emptyAsset) != 1 {
+		t.Fatalf("expected 1 task with empty asset_path, got %d", len(emptyAsset))
+	}
+	if emptyAsset[0].AssetPath != "" || emptyAsset[0].Project != "p1" {
+		t.Fatalf("unexpected task item: %+v", emptyAsset[0])
+	}
+}

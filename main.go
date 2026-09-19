@@ -504,6 +504,10 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			where = append(where, "priority = ?")
 			args = append(args, *priorityFilter)
 		}
+		if q.Has("asset_path") {
+			where = append(where, "asset_path = ?")
+			args = append(args, q.Get("asset_path"))
+		}
 		if len(where) > 0 {
 			query += " WHERE " + strings.Join(where, " AND ")
 		}
