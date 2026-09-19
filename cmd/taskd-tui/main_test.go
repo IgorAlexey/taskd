@@ -66,12 +66,19 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	u := &ui{url: srv.URL, app: tview.NewApplication()}
-	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
-	u.body = tview.NewTextView()
-	u.status = tview.NewTextView()
-	u.root = u.table
+	u := newUI(srv.URL)
 	return u, &tasks, &mu
+}
+
+func eventually(t *testing.T, fn func() bool) {
+	t.Helper()
+	for range 50 {
+		if fn() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("condition not met within timeout")
 }
 
 func TestRenderAndKeys(t *testing.T) {
@@ -228,18 +235,11 @@ func TestCreateForm(t *testing.T) {
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
-	for range 50 {
+	eventually(t, func() bool {
 		mu.Lock()
-		count = len(*tasks)
-		mu.Unlock()
-		if count == 4 {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if count != 4 {
-		t.Fatalf("task was not created, count = %d", count)
-	}
+		defer mu.Unlock()
+		return len(*tasks) == 4
+	})
 	mu.Lock()
 	created := (*tasks)[3]
 	mu.Unlock()
@@ -252,4 +252,83 @@ func TestCreateForm(t *testing.T) {
 	if form != nil {
 		t.Fatal("expected form to be closed after submit")
 	}
+}
+
+func TestMouseSupport(t *testing.T) {
+	u, _, _ := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.root, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	eventually(t, func() bool {
+		var sel task
+		var ok bool
+		query(func() { sel, ok = u.selected() })
+		return ok && sel.ID == "aaaaaaa1"
+	})
+
+	// Click row 2 (y=2 is row for bbbbbbb2)
+	sim.InjectMouse(5, 2, tcell.ButtonPrimary, 0)
+	sim.InjectMouse(5, 2, tcell.ButtonNone, 0)
+
+	eventually(t, func() bool {
+		var sel task
+		var body string
+		query(func() {
+			sel, _ = u.selected()
+			body = u.body.GetText(true)
+		})
+		return sel.ID == "bbbbbbb2" && strings.Contains(body, "second")
+	})
+
+	// Test wheel scrolling on body pane
+	ch := make(chan struct{})
+	u.app.QueueUpdateDraw(func() {
+		u.body.SetText(strings.Repeat("line\n", 50)).ScrollToBeginning()
+		close(ch)
+	})
+	<-ch
+
+	sim.InjectMouse(5, 18, tcell.WheelDown, 0)
+	eventually(t, func() bool {
+		var row int
+		query(func() { row, _ = u.body.GetScrollOffset() })
+		return row > 0
+	})
+
+	sim.InjectMouse(5, 18, tcell.WheelUp, 0)
+	eventually(t, func() bool {
+		var row int
+		query(func() { row, _ = u.body.GetScrollOffset() })
+		return row == 0
+	})
 }

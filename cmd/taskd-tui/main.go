@@ -244,10 +244,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	return nil
 }
 
-func main() {
-	url := flag.String("url", "http://localhost:8080", "taskd address")
-	flag.Parse()
-	u := &ui{url: strings.TrimRight(*url, "/"), app: tview.NewApplication()}
+func newUI(url string) *ui {
+	u := &ui{url: strings.TrimRight(url, "/"), app: tview.NewApplication().EnableMouse(true)}
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
@@ -256,12 +254,19 @@ func main() {
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 1, 0, false)
 	u.root = flex
+	return u
+}
+
+func main() {
+	url := flag.String("url", "http://localhost:8080", "taskd address")
+	flag.Parse()
+	u := newUI(*url)
 	go func() {
 		for ; ; time.Sleep(time.Second) {
 			u.refresh()
 		}
 	}()
-	if err := u.app.SetRoot(flex, true).Run(); err != nil {
+	if err := u.app.SetRoot(u.root, true).Run(); err != nil {
 		fmt.Println(err)
 	}
 }
