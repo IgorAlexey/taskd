@@ -1,6 +1,11 @@
 #!/bin/sh
-set -eu
+set -u
 set -o pipefail 2>/dev/null || true
+
+if [ -n "${TASKD_WORKER_ACTIVE:-}" ]; then
+    echo "Error: worker is already running in this environment; refusing to nest." >&2
+    exit 1
+fi
 
 USER="${USER:-$(id -un 2>/dev/null || echo "uid$$")}"
 rundir="${XDG_RUNTIME_DIR:-/tmp}"
@@ -16,6 +21,7 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
     run_prompt="$7"
 
     export TASKD_PROJECT="$run_project"
+    export TASKD_WORKER_ACTIVE=1
 
     case "$run_wt" in
         "$wtbase"/*|/tmp/taskd-*)

@@ -54,11 +54,37 @@ func TestWorkerScriptCLI(t *testing.T) {
 	}
 
 	cmd = exec.Command("/bin/sh", workerPath, "fix", "the", "build", "failure")
+	cmd.Env = append(os.Environ(), "TASKD_WORKER_ACTIVE=1")
 	out, err = cmd.CombinedOutput()
 	if err == nil {
-		t.Fatalf("expected running worker inside worktree to exit non-zero")
+		t.Fatalf("expected nested worker invocation to exit non-zero")
+	}
+	if !strings.Contains(string(out), "refusing to nest") {
+		t.Fatalf("expected nesting guard message, got: %s", string(out))
 	}
 	if strings.Contains(string(out), "Error: unknown option") || strings.Contains(string(out), "prompt or command is required") {
 		t.Fatalf("unexpected parsing error for joined positional prompt: %s", string(out))
+	}
+
+	wtbase := filepath.Join("/tmp", "taskd-"+os.Getenv("USER"))
+	if err := os.MkdirAll(wtbase, 0o700); err != nil {
+		t.Fatalf("mkdir %s: %v", wtbase, err)
+	}
+	fake, err := os.MkdirTemp(wtbase, "wt-test-")
+	if err != nil {
+		t.Fatalf("mkdtemp: %v", err)
+	}
+	defer os.RemoveAll(fake)
+	if out, err := exec.Command("git", "-C", fake, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	cmd = exec.Command("/bin/sh", workerPath, "fix", "the", "build", "failure")
+	cmd.Dir = fake
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected worker started inside a worker worktree to exit non-zero")
+	}
+	if !strings.Contains(string(out), "refusing to start inside a worker worktree") {
+		t.Fatalf("expected worktree guard message, got: %s", string(out))
 	}
 }
