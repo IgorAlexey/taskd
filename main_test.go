@@ -3460,3 +3460,90 @@ PRAGMA user_version = 2;`
 		t.Fatalf("expected user_version 3, got %d", userVersion)
 	}
 }
+
+func TestTouchTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "touch test",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
+		"worker":  "w1",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim expected 200, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]any{
+		"worker": "w2",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("touch with wrong worker expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("touch with correct worker expected 204, got %d: %s", code, body)
+	}
+
+	var leaseExpires int64
+	err = db.QueryRow("SELECT lease_expires FROM tasks WHERE id = ?", created.ID).Scan(&leaseExpires)
+	if err != nil {
+		t.Fatalf("query lease_expires failed: %v", err)
+	}
+	now := time.Now().Unix()
+	if leaseExpires < now+290 || leaseExpires > now+310 {
+		t.Fatalf("unexpected lease_expires: %d (now=%d)", leaseExpires, now)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]any{})
+	if code != http.StatusBadRequest {
+		t.Fatalf("touch with missing worker expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]any{
+		"worker":  "w1",
+		"unknown": "value",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("touch with unknown field expected 400, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/nonexistent/touch", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("touch nonexistent expected 409, got %d: %s", code, body)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+		t.Fatalf("update expired failed: %v", err)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/touch", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("touch expired task expected 409, got %d: %s", code, body)
+	}
+}
