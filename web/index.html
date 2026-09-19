@@ -92,6 +92,19 @@
     color: #ffffff;
   }
   button.primary:hover { background: #2ea043; }
+  button.danger {
+    color: var(--danger);
+    border-color: rgba(248, 81, 73, 0.4);
+  }
+  button.danger:hover {
+    background: rgba(248, 81, 73, 0.15);
+  }
+  .task-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+  }
   .grid-stats {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -810,8 +823,71 @@
         ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
         <div class="field"><span class="field-label">Body</span><pre>${escapeHTML(t.body || '')}</pre></div>
         ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
+        <div class="task-actions">
+          ${t.status === 'leased' ? `
+            <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
+            <button type="button" id="release-task-btn">Release Task</button>
+          ` : ''}
+          <button type="button" id="delete-task-btn" class="danger">Delete Task</button>
+        </div>
       `;
       if (sameTask) pane.scrollTop = prevScrollTop;
+
+
+      const compBtn = document.getElementById('complete-task-btn');
+      if (compBtn) compBtn.onclick = () => completeTask(t.id, t.worker);
+      const relBtn = document.getElementById('release-task-btn');
+      if (relBtn) relBtn.onclick = () => releaseTask(t.id, t.worker);
+      const delBtn = document.getElementById('delete-task-btn');
+      if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status);
+    }
+
+    async function finishTaskAction() {
+      selectedTaskId = null;
+      syncURL(false);
+      resetTaskDetails();
+      const tbody = document.getElementById('task-table-body');
+      if (tbody) {
+        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
+          tr.setAttribute('aria-selected', 'false');
+        }
+      }
+      await Promise.all([loadStats(), loadTasks()]);
+    }
+
+    async function completeTask(id, worker) {
+      if (!id || !worker) return;
+      try {
+        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worker: worker })
+        });
+        await finishTaskAction();
+      } catch (_) {}
+    }
+
+    async function releaseTask(id, worker) {
+      if (!id || !worker) return;
+      try {
+        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/release', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worker: worker })
+        });
+        await finishTaskAction();
+      } catch (_) {}
+    }
+
+    async function deleteTask(id, status) {
+      if (!id) return;
+      if (typeof confirm === 'function' && !confirm('Are you sure you want to delete this task?')) return;
+      const url = '/tasks/' + encodeURIComponent(id) + (status === 'done' ? '?force=1' : '');
+      try {
+        await fetchJSON(url, { method: 'DELETE' });
+        await finishTaskAction();
+      } catch (_) {}
+
     }
 
     function clearFormErrors() {

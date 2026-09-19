@@ -262,3 +262,111 @@ func TestWebUITaskDetailsGuard(t *testing.T) {
 		t.Fatalf("task details guard harness failed: %v\n%s", err, out)
 	}
 }
+
+func TestWebUITaskActions(t *testing.T) {
+	ui := string(uiHTML)
+
+	for _, check := range []struct {
+		id   string
+		text string
+	}{
+		{"delete-task-btn", "Delete Task"},
+		{"release-task-btn", "Release Task"},
+		{"complete-task-btn", "Complete Task"},
+	} {
+		if !strings.Contains(ui, `id="`+check.id+`"`) {
+			t.Fatalf("expected button with id=%q in web/index.html", check.id)
+		}
+		if !strings.Contains(ui, check.text) {
+			t.Fatalf("expected button text %q in web/index.html", check.text)
+		}
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/actions.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+	var got struct {
+		PendingHasDelete        bool
+		PendingHasComplete      bool
+		PendingHasRelease       bool
+		CancelDeleteAsked       bool
+		CancelDeleteCalls       int
+		ConfirmDeletePending    *struct{ URL, Method string }
+		PendingDeletedPaneReset bool
+		LeasedHasDelete         bool
+		LeasedHasComplete       bool
+		LeasedHasRelease        bool
+		LeasedDeleteErrorBanner bool
+		LeasedDeletePaneKept    bool
+		ReleaseCall             *struct {
+			URL    string
+			Method string
+			Body   map[string]any
+		}
+		ReleasePaneReset bool
+		CompleteCall     *struct {
+			URL    string
+			Method string
+			Body   map[string]any
+		}
+		CompletePaneReset    bool
+		DoneDeleteCall       *struct{ URL, Method string }
+		DoneDeletedPaneReset bool
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if !got.PendingHasDelete || got.PendingHasComplete || got.PendingHasRelease {
+		t.Errorf("pending buttons mismatch: %+v", got)
+	}
+	if !got.CancelDeleteAsked || got.CancelDeleteCalls != 0 {
+		t.Errorf("cancel delete failed: asked=%v calls=%d", got.CancelDeleteAsked, got.CancelDeleteCalls)
+	}
+	if got.ConfirmDeletePending == nil || got.ConfirmDeletePending.URL != "/tasks/t-pending" || got.ConfirmDeletePending.Method != "DELETE" {
+		t.Errorf("confirm delete pending call = %+v", got.ConfirmDeletePending)
+	}
+	if !got.PendingDeletedPaneReset {
+		t.Errorf("pane not reset after pending delete")
+	}
+
+	if !got.LeasedHasDelete || !got.LeasedHasComplete || !got.LeasedHasRelease {
+		t.Errorf("leased buttons mismatch: %+v", got)
+	}
+	if !got.LeasedDeleteErrorBanner || !got.LeasedDeletePaneKept {
+		t.Errorf("leased delete 409 mismatch: banner=%v paneKept=%v", got.LeasedDeleteErrorBanner, got.LeasedDeletePaneKept)
+	}
+
+	if got.ReleaseCall == nil || got.ReleaseCall.URL != "/tasks/t-leased/release" || got.ReleaseCall.Method != "POST" || got.ReleaseCall.Body["worker"] != "w-1" {
+		t.Errorf("release call mismatch: %+v", got.ReleaseCall)
+	}
+	if !got.ReleasePaneReset {
+		t.Errorf("pane not reset after release")
+	}
+
+	if got.CompleteCall == nil || got.CompleteCall.URL != "/tasks/t-leased/done" || got.CompleteCall.Method != "POST" || got.CompleteCall.Body["worker"] != "w-1" {
+		t.Errorf("complete call mismatch: %+v", got.CompleteCall)
+	}
+	if !got.CompletePaneReset {
+		t.Errorf("pane not reset after complete")
+	}
+
+	if got.DoneDeleteCall == nil || got.DoneDeleteCall.URL != "/tasks/t-done?force=1" || got.DoneDeleteCall.Method != "DELETE" {
+		t.Errorf("done delete call mismatch: %+v", got.DoneDeleteCall)
+	}
+	if !got.DoneDeletedPaneReset {
+		t.Errorf("pane not reset after done delete")
+	}
+}
