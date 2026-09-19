@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -11,9 +12,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -672,6 +675,15 @@ func newUI(url, project string, icons bool) *ui {
 	return u
 }
 
+func (u *ui) quitOnSignal() context.CancelFunc {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		u.app.Stop()
+	}()
+	return stop
+}
+
 func main() {
 	cfg, err := parseFlags(os.Args[1:])
 	if err != nil {
@@ -681,6 +693,8 @@ func main() {
 		os.Exit(2)
 	}
 	u := newUI(cfg.url, cfg.project, cfg.icons)
+	stop := u.quitOnSignal()
+	defer stop()
 	go func() {
 		for ; ; time.Sleep(time.Second) {
 			u.refresh()
