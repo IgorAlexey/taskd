@@ -49,6 +49,7 @@ function boot(search, world) {
   const els = {
     'filter-project': element([{ value: '', textContent: '(all)' }]),
     'filter-status': element(statusOptions.map(v => ({ value: v }))),
+    'form-project': element(),
     'task-details-content': element(),
     'error-banner': element(),
     'task-table-body': element(),
@@ -144,6 +145,7 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
     url: w.url(),
     pane: w.pane(),
     list: w.listFetches[0],
+    formProject: w.els['form-project'] ? w.els['form-project'].value : '',
   };
   w = boot('?status=bogus&project=ghost&task=t1', world);
   await settle();
@@ -223,6 +225,9 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
     status: w.els['filter-status'].value,
     url: w.url(),
     list: w.listFetches[w.listFetches.length - 1],
+  };
+  out.projectPrefill = {
+    formProject: w.els['form-project'] ? w.els['form-project'].value : '',
   };
   process.stdout.write(JSON.stringify(out, null, 1));
 })();

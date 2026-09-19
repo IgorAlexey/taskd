@@ -161,10 +161,11 @@ func TestWebUIURLState(t *testing.T) {
 	}
 	var got struct {
 		Load struct {
-			State map[string]string
-			URL   string `json:"url"`
-			Pane  string
-			List  string
+			State       map[string]string
+			URL         string `json:"url"`
+			Pane        string
+			List        string
+			FormProject string `json:"formProject"`
 		}
 		Noise struct {
 			Status  string
@@ -204,6 +205,9 @@ func TestWebUIURLState(t *testing.T) {
 			Status string
 			URL    string `json:"url"`
 			List   string
+		}
+		ProjectPrefill struct {
+			FormProject string `json:"formProject"`
 		}
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
@@ -282,6 +286,12 @@ func TestWebUIURLState(t *testing.T) {
 	}
 	if got.CardFilterTotal.Status != "" || got.CardFilterTotal.URL != "/ui?project=p1" {
 		t.Errorf("total card filter = %+v, want empty status and /ui?project=p1", got.CardFilterTotal)
+	}
+	if got.Load.FormProject != "p1" {
+		t.Errorf("boot form project = %q, want p1", got.Load.FormProject)
+	}
+	if got.ProjectPrefill.FormProject != "p1" {
+		t.Errorf("filter change form project = %q, want p1", got.ProjectPrefill.FormProject)
 	}
 }
 func TestWebUITaskDetailsGuard(t *testing.T) {
