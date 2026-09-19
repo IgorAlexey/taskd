@@ -14,6 +14,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/rivo/uniseg"
+	"unicode/utf8"
 )
 
 var (
@@ -1145,5 +1147,178 @@ func TestSelectionClamping(t *testing.T) {
 	r, _ = u.table.GetSelection()
 	if r != 1 {
 		t.Fatalf("expected row 1 after restoring filter from empty, got %d", r)
+	}
+}
+
+func TestTUIStatusLayout(t *testing.T) {
+	u, _, _ := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.root, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	screenText := func() string {
+		var text string
+		query(func() {
+			cells, w, h := sim.GetContents()
+			var sb strings.Builder
+			for y := 0; y < h; y++ {
+				for x := 0; x < w; x++ {
+					c := cells[y*w+x]
+					if len(c.Runes) > 0 {
+						sb.WriteRune(c.Runes[0])
+					} else {
+						sb.WriteByte(' ')
+					}
+				}
+				sb.WriteByte('\n')
+			}
+			text = sb.String()
+		})
+		return text
+	}
+
+	assertStatusWidth := func() {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		for _, line := range strings.Split(strings.TrimRight(st, "\n"), "\n") {
+			if w := uniseg.StringWidth(line); w > 80 {
+				t.Fatalf("status line exceeds 80 columns (%d cols): %q", w, line)
+			}
+			if !utf8.ValidString(line) {
+				t.Fatalf("status line contains invalid UTF-8: %q", line)
+			}
+		}
+	}
+
+	// 1. Initial idle status layout: fits <= 80 columns and contains hotkey menu
+	eventually(t, func() bool {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		return strings.Contains(st, "project all") && strings.Contains(st, "[n] new")
+	})
+	assertStatusWidth()
+
+	// 2. Action failure feedback: attempt to delete leased task bbbbbbb2
+	sim.InjectKey(tcell.KeyRune, 'j', 0)
+	sim.InjectKey(tcell.KeyRune, 'D', 0)
+	eventually(t, func() bool {
+		var modal *tview.Modal
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+	query(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		return strings.Contains(st, "409") && strings.Contains(st, "task is leased")
+	})
+	assertStatusWidth()
+	if !strings.Contains(screenText(), "409") {
+		t.Fatalf("error feedback 409 not visible on 80x25 screen:\n%s", screenText())
+	}
+
+	// 3. Action success feedback: increment priority (+)
+	sim.InjectKey(tcell.KeyRune, '+', 0)
+	eventually(t, func() bool {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		return strings.Contains(st, "priority")
+	})
+	assertStatusWidth()
+
+	// 4. Action success feedback: delete a non-leased task
+	sim.InjectKey(tcell.KeyRune, 'k', 0)
+	sim.InjectKey(tcell.KeyRune, 'D', 0)
+	eventually(t, func() bool {
+		var modal *tview.Modal
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+	query(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		return strings.Contains(st, "deleted")
+	})
+	assertStatusWidth()
+
+	// 5. Action success feedback: create a new task
+	sim.InjectKey(tcell.KeyRune, 'n', 0)
+	eventually(t, func() bool {
+		var open bool
+		query(func() { open = u.form != nil })
+		return open
+	})
+	query(func() {
+		u.form.GetFormItem(2).(*tview.TextArea).SetText("layout test task", false)
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		return strings.Contains(st, "created")
+	})
+	assertStatusWidth()
+
+	// 6. Multi-byte UTF-8 feedback is displayed and does not wrap to extra lines
+	u.app.QueueUpdateDraw(func() {
+		u.setMsg("error: 日本語 text with 🚀 feedback")
+	})
+	assertStatusWidth()
+	eventually(t, func() bool {
+		s := screenText()
+		return strings.Contains(s, "error:") && strings.Contains(s, "feedback")
+	})
+	// 7. Long project names and long error messages fit within 80 columns
+	query(func() {
+		u.project = "infrastructure-deployment-long-project-name"
+		u.setMsg("DELETE /tasks/1234567890: 409 Conflict: task is currently leased by worker-agent-node-us-east")
+	})
+	assertStatusWidth()
+	// 8. Full-width CJK characters fit within 80 visual columns
+	query(func() {
+		u.project = strings.Repeat("世界", 20)
+		u.setMsg(strings.Repeat("日本語", 30))
+	})
+	assertStatusWidth()
+	// 9. Small width truncation bounds check
+	for w := 0; w <= 5; w++ {
+		if got := truncWidth("hello world", w); uniseg.StringWidth(got) > w {
+			t.Fatalf("truncWidth for max %d exceeded width: %q (width %d)", w, got, uniseg.StringWidth(got))
+		}
 	}
 }

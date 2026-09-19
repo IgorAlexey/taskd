@@ -18,6 +18,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"github.com/rivo/uniseg"
 )
 
 type task struct {
@@ -35,22 +36,24 @@ type task struct {
 var client = &http.Client{Timeout: 3 * time.Second}
 
 type ui struct {
-	url       string
-	app       *tview.Application
-	table     *tview.Table
-	body      *tview.TextView
-	status    *tview.TextView
-	root      tview.Primitive
-	form      *tview.Form
-	modal     *tview.Modal
-	filter    string
-	project   string
-	icons     bool
-	all       []task
-	shown     []task
-	msg       string
-	shownID   string
-	shownBody string
+	url                   string
+	app                   *tview.Application
+	table                 *tview.Table
+	body                  *tview.TextView
+	status                *tview.TextView
+	root                  tview.Primitive
+	form                  *tview.Form
+	modal                 *tview.Modal
+	filter                string
+	project               string
+	icons                 bool
+	all                   []task
+	shown                 []task
+	pending, leased, done int
+	msg                   string
+	msgRev                int
+	shownID               string
+	shownBody             string
 }
 
 func (u *ui) fetch() ([]task, error) {
@@ -149,9 +152,16 @@ func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	prevRow, _ := u.table.GetSelection()
 	u.all, u.shown = all, u.shown[:0]
-	counts := map[string]int{}
+	u.pending, u.leased, u.done = 0, 0, 0
 	for _, t := range all {
-		counts[t.Status]++
+		switch t.Status {
+		case "pending":
+			u.pending++
+		case "leased":
+			u.leased++
+		case "done":
+			u.done++
+		}
 		if (u.filter == "" || t.Status == u.filter) && (u.project == "" || t.Project == u.project) {
 			u.shown = append(u.shown, t)
 		}
@@ -174,8 +184,62 @@ func (u *ui) render(all []task) {
 	}
 	u.table.Select(row, 0)
 	u.showBody()
-	u.status.SetText(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d   [j/k] move  [0-3] filter  [p] project  [n] new  [e] edit  [+/-] priority  [D] delete  [q] quit   %s",
-		cmp.Or(u.filter, "all"), cmp.Or(u.project, "all"), counts["pending"], counts["leased"], counts["done"], u.msg))
+	u.renderStatus()
+}
+
+func truncWidth(s string, maxWidth int) string {
+	if maxWidth <= 0 {
+		return ""
+	}
+	if uniseg.StringWidth(s) <= maxWidth {
+		return s
+	}
+	target := maxWidth - 3
+	suffix := "..."
+	if maxWidth <= 3 {
+		target = maxWidth
+		suffix = ""
+	}
+	g := uniseg.NewGraphemes(s)
+	var width, end int
+	for g.Next() {
+		w := g.Width()
+		if width+w > target {
+			break
+		}
+		width += w
+		_, to := g.Positions()
+		end = to
+	}
+	return s[:end] + suffix
+}
+
+func (u *ui) renderStatus() {
+	proj := truncWidth(cmp.Or(u.project, "all"), 20)
+	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
+		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), 80)
+	line2 := " [j/k] move [0-3] filter [p] project [n] new [e] edit [+/-] pri [D] del [q] quit"
+	if u.msg != "" {
+		line2 = truncWidth(" "+u.msg, 80)
+	}
+	u.status.SetText(line1 + "\n" + line2)
+}
+
+func (u *ui) setMsg(msg string) {
+	u.msg = msg
+	u.msgRev++
+	rev := u.msgRev
+	u.renderStatus()
+	if msg != "" {
+		time.AfterFunc(3*time.Second, func() {
+			u.app.QueueUpdateDraw(func() {
+				if u.msgRev == rev {
+					u.msg = ""
+					u.renderStatus()
+				}
+			})
+		})
+	}
 }
 
 func (u *ui) showBody() {
@@ -199,24 +263,27 @@ func (u *ui) refresh() {
 	ts, err := u.fetch()
 	u.app.QueueUpdateDraw(func() {
 		if err != nil {
-			u.msg = err.Error()
-			u.status.SetText(" " + u.msg)
+			u.setMsg(err.Error())
 			return
 		}
 		u.render(ts)
 	})
 }
 
-func (u *ui) act(method, path string, body any) {
+func (u *ui) act(method, path string, body any, success string) {
 	go func() {
 		err := u.call(method, path, body)
+		msg := success
+		if err != nil {
+			msg = err.Error()
+		}
+		ts, fetchErr := u.fetch()
 		u.app.QueueUpdateDraw(func() {
-			u.msg = ""
-			if err != nil {
-				u.msg = err.Error()
+			u.setMsg(msg)
+			if fetchErr == nil {
+				u.render(ts)
 			}
 		})
-		u.refresh()
 	}()
 }
 
@@ -240,7 +307,7 @@ func (u *ui) showCreateForm() {
 			"project":  proj.GetText(),
 			"priority": p,
 			"body":     body.GetText(),
-		})
+		}, "task created")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
@@ -268,7 +335,7 @@ func (u *ui) showEditForm(t task) {
 		u.act("PATCH", "/tasks/"+t.ID, map[string]any{
 			"body":     body.GetText(),
 			"priority": p,
-		})
+		}, "task updated")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
@@ -295,7 +362,7 @@ func (u *ui) showDeleteConfirm(t task) {
 			if t.Status == "done" {
 				path += "?force=true"
 			}
-			u.act("DELETE", path, nil)
+			u.act("DELETE", path, nil, "deleted task "+t.ID[:min(7, len(t.ID))])
 		}
 	})
 	u.modal = m
@@ -353,7 +420,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		if ok {
 			d := map[rune]int{'+': 1, '=': 1, '-': -1}[ev.Rune()]
 			if pri := max(0, t.Priority+d); pri != t.Priority {
-				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri})
+				u.act("PATCH", "/tasks/"+t.ID, map[string]int{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
 			}
 		}
 	case 'D':
@@ -461,9 +528,9 @@ func newUI(url, project string, icons bool) *ui {
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
 	u.body.SetBorder(true).SetTitle(" task ").SetInputCapture(u.bodyKeys)
-	u.status = tview.NewTextView()
+	u.status = tview.NewTextView().SetWrap(false)
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 1, 0, false)
+		AddItem(u.table, 0, 3, true).AddItem(u.body, 0, 2, false).AddItem(u.status, 2, 0, false)
 	u.root = flex
 	return u
 }
