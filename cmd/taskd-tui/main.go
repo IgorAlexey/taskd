@@ -542,6 +542,18 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyTab, tcell.KeyBacktab:
 		u.app.SetFocus(u.body)
 		return nil
+	case tcell.KeyCtrlD, tcell.KeyCtrlU:
+		if len(u.shown) > 0 {
+			_, _, _, h := u.table.GetInnerRect()
+			step := max(1, (h-1)/2)
+			r := u.selectedRow()
+			if ev.Key() == tcell.KeyCtrlD {
+				u.table.Select(min(len(u.shown), r+step), 0)
+			} else {
+				u.table.Select(max(1, r-step), 0)
+			}
+		}
+		return nil
 	}
 	t, ok := u.selected()
 	switch ev.Rune() {
