@@ -2182,8 +2182,8 @@ func TestShowBodyMetadata(t *testing.T) {
 
 	u.shown = nil
 	u.showBody()
-	if got := u.body.GetText(true); got != "" {
-		t.Fatalf("empty selection must clear pane, got %q", got)
+	if got := u.body.GetText(true); !strings.Contains(got, "No tasks") {
+		t.Fatalf("empty selection must show the placeholder, got %q", got)
 	}
 }
 

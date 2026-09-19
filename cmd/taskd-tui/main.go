@@ -216,6 +216,21 @@ func lease(t task, now int64) string {
 	return "expired"
 }
 
+// emptyState is the placeholder shown when no task is visible, so the
+// operator can tell an empty queue apart from a filter that hid every
+// task, and knows which key clears the filter that did it.
+func (u *ui) emptyState() string {
+	switch {
+	case u.filter != "" && u.project != "":
+		return "No tasks match filter. Press '0' to clear filter, 'p' to cycle project."
+	case u.filter != "":
+		return "No " + u.filter + " tasks. Press '0' to show all."
+	case u.project != "":
+		return "No tasks in " + u.project + ". Press 'p' to cycle project."
+	}
+	return "No tasks yet. Press 'n' to create a task."
+}
+
 func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	u.all, u.shown = all, u.shown[:0]
@@ -328,22 +343,21 @@ func metaHeader(t task) string {
 }
 
 func (u *ui) showBody() {
-	t, ok := u.selected()
-	if !ok {
-		u.shownID, u.shownBody = "", ""
-		u.body.SetText("")
-		return
+	var id, text string
+	if t, ok := u.selected(); ok {
+		text = t.Body
+		if len(t.Primitives) > 0 && string(t.Primitives) != "null" {
+			text += "\n\nresult: " + string(t.Primitives)
+		}
+		if text != "" {
+			text = strings.Repeat("-", 60) + "\n" + text
+		}
+		id, text = t.ID, metaHeader(t)+text
+	} else {
+		text = u.emptyState()
 	}
-	text := t.Body
-	if len(t.Primitives) > 0 && string(t.Primitives) != "null" {
-		text += "\n\nresult: " + string(t.Primitives)
-	}
-	if text != "" {
-		text = strings.Repeat("-", 60) + "\n" + text
-	}
-	text = metaHeader(t) + text
-	if t.ID != u.shownID || text != u.shownBody {
-		u.shownID, u.shownBody = t.ID, text
+	if id != u.shownID || text != u.shownBody {
+		u.shownID, u.shownBody = id, text
 		u.body.SetText(text).ScrollToBeginning()
 	}
 }
