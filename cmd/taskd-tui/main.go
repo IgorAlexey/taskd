@@ -618,11 +618,55 @@ func validProject(p string) bool {
 	return true
 }
 
+func modalWidth(requested, window int) int {
+	return min(requested, max(1, window-2))
+}
+
+func modalHeight(requested, window int) int {
+	return min(requested, max(1, window*3/4))
+}
+
+type modalBox struct {
+	*tview.Box
+	content tview.Primitive
+	width   int
+	height  int
+}
+
+func (m *modalBox) SetRect(x, y, width, height int) {
+	m.Box.SetRect(x, y, width, height)
+	w := modalWidth(m.width, width)
+	h := modalHeight(m.height, height)
+	m.content.SetRect(x+(width-w)/2, y+(height-h)/2, w, h)
+}
+
+func (m *modalBox) Draw(screen tcell.Screen) {
+	m.content.Draw(screen)
+}
+
+func (m *modalBox) Focus(delegate func(p tview.Primitive)) {
+	delegate(m.content)
+}
+
+func (m *modalBox) HasFocus() bool {
+	return m.content.HasFocus()
+}
+
+func (m *modalBox) MouseHandler() func(tview.MouseAction, *tcell.EventMouse, func(tview.Primitive)) (bool, tview.Primitive) {
+	return m.content.MouseHandler()
+}
+
+func (m *modalBox) InputHandler() func(*tcell.EventKey, func(tview.Primitive)) {
+	return m.content.InputHandler()
+}
+
 func centerModal(p tview.Primitive, width, height int) tview.Primitive {
-	return tview.NewGrid().
-		SetColumns(0, width, 0).
-		SetRows(0, height, 0).
-		AddItem(p, 1, 1, 1, 1, 0, 0, true)
+	return &modalBox{
+		Box:     tview.NewBox(),
+		content: p,
+		width:   width,
+		height:  height,
+	}
 }
 
 func (u *ui) defaultProject() string {
@@ -642,7 +686,7 @@ func (u *ui) showCreateForm() {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" new task ")
 	f.AddInputField("Project", u.defaultProject(), 20, nil, nil)
-	f.AddInputField("Priority (1 is top, blank for default)", "", 10, tview.InputFieldInteger, nil)
+	f.AddInputField("Priority", "", 10, tview.InputFieldInteger, nil)
 	f.AddInputField("Asset Path", "", 0, nil, nil)
 	f.AddTextArea("Body", "", 0, 0, 0, nil)
 	proj := f.GetFormItem(0).(*tview.InputField)
