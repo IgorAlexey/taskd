@@ -239,7 +239,7 @@ func (u *ui) render(all []task) {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
 		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
 		for c, s := range cells {
-			u.table.SetCell(i+1, c, tview.NewTableCell(s).SetTextColor(colors[t.Status]).SetExpansion(c/6))
+			u.table.SetCell(i+1, c, tview.NewTableCell(tview.Escape(s)).SetTextColor(colors[t.Status]).SetExpansion(c/6))
 		}
 		if t.ID == keep.ID {
 			row = i + 1
@@ -481,7 +481,7 @@ func (u *ui) showDeleteConfirm(t task) {
 		name = fmt.Sprintf("%s (%s)", t.ID, title)
 	}
 	m := tview.NewModal()
-	m.SetText(fmt.Sprintf("Delete task %s?\nDeleted tasks cannot be recovered.", name))
+	m.SetText(fmt.Sprintf("Delete task %s?\nDeleted tasks cannot be recovered.", tview.Escape(name)))
 	m.AddButtons([]string{"Delete", "Cancel"})
 	close := func() {
 		u.modal = nil
