@@ -1528,7 +1528,7 @@ func TestSelectionClamping(t *testing.T) {
 }
 
 func TestTUIStatusLayout(t *testing.T) {
-	u, _, _ := stub(t)
+	u, tasks, mu := stub(t)
 	ts, err := u.fetch()
 	if err != nil {
 		t.Fatal(err)
@@ -1604,8 +1604,33 @@ func TestTUIStatusLayout(t *testing.T) {
 	})
 	assertStatusWidth()
 
-	// 2. Action failure feedback: attempt to delete leased task bbbbbbb2
 	sim.InjectKey(tcell.KeyRune, 'j', 0)
+	sim.InjectKey(tcell.KeyRune, 'D', 0)
+	eventually(t, func() bool {
+		var st string
+		query(func() { st = u.status.GetText(true) })
+		return strings.Contains(st, "cannot delete actively leased task")
+	})
+	query(func() {
+		if u.modal != nil {
+			t.Fatal("expected no modal on leased delete")
+		}
+	})
+	assertStatusWidth()
+	if !strings.Contains(screenText(), "cannot delete actively leased task") {
+		t.Fatalf("refusal feedback not visible on 80x25 screen:\n%s", screenText())
+	}
+
+	sim.InjectKey(tcell.KeyRune, 'k', 0)
+	mu.Lock()
+	for i := range *tasks {
+		if (*tasks)[i].ID == "aaaaaaa1" {
+			(*tasks)[i].Status = "leased"
+			(*tasks)[i].LeaseExpires = time.Now().Unix() + 300
+		}
+	}
+	mu.Unlock()
+
 	sim.InjectKey(tcell.KeyRune, 'D', 0)
 	eventually(t, func() bool {
 		var modal *tview.Modal
@@ -1627,6 +1652,16 @@ func TestTUIStatusLayout(t *testing.T) {
 		t.Fatalf("error feedback 409 not visible on 80x25 screen:\n%s", screenText())
 	}
 
+	mu.Lock()
+	for i := range *tasks {
+		if (*tasks)[i].ID == "aaaaaaa1" {
+			(*tasks)[i].Status = "pending"
+			(*tasks)[i].LeaseExpires = 0
+		}
+	}
+	mu.Unlock()
+
+	sim.InjectKey(tcell.KeyRune, 'j', 0)
 	// 3. Action success feedback: lower priority (-) on a P1 task
 	sim.InjectKey(tcell.KeyRune, '-', 0)
 	eventually(t, func() bool {
@@ -2678,21 +2713,18 @@ func TestTUICompleteTask(t *testing.T) {
 	press('2')
 	press('x')
 	eventually(t, func() bool {
-		query(func() { modal = u.modal })
-		return modal != nil
-	})
-	modalKey(tcell.KeyLeft)
-	modalKey(tcell.KeyEnter)
-	eventually(t, func() bool {
 		query(func() { status = u.status.GetText(true) })
-		return strings.Contains(status, "task is leased")
+		return strings.Contains(status, "cannot complete actively leased task")
 	})
+	query(func() { modal = u.modal })
+	if modal != nil {
+		t.Fatal("expected no confirmation modal for actively leased task")
+	}
 	if s := statusOf("bbbbbbb2"); s != "leased" {
 		t.Fatalf("expected live-leased task untouched, got %q", s)
 	}
-	leased := calls()
-	if len(leased) != 1 || leased[0].uri != "/tasks/bbbbbbb2/close" {
-		t.Fatalf("expected one close request for the leased task, got %+v", leased)
+	if n := len(calls()); n != 0 {
+		t.Fatalf("expected no close request for actively leased task, got %d", n)
 	}
 
 	press('1')
@@ -2709,7 +2741,7 @@ func TestTUICompleteTask(t *testing.T) {
 	if s := statusOf("aaaaaaa1"); s != "pending" {
 		t.Fatalf("expected pending task after cancel, got %q", s)
 	}
-	if n := len(calls()); n != 1 {
+	if n := len(calls()); n != 0 {
 		t.Fatalf("expected no close request after cancel, got %d", n)
 	}
 
@@ -2739,10 +2771,10 @@ func TestTUICompleteTask(t *testing.T) {
 	})
 
 	completed := calls()
-	if len(completed) != 2 {
+	if len(completed) != 1 {
 		t.Fatalf("expected exactly one close request for the pending task, got %+v", completed)
 	}
-	if last := completed[1]; last.uri != "/tasks/aaaaaaa1/close" || last.body != 0 {
+	if last := completed[0]; last.uri != "/tasks/aaaaaaa1/close" || last.body != 0 {
 		t.Fatalf("expected a bare close request carrying no worker, got %+v", last)
 	}
 
@@ -2755,7 +2787,7 @@ func TestTUICompleteTask(t *testing.T) {
 	if modal != nil {
 		t.Fatal("done task must not open a confirmation modal")
 	}
-	if n := len(calls()); n != 2 {
+	if n := len(calls()); n != 1 {
 		t.Fatalf("expected no close request for done task, got %d calls", n)
 	}
 

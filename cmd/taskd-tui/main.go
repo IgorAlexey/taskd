@@ -240,6 +240,9 @@ func lease(t task, now int64) string {
 	}
 	return "expired"
 }
+func (t task) activelyLeased(now int64) bool {
+	return t.Status == "leased" && t.LeaseExpires >= now
+}
 
 // emptyState is the placeholder shown when no task is visible, so the
 // operator can tell an empty queue apart from a filter that hid every
@@ -826,12 +829,20 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 	case 'D':
 		if ok {
+			if t.activelyLeased(time.Now().Unix()) {
+				u.setMsg("cannot delete actively leased task")
+				break
+			}
 			u.showDeleteConfirm(t)
 		}
 	case 'x':
 		if ok {
 			if t.Status == "done" {
 				u.setMsg("task is already done")
+				break
+			}
+			if t.activelyLeased(time.Now().Unix()) {
+				u.setMsg("cannot complete actively leased task")
 				break
 			}
 			u.showCompleteConfirm(t)
@@ -844,6 +855,10 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showCreateForm()
 	case 'e':
 		if ok {
+			if t.activelyLeased(time.Now().Unix()) {
+				u.setMsg("cannot edit actively leased task")
+				break
+			}
 			u.showEditForm(t)
 		}
 	case 'y':
