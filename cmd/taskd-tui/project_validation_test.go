@@ -178,3 +178,242 @@ func TestEditFormProjectValidation(t *testing.T) {
 		return (*h.tasks)[0].Project == "valid-edited-proj"
 	})
 }
+func TestCreateFormDefaultProject(t *testing.T) {
+	h := newTestHarness(t)
+
+	h.selectID("aaaaaaa1")
+	h.query(func() {
+		h.press('n')
+	})
+
+	var form *tview.Form
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+
+	var projItem *tview.InputField
+	h.query(func() {
+		projItem = form.GetFormItem(0).(*tview.InputField)
+	})
+
+	if got := projItem.GetText(); got != "proj-b" {
+		t.Fatalf("expected default project proj-b from selected row, got %q", got)
+	}
+
+	h.query(func() {
+		form.GetButton(1).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form == nil
+	})
+
+	h.selectID("bbbbbbb2")
+	h.query(func() {
+		h.press('n')
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+	h.query(func() {
+		projItem = form.GetFormItem(0).(*tview.InputField)
+	})
+	if got := projItem.GetText(); got != "proj-a" {
+		t.Fatalf("expected default project proj-a from selected row, got %q", got)
+	}
+	h.query(func() {
+		form.GetButton(1).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form == nil
+	})
+
+	h.query(func() {
+		h.u.project = "explicit-filter"
+		h.press('n')
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+	h.query(func() {
+		projItem = form.GetFormItem(0).(*tview.InputField)
+	})
+	if got := projItem.GetText(); got != "explicit-filter" {
+		t.Fatalf("expected default project explicit-filter from u.project, got %q", got)
+	}
+	h.query(func() {
+		form.GetButton(1).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+		h.u.project = ""
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form == nil
+	})
+
+	origGit := gitCheckoutName
+	gitCheckoutName = func() string { return "wt-checkout" }
+	t.Cleanup(func() { gitCheckoutName = origGit })
+
+	h.query(func() {
+		h.u.shown = nil
+		h.press('n')
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+	h.query(func() {
+		projItem = form.GetFormItem(0).(*tview.InputField)
+	})
+	if got := projItem.GetText(); got != "wt-checkout" {
+		t.Fatalf("expected default project wt-checkout from git fallback, got %q", got)
+	}
+	h.query(func() {
+		form.GetButton(1).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form == nil
+	})
+}
+
+func TestNewTaskUnknownProject(t *testing.T) {
+	h := newTestHarness(t)
+	h.query(func() {
+		h.u.projects = []string{"proj-a", "proj-b"}
+	})
+
+	h.query(func() {
+		h.press('n')
+	})
+	var form *tview.Form
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+
+	var (
+		projItem *tview.InputField
+		bodyItem *tview.TextArea
+	)
+	h.query(func() {
+		projItem = form.GetFormItem(0).(*tview.InputField)
+		bodyItem = form.GetFormItem(3).(*tview.TextArea)
+		projItem.SetText("unknown-proj")
+		bodyItem.SetText("task for unknown project", true)
+		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	var modal *tview.Modal
+	eventually(t, func() bool {
+		h.query(func() { modal = h.u.modal })
+		return modal != nil
+	})
+
+	var (
+		focusedButton int
+		focusedLabel  string
+	)
+	h.query(func() {
+		modal.Focus(func(p tview.Primitive) {
+			if f, ok := p.(*tview.Form); ok {
+				_, focusedButton = f.GetFocusedItemIndex()
+				if focusedButton >= 0 && focusedButton < f.GetButtonCount() {
+					focusedLabel = f.GetButton(focusedButton).GetLabel()
+				}
+			}
+		})
+	})
+
+	var modalText string
+	eventually(t, func() bool {
+		modalText = h.screenText()
+		return strings.Contains(modalText, "unknown-proj") && strings.Contains(modalText, "proj-a, proj-b")
+	})
+	if focusedButton != 1 || focusedLabel != "Cancel" {
+		t.Fatalf("expected default focus on Cancel button (index 1), got index %d label %q", focusedButton, focusedLabel)
+	}
+	h.query(func() {
+		modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		h.query(func() { modal = h.u.modal })
+		return modal == nil
+	})
+
+	h.mu.Lock()
+	initialCount := len(*h.tasks)
+	h.mu.Unlock()
+	if initialCount != 3 {
+		t.Fatalf("expected 3 tasks after canceling unknown project, got %d", initialCount)
+	}
+
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+	h.query(func() {
+		if got := projItem.GetText(); got != "unknown-proj" {
+			t.Fatalf("expected project preserved after cancel, got %q", got)
+		}
+		if got := bodyItem.GetText(); got != "task for unknown project" {
+			t.Fatalf("expected body preserved after cancel, got %q", got)
+		}
+		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		h.query(func() { modal = h.u.modal })
+		return modal != nil
+	})
+
+	h.query(func() {
+		modal.InputHandler()(tcell.NewEventKey(tcell.KeyLeft, 0, 0), nil)
+		modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		h.query(func() { modal = h.u.modal })
+		return modal == nil
+	})
+
+	eventually(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return len(*h.tasks) == 4 && (*h.tasks)[3].Project == "unknown-proj"
+	})
+
+	h.query(func() {
+		h.press('n')
+	})
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form != nil
+	})
+	h.query(func() {
+		projItem = form.GetFormItem(0).(*tview.InputField)
+		bodyItem = form.GetFormItem(3).(*tview.TextArea)
+		projItem.SetText("proj-a")
+		bodyItem.SetText("known project direct creation", true)
+		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		h.query(func() { form = h.u.form })
+		return form == nil
+	})
+	h.query(func() {
+		if h.u.modal != nil {
+			t.Fatalf("expected no modal confirmation for known project proj-a")
+		}
+	})
+
+	eventually(t, func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return len(*h.tasks) == 5 && (*h.tasks)[4].Project == "proj-a"
+	})
+}

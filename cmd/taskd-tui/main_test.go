@@ -370,8 +370,8 @@ func TestCreateForm(t *testing.T) {
 			formErr = "expected form to be open after pressing n"
 			return
 		}
-		if got := form.GetFormItem(0).(*tview.InputField).GetText(); got != "taskd" {
-			formErr = fmt.Sprintf("default project = %q, want taskd", got)
+		if got := form.GetFormItem(0).(*tview.InputField).GetText(); got != "proj-b" {
+			formErr = fmt.Sprintf("default project = %q, want proj-b", got)
 			return
 		}
 		if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "" {

@@ -15,6 +15,7 @@ type testHarness struct {
 	u     *ui
 	tasks *[]task
 	mu    *sync.Mutex
+	sim   tcell.SimulationScreen
 }
 
 func newTestHarness(t *testing.T) *testHarness {
@@ -30,6 +31,7 @@ func newTestHarness(t *testing.T) *testHarness {
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
 	}
+	sim.SetSize(80, 25)
 	u.app.SetScreen(sim)
 	u.app.SetRoot(u.pages, true)
 	done := make(chan struct{})
@@ -41,7 +43,21 @@ func newTestHarness(t *testing.T) *testHarness {
 		u.app.Stop()
 		<-done
 	})
-	return &testHarness{u: u, tasks: tasks, mu: mu}
+	return &testHarness{u: u, tasks: tasks, mu: mu, sim: sim}
+}
+
+func (h *testHarness) screenText() string {
+	h.query(func() {
+		h.u.app.ForceDraw()
+	})
+	cells, _, _ := h.sim.GetContents()
+	var sb strings.Builder
+	for _, c := range cells {
+		for _, r := range c.Runes {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
 }
 
 func (h *testHarness) query(fn func()) {

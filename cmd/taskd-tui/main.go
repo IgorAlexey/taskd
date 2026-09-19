@@ -15,6 +15,8 @@ import (
 	"os"
 	"os/signal"
 	"os/user"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -46,7 +48,46 @@ var client = &http.Client{Timeout: 3 * time.Second}
 var (
 	copyToClipboard           = defaultCopyToClipboard
 	clipboardOut    io.Writer = os.Stderr
+	gitCheckoutName           = defaultGitCheckoutName
 )
+
+func defaultGitCheckoutName() string {
+	cur, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		gitPath := filepath.Join(cur, ".git")
+		fi, err := os.Stat(gitPath)
+		if err == nil {
+			if !fi.IsDir() {
+				data, err := os.ReadFile(gitPath)
+				if err == nil {
+					content := strings.TrimSpace(string(data))
+					if gd, ok := strings.CutPrefix(content, "gitdir:"); ok {
+						gd = strings.TrimSpace(gd)
+						if !filepath.IsAbs(gd) {
+							gd = filepath.Clean(filepath.Join(cur, gd))
+						}
+						if before, _, found := strings.Cut(gd, filepath.FromSlash("/.git/worktrees/")); found {
+							return filepath.Base(before)
+						}
+						if before, _, found := strings.Cut(gd, filepath.FromSlash("/.git")); found {
+							return filepath.Base(before)
+						}
+					}
+				}
+			}
+			return filepath.Base(cur)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			break
+		}
+		cur = parent
+	}
+	return ""
+}
 
 func defaultCopyToClipboard(text string) {
 	b64 := base64.StdEncoding.EncodeToString([]byte(text))
@@ -584,10 +625,23 @@ func centerModal(p tview.Primitive, width, height int) tview.Primitive {
 		AddItem(p, 1, 1, 1, 1, 0, 0, true)
 }
 
+func (u *ui) defaultProject() string {
+	if u.project != "" {
+		return u.project
+	}
+	if t, ok := u.selected(); ok && t.Project != "" {
+		return t.Project
+	}
+	if name := gitCheckoutName(); name != "" {
+		return name
+	}
+	return "taskd"
+}
+
 func (u *ui) showCreateForm() {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" new task ")
-	f.AddInputField("Project", cmp.Or(u.project, "taskd"), 20, nil, nil)
+	f.AddInputField("Project", u.defaultProject(), 20, nil, nil)
 	f.AddInputField("Priority (1 is top, blank for default)", "", 10, tview.InputFieldInteger, nil)
 	f.AddInputField("Asset Path", "", 0, nil, nil)
 	f.AddTextArea("Body", "", 0, 0, 0, nil)
@@ -621,9 +675,20 @@ func (u *ui) showCreateForm() {
 			f.SetTitle(" new task (missing body or asset path) ")
 			return
 		}
-		close()
 		payload["body"] = btext
 		payload["asset_path"] = apath
+		if len(u.projects) > 0 && !slices.Contains(u.projects, pname) {
+			text := fmt.Sprintf("Project %q is not in known projects (%s).\nCreate task anyway?",
+				tview.Escape(pname), tview.Escape(strings.Join(u.projects, ", ")))
+			u.confirmWithCancel("unknown-project", text, "Create", func() {
+				u.app.SetFocus(f)
+			}, func() {
+				close()
+				u.act("POST", "/tasks", payload, "task created")
+			})
+			return
+		}
+		close()
 		u.act("POST", "/tasks", payload, "task created")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
@@ -709,15 +774,22 @@ func taskLabel(t task) string {
 }
 
 func (u *ui) confirm(page, text, button string, do func()) {
+	u.confirmWithCancel(page, text, button, nil, do)
+}
+
+func (u *ui) confirmWithCancel(page, text, button string, onCancel func(), do func()) {
 	m := tview.NewModal()
 	m.SetText(text)
 	m.AddButtons([]string{button, "Cancel"}).SetFocus(1)
 	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		u.modal = nil
 		u.pages.RemovePage(page)
-		u.app.SetFocus(u.table)
 		if buttonIndex == 0 {
 			do()
+		} else if onCancel != nil {
+			onCancel()
+		} else {
+			u.app.SetFocus(u.table)
 		}
 	})
 	u.modal = m
