@@ -427,91 +427,72 @@
   </main>
 
   <script>
-    let uiState = { project: '', status: '', task: '' };
+    let selectedTaskId = null;
     let refreshTimer = null;
 
-    // --- begin pure url-state helpers ---
-    const TASK_STATUSES = ['pending', 'leased', 'done'];
-
-    function searchToState(search) {
-      const params = new URLSearchParams(search || '');
-      const status = params.get('status') || '';
-      return {
-        project: params.get('project') || '',
-        status: TASK_STATUSES.includes(status) ? status : '',
-        task: params.get('task') || '',
-      };
-    }
-
-    function stateToSearch(state) {
-      const s = state || {};
-      const params = new URLSearchParams();
-      if (s.project) params.set('project', s.project);
-      if (s.status) params.set('status', s.status);
-      if (s.task) params.set('task', s.task);
-      const q = params.toString();
-      return q ? '?' + q : '';
-    }
-    // --- end pure url-state helpers ---
-
+    // The project filter, the status filter and the selected task are the
+    // state a reader can see, so they live in the URL: a link reproduces
+    // the view and a reload keeps it. Filters replace the history entry,
+    // selecting a task pushes one, so Back walks out of a task.
+    // A project named in the URL is restored once /projects has answered.
+    let pendingProject = '';
     function readURLState() {
-      return searchToState(location.search);
-    }
-
-    function ensureProjectOption(select, value) {
-      if (!select || !value) return;
-      for (const opt of select.options) {
-        if (opt.value === value) return;
-      }
-      const opt = document.createElement('option');
-      opt.value = value;
-      opt.textContent = value;
-      select.appendChild(opt);
-    }
-
-    function renderURLState() {
-      const projEl = document.getElementById('filter-project');
-      if (projEl) {
-        ensureProjectOption(projEl, uiState.project);
-        projEl.value = uiState.project;
-      }
-      const statusEl = document.getElementById('filter-status');
-      if (statusEl) statusEl.value = uiState.status;
-      const tbody = document.getElementById('task-table-body');
-      if (!tbody) return;
-      for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-        const sel = tr.dataset.taskId === uiState.task ? 'true' : 'false';
-        if (tr.getAttribute('aria-selected') !== sel) tr.setAttribute('aria-selected', sel);
-      }
-    }
-
-    function setURLState(next, push) {
-      const n = next || {};
-      const status = n.status ? String(n.status) : '';
-      uiState = {
-        project: n.project ? String(n.project) : '',
-        status: TASK_STATUSES.includes(status) ? status : '',
-        task: n.task ? String(n.task) : '',
+      const q = new URLSearchParams(location.search);
+      return {
+        project: q.get('project') || '',
+        status: q.get('status') || '',
+        task: q.get('task') || ''
       };
-      const url = location.pathname + stateToSearch(uiState) + location.hash;
-      if (url !== location.pathname + location.search + location.hash) {
-        if (push) {
-          history.pushState({}, '', url);
-        } else {
-          history.replaceState({}, '', url);
-        }
+    }
+
+    function currentURLState() {
+      const projEl = document.getElementById('filter-project');
+      const statusEl = document.getElementById('filter-status');
+      return {
+        project: pendingProject || (projEl ? projEl.value : ''),
+        status: statusEl ? statusEl.value : '',
+        task: selectedTaskId || ''
+      };
+    }
+
+    function syncURL(push) {
+      const state = currentURLState();
+      const q = new URLSearchParams();
+      if (state.project) q.set('project', state.project);
+      if (state.status) q.set('status', state.status);
+      if (state.task) q.set('task', state.task);
+      const query = q.toString();
+      const url = location.pathname + (query ? '?' + query : '') + location.hash;
+      if (push && url !== location.pathname + location.search + location.hash) {
+        history.pushState(state, '', url);
+      } else {
+        history.replaceState(state, '', url);
       }
-      renderURLState();
+    }
+
+    // A filter is a closed set of options: anything else in the URL is
+    // noise and gets dropped rather than added to the widget.
+    function setFilter(select, value) {
+      if (!select) return;
+      const known = Array.from(select.options).some(o => o.value === value);
+      select.value = known ? value : '';
+    }
+
+    function applyURLState() {
+      const state = readURLState();
+      const projEl = document.getElementById('filter-project');
+      pendingProject = (projEl && projEl.value === state.project) ? '' : state.project;
+      setFilter(projEl, state.project);
+      setFilter(document.getElementById('filter-status'), state.status);
+      selectedTaskId = state.task || null;
+      if (!selectedTaskId) resetTaskDetails();
     }
 
     function onFilterChange() {
-      const projEl = document.getElementById('filter-project');
-      const statusEl = document.getElementById('filter-status');
-      setURLState({
-        project: projEl ? projEl.value : '',
-        status: statusEl ? statusEl.value : '',
-        task: uiState.task,
-      }, false);
+      // The widget is what the reader sees, so it wins over a project
+      // the URL named but /projects has not confirmed yet.
+      pendingProject = '';
+      syncURL(false);
       loadTasks();
     }
 
@@ -526,13 +507,10 @@
       b.style.display = 'block';
     }
 
-    async function fetchJSON(url, opts, cfg) {
+    async function fetchJSON(url, opts) {
       try {
         const res = await fetch(url, opts);
         if (!res.ok) {
-          if (cfg && cfg.notFoundOk && res.status === 404) {
-            return null;
-          }
           const txt = await res.text();
           throw new Error(txt || res.statusText || ('HTTP ' + res.status));
         }
@@ -555,27 +533,36 @@
         const projects = await fetchJSON('/projects');
         const select = document.getElementById('filter-project');
         if (!select) return;
+        let current = select.value;
         select.innerHTML = '<option value="">(all)</option>';
-        const known = Array.isArray(projects) ? projects.map(String) : [];
-        for (const p of known) {
-          const opt = document.createElement('option');
-          opt.value = p;
-          opt.textContent = p;
-          select.appendChild(opt);
+        if (Array.isArray(projects)) {
+          for (const p of projects) {
+            const opt = document.createElement('option');
+            opt.value = p;
+            opt.textContent = p;
+            select.appendChild(opt);
+          }
         }
-        if (uiState.project && !known.includes(uiState.project)) {
-          setURLState({ ...uiState, project: '' }, false);
-          loadTasks();
-          return;
+        if (pendingProject) {
+          current = pendingProject;
+          pendingProject = '';
+          setFilter(select, current);
+          syncURL(false);
+        } else {
+          setFilter(select, current);
         }
-        renderURLState();
       } catch (e) {
+        if (pendingProject) {
+          pendingProject = '';
+          syncURL(false);
+        }
         console.error('Failed to load projects:', e);
       }
     }
 
     async function loadStats() {
-      const proj = uiState.project;
+      const select = document.getElementById('filter-project');
+      const proj = select ? select.value : '';
       let url = '/stats';
       if (proj) url += '?project=' + encodeURIComponent(proj);
       try {
@@ -615,11 +602,11 @@
       };
     }
 
-    function createRow(t) {
+    function createRow(t, isSelected) {
       const f = rowFields(t);
       const tr = document.createElement('tr');
       tr.dataset.taskId = f.id;
-      tr.setAttribute('aria-selected', 'false');
+      tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
       tr.innerHTML = `
         <th scope="row" class="mono"><button type="button" class="row-select" title="${escapeHTML(f.id)}">${escapeHTML(f.shortId)}</button></th>
         <td data-field="project">${escapeHTML(f.project)}</td>
@@ -635,8 +622,12 @@
       if (el && el.textContent !== text) el.textContent = text;
     }
 
-    function updateRow(tr, t) {
+    function updateRow(tr, t, isSelected) {
       const f = rowFields(t);
+      const selStr = isSelected ? 'true' : 'false';
+      if (tr.getAttribute('aria-selected') !== selStr) {
+        tr.setAttribute('aria-selected', selStr);
+      }
       setText(tr.querySelector('[data-field="project"]'), f.project);
       setText(tr.querySelector('[data-field="priority"]'), f.priority);
       setText(tr.querySelector('[data-field="worker"]'), f.worker);
@@ -649,8 +640,10 @@
     }
 
     async function loadTasks() {
-      const proj = uiState.project;
-      const status = uiState.status;
+      const projEl = document.getElementById('filter-project');
+      const statusEl = document.getElementById('filter-status');
+      const proj = projEl ? projEl.value : '';
+      const status = statusEl ? statusEl.value : '';
       let url = '/tasks?limit=200';
       if (proj) url += '&project=' + encodeURIComponent(proj);
       if (status) url += '&status=' + encodeURIComponent(status);
@@ -674,6 +667,7 @@
             emptyRow.innerHTML = '<td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
             tbody.appendChild(emptyRow);
           }
+          if (selectedTaskId) loadTaskDetails(selectedTaskId);
           return;
         }
 
@@ -700,20 +694,22 @@
         for (let i = 0; i < validTasks.length; i++) {
           const t = validTasks[i];
           const tid = String(t.id);
+          const isSelected = (selectedTaskId !== null && selectedTaskId !== undefined && tid === String(selectedTaskId));
 
           let tr = existingRows.get(tid);
           if (!tr) {
-            tr = createRow(t);
+            tr = createRow(t, isSelected);
             existingRows.set(tid, tr);
           } else {
-            updateRow(tr, t);
+            updateRow(tr, t, isSelected);
           }
 
           if (tbody.children[i] !== tr) {
             tbody.insertBefore(tr, tbody.children[i] || null);
           }
         }
-        renderURLState();
+
+        if (selectedTaskId) loadTaskDetails(selectedTaskId);
       } catch (e) {
         console.error('Failed to load tasks:', e);
       }
@@ -721,8 +717,15 @@
 
     function selectTask(id) {
       if (!id) return;
-      setURLState({ ...uiState, task: String(id) }, true);
-      loadTaskDetails(uiState.task);
+      selectedTaskId = id;
+      syncURL(true);
+      const tbody = document.getElementById('task-table-body');
+      if (tbody) {
+        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
+          tr.setAttribute('aria-selected', tr.dataset.taskId === id ? 'true' : 'false');
+        }
+      }
+      loadTaskDetails(id);
     }
 
     function setupRowActivation() {
@@ -739,50 +742,59 @@
         resetTaskDetails();
         return;
       }
+      const pane = document.getElementById('task-details-content');
+      if (!pane) return;
+      let t;
       try {
-        const t = await fetchJSON('/tasks/' + encodeURIComponent(id), null, { notFoundOk: true });
-        if (String(id) !== uiState.task) return;
-        const pane = document.getElementById('task-details-content');
-        if (!pane) return;
-        if (!t) {
+        const res = await fetch('/tasks/' + encodeURIComponent(id));
+        if (id !== selectedTaskId) return;
+        if (res.status === 404) {
+          showError(null);
           pane.innerHTML = '<p style="color: var(--text-muted);">Task not found</p>';
-          setURLState({ ...uiState, task: '' }, false);
           return;
         }
-        let primStr = '';
-        if (t.primitives !== null && t.primitives !== undefined) {
-          if (typeof t.primitives === 'string') {
-            try {
-              primStr = JSON.stringify(JSON.parse(t.primitives), null, 2);
-            } catch (_) {
-              primStr = t.primitives;
-            }
-          } else {
-            primStr = JSON.stringify(t.primitives, null, 2);
-          }
-        }
-        let leaseExpStr = '';
-        if (t.status === 'leased' && t.lease_expires) {
-          try {
-            leaseExpStr = new Date(t.lease_expires * 1000).toLocaleString();
-          } catch (_) {
-            leaseExpStr = String(t.lease_expires);
-          }
-        }
-        pane.innerHTML = `
-          <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
-          <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
-          <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
-          <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
-          ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
-          ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
-          ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
-          <div class="field"><span class="field-label">Body</span><pre>${escapeHTML(t.body || '')}</pre></div>
-          ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
-        `;
+        if (!res.ok) throw new Error(await res.text() || res.statusText);
+        t = await res.json();
+        if (id !== selectedTaskId) return;
+        showError(null);
       } catch (e) {
+        if (id !== selectedTaskId) return;
+        showError(e.message);
         console.error('Failed to load task details:', e);
+        return;
       }
+      if (id !== selectedTaskId) return;
+      let primStr = '';
+      if (t.primitives !== null && t.primitives !== undefined) {
+        if (typeof t.primitives === 'string') {
+          try {
+            primStr = JSON.stringify(JSON.parse(t.primitives), null, 2);
+          } catch (_) {
+            primStr = t.primitives;
+          }
+        } else {
+          primStr = JSON.stringify(t.primitives, null, 2);
+        }
+      }
+      let leaseExpStr = '';
+      if (t.status === 'leased' && t.lease_expires) {
+        try {
+          leaseExpStr = new Date(t.lease_expires * 1000).toLocaleString();
+        } catch (_) {
+          leaseExpStr = String(t.lease_expires);
+        }
+      }
+      pane.innerHTML = `
+        <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
+        <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
+        <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
+        <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
+        ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
+        ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
+        ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
+        <div class="field"><span class="field-label">Body</span><pre>${escapeHTML(t.body || '')}</pre></div>
+        ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
+      `;
     }
 
     function clearFormErrors() {
@@ -914,15 +926,23 @@
 
     async function loadAll() {
       try {
-        await Promise.all([
-          loadProjects(),
-          loadStats(),
-          loadTasks(),
-          uiState.task ? loadTaskDetails(uiState.task) : Promise.resolve(),
-        ]);
+        await Promise.all([loadProjects(), loadStats(), loadTasks()]);
       } catch (e) {
         console.error('Failed to refresh data:', e);
       }
+    }
+
+    async function boot() {
+      setupRowActivation();
+      applyURLState();
+      syncURL(false);
+      try {
+        await loadProjects();
+        await Promise.all([loadStats(), loadTasks()]);
+      } catch (e) {
+        console.error('Failed to boot UI:', e);
+      }
+      setupAutoRefresh();
     }
 
     function setupAutoRefresh() {
@@ -935,21 +955,11 @@
     }
 
     window.addEventListener('popstate', () => {
-      uiState = readURLState();
-      renderURLState();
+      applyURLState();
       loadTasks();
-      if (uiState.task) {
-        loadTaskDetails(uiState.task);
-      } else {
-        resetTaskDetails();
-      }
     });
 
-    setupRowActivation();
-    uiState = readURLState();
-    setURLState(uiState, false);
-    loadAll();
-    setupAutoRefresh();
+    boot();
   </script>
 </body>
 </html>

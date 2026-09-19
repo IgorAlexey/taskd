@@ -1,13 +1,14 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestWebUIFormLabels(t *testing.T) {
@@ -138,171 +139,111 @@ func TestWebUISkipLinkAndLandmarks(t *testing.T) {
 	}
 }
 
-const (
-	pureHelpersBegin = "// --- begin pure url-state helpers ---"
-	pureHelpersEnd   = "// --- end pure url-state helpers ---"
-)
-
-// TestURLStateHelpers runs the pure helpers out of web/index.html under node.
-func TestURLStateHelpers(t *testing.T) {
-	ui := string(uiHTML)
-	start := strings.Index(ui, pureHelpersBegin)
-	end := strings.Index(ui, pureHelpersEnd)
-	if start < 0 || end < start {
-		t.Fatalf("expected the pure url-state helpers in web/index.html to be delimited by %q and %q", pureHelpersBegin, pureHelpersEnd)
-	}
+func TestWebUIURLState(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("node not found in PATH; skipping execution of the pure url-state helpers")
-	}
-
-	type call struct {
-		Fn  string `json:"fn"`
-		Arg any    `json:"arg"`
-	}
-	st := func(project, status, task string) map[string]string {
-		return map[string]string{"project": project, "status": status, "task": task}
-	}
-	cases := []struct {
-		call call
-		want any
-	}{
-		{call{"searchToState", ""}, st("", "", "")},
-		{call{"searchToState", "?project=a&status=bogus&task=t1"}, st("a", "", "t1")},
-		{call{"searchToState", "?status=done"}, st("", "done", "")},
-		{call{"searchToState", "?task=t9"}, st("", "", "t9")},
-		{call{"searchToState", "?project=a%20b&task=x%26y"}, st("a b", "", "x&y")},
-		{call{"roundTrip", st("a b", "done", "x&y")}, st("a b", "done", "x&y")},
-		{call{"stateToSearch", map[string]string{}}, ""},
-		{call{"stateToSearch", st("", "", "")}, ""},
-		{call{"stateToSearch", st("", "", "t9")}, "?task=t9"},
-		{call{"stateToSearch", json.RawMessage(`{"task":"t","status":"done","project":"p"}`)}, "?project=p&status=done&task=t"},
-	}
-
-	enc := func(v any) string {
-		b, err := json.Marshal(v)
-		if err != nil {
-			t.Fatalf("marshalling %v for the node harness: %v", v, err)
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
 		}
-		return string(b)
+		t.Skip("node not installed")
 	}
-	calls := make([]call, len(cases))
-	for i, c := range cases {
-		calls[i] = c.call
-	}
-	script := ui[start:end+len(pureHelpersEnd)] + `
-const CASES = ` + enc(calls) + `;
-const FNS = {
-  searchToState,
-  stateToSearch,
-  roundTrip: (s) => searchToState(stateToSearch(s)),
-};
-console.log(JSON.stringify(CASES.map((c) => FNS[c.fn](c.arg))));
-`
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, node, "-")
-	cmd.Stdin = strings.NewReader(script)
-	var stdout, stderr strings.Builder
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("running the pure url-state helpers under node: %v\n%s", err, stderr.String())
-	}
-
-	var got []json.RawMessage
-	if err := json.Unmarshal([]byte(stdout.String()), &got); err != nil {
-		t.Fatalf("decoding the node harness output %q: %v", stdout.String(), err)
-	}
-	if len(got) != len(cases) {
-		t.Fatalf("node returned %d results, want %d", len(got), len(cases))
-	}
-	for i, c := range cases {
-		var v any
-		if err := json.Unmarshal(got[i], &v); err != nil {
-			t.Fatalf("decoding result %d (%s): %v", i, got[i], err)
+	out, err := exec.Command(node, "testdata/urlstate.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
 		}
-		if have, want := enc(v), enc(c.want); have != want {
-			t.Fatalf("%s(%s) = %s, want %s", c.call.Fn, enc(c.call.Arg), have, want)
+		t.Fatalf("harness failed: %v", err)
+	}
+	var got struct {
+		Load struct {
+			State map[string]string
+			URL   string `json:"url"`
+			Pane  string
+			List  string
+		}
+		Noise struct {
+			Status  string
+			Project string
+			Options []string
+			URL     string `json:"url"`
+		}
+		Filter, Select struct {
+			Entry string
+			URL   string `json:"url"`
+			Pane  string
+		}
+		Reselect               string
+		Back, OffPage, Missing struct {
+			URL  string `json:"url"`
+			Task string
+			Pane string
+		}
+		ProjectsDown struct {
+			Project string
+			URL     string `json:"url"`
+			List    string
 		}
 	}
-}
-
-// jsFunctionBody returns the source of the named function in ui, braces matched.
-// The counter is a heuristic: it does not know about strings, comments or
-// template literals, so only call it for bodies kept free of literal braces.
-func jsFunctionBody(t *testing.T, ui, name string) string {
-	t.Helper()
-	at := strings.Index(ui, "function "+name+"(")
-	if at < 0 {
-		t.Fatalf("could not find the body of %s() in web/index.html", name)
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
 	}
-	src := ui[at:]
-	depth := 0
-	for i := strings.Index(src, "{"); i >= 0 && i < len(src); i++ {
-		switch src[i] {
-		case '{':
-			depth++
-		case '}':
-			if depth--; depth == 0 {
-				return src[:i+1]
-			}
+
+	for k, want := range map[string]string{"project": "p1", "status": "pending", "task": "t1"} {
+		if got.Load.State[k] != want {
+			t.Errorf("load %s = %q, want %q", k, got.Load.State[k], want)
 		}
 	}
-	t.Fatalf("unbalanced braces in the body of %s() in web/index.html", name)
-	return ""
-}
-
-// TestWebUIURLStateWiring asserts what cannot be executed standalone.
-func TestWebUIURLStateWiring(t *testing.T) {
-	ui := string(uiHTML)
-
-	for _, want := range []string{
-		"URLSearchParams",
-		"history.pushState(",
-		"history.replaceState(",
-		"window.addEventListener('popstate'",
-	} {
-		if !strings.Contains(ui, want) {
-			t.Fatalf("expected %q in web/index.html to keep URL state in sync", want)
-		}
+	if got.Load.Pane != "details" {
+		t.Errorf("load pane = %q, want the task from the URL", got.Load.Pane)
+	}
+	if got.Load.List != "/tasks?limit=200&project=p1&status=pending" {
+		t.Errorf("first list request = %q, want both filters applied", got.Load.List)
 	}
 
-	for _, id := range []string{"filter-project", "filter-status"} {
-		sel := regexp.MustCompile(`<select[^>]*id="` + id + `"[^>]*>`).FindString(ui)
-		if sel == "" {
-			t.Fatalf("expected #%s select in web/index.html", id)
-		}
-		if !strings.Contains(sel, `onchange="onFilterChange()"`) {
-			t.Fatalf("expected onchange=\"onFilterChange()\" on #%s, got %q", id, sel)
-		}
+	if got.Noise.Status != "" || got.Noise.Project != "" {
+		t.Errorf("unknown filters leaked: status=%q project=%q",
+			got.Noise.Status, got.Noise.Project)
 	}
-	if bad := regexp.MustCompile(`<select[^>]*onchange="loadTasks\(\)"`).FindString(ui); bad != "" {
-		t.Fatalf("filter select still bypasses the URL state: %q", bad)
+	if slices.Contains(got.Noise.Options, "ghost") {
+		t.Errorf("URL grew the project list: %v", got.Noise.Options)
+	}
+	if got.Noise.URL != "/ui?task=t1" {
+		t.Errorf("noise url = %q, want the unknown filters dropped", got.Noise.URL)
 	}
 
-	if strings.Contains(ui, "selectedTaskId") {
-		t.Fatal("expected the selectedTaskId global to be gone from web/index.html; uiState.task is the only selection state")
+	if got.Filter.Entry != "replace" || got.Filter.URL != "/ui?status=done" {
+		t.Errorf("filter change = %q %q, want a replaced /ui?status=done",
+			got.Filter.Entry, got.Filter.URL)
+	}
+	if got.Select.Entry != "push" || got.Select.URL != "/ui?status=done&task=t2" {
+		t.Errorf("select = %q %q, want a pushed /ui?status=done&task=t2",
+			got.Select.Entry, got.Select.URL)
+	}
+	if got.Reselect != "replace" {
+		t.Errorf("re-selecting the same task added a %q entry", got.Reselect)
+	}
+	if got.Back.URL != "/ui?status=done" || got.Back.Task != "" || got.Back.Pane != "idle" {
+		t.Errorf("back = %+v, want the filtered list with no selection", got.Back)
 	}
 
-	tasks := jsFunctionBody(t, ui, "loadTasks")
-	if regexp.MustCompile(`uiState\.task\s*=[^=]`).MatchString(tasks) {
-		t.Fatal("expected loadTasks() to never write uiState.task in web/index.html; the URL owns the selection")
+	if got.OffPage.URL != "/ui?status=pending&task=t2" || got.OffPage.Task != "t2" {
+		t.Errorf("off-page refresh = %+v, want the selection kept", got.OffPage)
 	}
-	if strings.Contains(tasks, "loadTaskDetails") {
-		t.Fatal("expected loadTasks() to never call loadTaskDetails() in web/index.html")
+	if got.OffPage.Pane != "details" {
+		t.Errorf("off-page pane = %q, want the task the server still has", got.OffPage.Pane)
 	}
-	if !regexp.MustCompile(`setURLState\([^;]*,\s*true\s*\)`).MatchString(jsFunctionBody(t, ui, "selectTask")) {
-		t.Fatal("expected selectTask() to call setURLState(next, true) so selecting a task pushes history")
+	if got.Missing.URL != "/ui?task=gone" || got.Missing.Pane != "notfound" {
+		t.Errorf("missing task = %+v, want the URL kept and the pane saying so",
+			got.Missing)
 	}
-	if !regexp.MustCompile(`setURLState\([^;]*,\s*false\s*\)`).MatchString(jsFunctionBody(t, ui, "onFilterChange")) {
-		t.Fatal("expected onFilterChange() to call setURLState(next, false) so filtering replaces history")
+
+	if got.ProjectsDown.Project != "" || got.ProjectsDown.URL != "/ui?status=pending&task=t2" {
+		t.Errorf("projects down = %+v, want the unconfirmed project gone",
+			got.ProjectsDown)
 	}
-	details := jsFunctionBody(t, ui, "loadTaskDetails")
-	if !strings.Contains(details, "notFoundOk") {
-		t.Fatal("expected loadTaskDetails() to fetch with { notFoundOk: true } in web/index.html")
-	}
-	if !strings.Contains(details, "!== uiState.task") {
-		t.Fatal("expected loadTaskDetails() to drop a response for a task that is no longer selected")
+	if got.ProjectsDown.List != "/tasks?limit=200&status=pending" {
+		t.Errorf("projects down list = %q, want no project filter",
+			got.ProjectsDown.List)
 	}
 }
