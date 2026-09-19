@@ -2,17 +2,22 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 )
 
 func post(t *testing.T, url string, body any) (int, []byte) {
@@ -2474,5 +2479,97 @@ func TestExpiredLeasedTasksTreatedAsPending(t *testing.T) {
 	}
 	if len(allAfter) != 1 || allAfter[0].Status != "pending" || allAfter[0].Worker != "" || allAfter[0].LeaseExpires != 0 {
 		t.Fatalf("expected all tasks query to return pending status for expired task, got %+v", allAfter)
+	}
+}
+
+func TestRunServerGracefulShutdown(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "grace.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen failed: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runServer(ctx, l, db, 300)
+	}()
+
+	addr := l.Addr().String()
+	resp, err := http.Get("http://" + addr + "/tasks")
+	if err != nil {
+		cancel()
+		t.Fatalf("GET /tasks failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		cancel()
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	cancel()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("runServer returned error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("runServer did not shut down within timeout")
+	}
+
+	_, err = http.Get("http://" + addr + "/tasks")
+	if err == nil {
+		t.Fatalf("expected error connecting to closed server, got nil")
+	}
+}
+
+func TestSignalNotifyShutdown(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGINT} {
+		t.Run(sig.String(), func(t *testing.T) {
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+
+			db, err := openDB(filepath.Join(t.TempDir(), "sig.db"))
+			if err != nil {
+				t.Fatalf("openDB failed: %v", err)
+			}
+			defer db.Close()
+
+			l, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("net.Listen failed: %v", err)
+			}
+
+			errCh := make(chan error, 1)
+			go func() {
+				errCh <- runServer(ctx, l, db, 300)
+			}()
+
+			addr := l.Addr().String()
+			resp, err := http.Get("http://" + addr + "/tasks")
+			if err != nil {
+				t.Fatalf("GET failed: %v", err)
+			}
+			resp.Body.Close()
+
+			if err := syscall.Kill(syscall.Getpid(), sig); err != nil {
+				t.Fatalf("signal kill failed: %v", err)
+			}
+
+			select {
+			case err := <-errCh:
+				if err != nil {
+					t.Fatalf("runServer error on %v: %v", sig, err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("runServer timed out waiting for %v shutdown", sig)
+			}
+		})
 	}
 }

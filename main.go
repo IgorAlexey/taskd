@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
@@ -9,12 +10,15 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"modernc.org/sqlite"
@@ -622,6 +626,33 @@ func parseFlags(args []string) (config, error) {
 	return cfg, nil
 }
 
+func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease int) error {
+	srv := &http.Server{
+		Handler:           newHandler(db, lease),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		if err := srv.Serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("shutdown error: %v", err)
+		}
+		return <-errCh
+	}
+}
+
 func main() {
 	cfg, err := parseFlags(os.Args[1:])
 	if err != nil {
@@ -637,5 +668,16 @@ func main() {
 	}
 	defer db.Close()
 
-	log.Fatal(http.ListenAndServe(cfg.addr, newHandler(db, cfg.lease)))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	l, err := net.Listen("tcp", cfg.addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Printf("listening on %s", l.Addr())
+
+	if err := runServer(ctx, l, db, cfg.lease); err != nil {
+		log.Fatal(err)
+	}
 }
