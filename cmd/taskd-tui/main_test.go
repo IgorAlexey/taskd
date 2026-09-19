@@ -1513,3 +1513,145 @@ func TestFetchServerError(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateFormValidation(t *testing.T) {
+	u, tasks, mu := stub(t)
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	u.app.SetScreen(sim)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'n', 0))
+	})
+	var form *tview.Form
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to be open after pressing n")
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on empty body")
+	}
+	if title := form.GetTitle(); !strings.Contains(title, "body") {
+		t.Fatalf("expected title to indicate body error, got %q", title)
+	}
+	mu.Lock()
+	count := len(*tasks)
+	mu.Unlock()
+	if count != 3 {
+		t.Fatalf("task was created on empty body: %d", count)
+	}
+
+	testBody := "brand new task\n\nWhy: multi-line test\nDone when: ok"
+	u.app.QueueUpdateDraw(func() {
+		u.form.GetFormItem(2).(*tview.TextArea).SetText(testBody, true)
+		u.form.GetFormItem(1).(*tview.InputField).SetText("-1")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on negative priority")
+	}
+	if title := form.GetTitle(); !strings.Contains(title, "priority") {
+		t.Fatalf("expected title to indicate priority error, got %q", title)
+	}
+	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != testBody {
+		t.Fatalf("body buffer lost on invalid priority: %q", got)
+	}
+	mu.Lock()
+	count = len(*tasks)
+	mu.Unlock()
+	if count != 3 {
+		t.Fatalf("task was created on negative priority: %d", count)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.form.GetFormItem(1).(*tview.InputField).SetText("7")
+		u.form.GetFormItem(0).(*tview.InputField).SetText("")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on empty project")
+	}
+	if title := form.GetTitle(); !strings.Contains(title, "project") {
+		t.Fatalf("expected title to indicate project error, got %q", title)
+	}
+	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != testBody {
+		t.Fatalf("body buffer lost on empty project: %q", got)
+	}
+	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "7" {
+		t.Fatalf("priority buffer lost on empty project: %q", got)
+	}
+	mu.Lock()
+	count = len(*tasks)
+	mu.Unlock()
+	if count != 3 {
+		t.Fatalf("task was created on empty project: %d", count)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.form.GetFormItem(0).(*tview.InputField).SetText(" * ")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on wildcard project")
+	}
+	if title := form.GetTitle(); !strings.Contains(title, "project") {
+		t.Fatalf("expected title to indicate project error, got %q", title)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		u.form.GetFormItem(0).(*tview.InputField).SetText("proj-test")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(*tasks) == 4
+	})
+	mu.Lock()
+	created := (*tasks)[3]
+	mu.Unlock()
+	if created.Project != "proj-test" || created.Priority != 7 || created.Body != testBody {
+		t.Fatalf("created task mismatch: %+v", created)
+	}
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form != nil {
+		t.Fatal("expected form to be closed after valid submit")
+	}
+}

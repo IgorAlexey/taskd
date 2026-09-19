@@ -332,12 +332,26 @@ func (u *ui) showCreateForm() {
 		u.app.SetRoot(u.root, true).SetFocus(u.table)
 	}
 	submit := func() {
+		pname := strings.TrimSpace(proj.GetText())
+		if pname == "" || pname == "*" {
+			f.SetTitle(" new task (invalid project) ")
+			return
+		}
+		p, err := strconv.Atoi(pri.GetText())
+		if err != nil || p < 0 {
+			f.SetTitle(" new task (invalid priority) ")
+			return
+		}
+		btext := body.GetText()
+		if strings.TrimSpace(btext) == "" {
+			f.SetTitle(" new task (invalid body) ")
+			return
+		}
 		close()
-		p, _ := strconv.Atoi(pri.GetText())
 		u.act("POST", "/tasks", map[string]any{
-			"project":  proj.GetText(),
+			"project":  pname,
 			"priority": p,
-			"body":     body.GetText(),
+			"body":     btext,
 		}, "task created")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
