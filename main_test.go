@@ -1652,8 +1652,8 @@ PRAGMA user_version = 1;`
 	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
-	if userVersion != 2 {
-		t.Fatalf("expected user_version 2, got %d", userVersion)
+	if userVersion != 3 {
+		t.Fatalf("expected user_version 3, got %d", userVersion)
 	}
 
 	var queueIdxCount int
@@ -1756,6 +1756,13 @@ PRAGMA user_version = 1;`
 	}
 	if hasPriority != 0 {
 		t.Fatalf("expected no priority column after rollback, got %d", hasPriority)
+	}
+	var hasClaimCount int
+	if err := dbCheck.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+		t.Fatalf("query claim_count col: %v", err)
+	}
+	if hasClaimCount != 0 {
+		t.Fatalf("expected no claim_count column after rollback, got %d", hasClaimCount)
 	}
 
 	var claimIdxCount int
@@ -2815,7 +2822,7 @@ func TestClaimByID(t *testing.T) {
 	if err := json.Unmarshal(body, &item); err != nil {
 		t.Fatalf("unmarshal claim response: %v", err)
 	}
-	if item.ID != created.ID || item.Status != "leased" || item.Worker != "w1" || item.Body != "targeted" || item.Project != "p1" || item.Priority != 10 {
+	if item.ID != created.ID || item.Status != "leased" || item.Worker != "w1" || item.Body != "targeted" || item.Project != "p1" || item.Priority != 10 || item.ClaimCount != 1 {
 		t.Fatalf("unexpected claim response: %+v", item)
 	}
 	if item.LeaseExpires <= time.Now().Unix() {
@@ -2888,8 +2895,8 @@ func TestClaimByIDExpiredLease(t *testing.T) {
 	if err := json.Unmarshal(body, &item); err != nil {
 		t.Fatalf("unmarshal reclaimed task: %v", err)
 	}
-	if item.Worker != "w2" || item.Status != "leased" {
-		t.Fatalf("expected leased by w2, got worker=%q status=%q", item.Worker, item.Status)
+	if item.Worker != "w2" || item.Status != "leased" || item.ClaimCount != 2 {
+		t.Fatalf("expected leased by w2 with claim_count 2, got worker=%q status=%q claim_count=%d", item.Worker, item.Status, item.ClaimCount)
 	}
 }
 
@@ -3285,5 +3292,171 @@ func TestStats(t *testing.T) {
 	stP2 := getStats("?project=p2")
 	if stP2["total"] != 0 {
 		t.Fatalf("expected 0 in p2, got %+v", stP2)
+	}
+}
+
+func TestClaimCountIncrement(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 1))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "retry-count-test",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	var initial taskItem
+	if err := json.Unmarshal(body, &initial); err != nil {
+		t.Fatalf("unmarshal initial failed: %v", err)
+	}
+	if initial.ClaimCount != 0 {
+		t.Fatalf("expected initial claim_count 0, got %d", initial.ClaimCount)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1", "project": "p1"})
+	if code != http.StatusOK {
+		t.Fatalf("first claim expected 200, got %d: %s", code, body)
+	}
+	var first struct {
+		ID         string `json:"id"`
+		ClaimCount int    `json:"claim_count"`
+	}
+	if err := json.Unmarshal(body, &first); err != nil {
+		t.Fatalf("unmarshal first claim failed: %v", err)
+	}
+	if first.ID != created.ID || first.ClaimCount != 1 {
+		t.Fatalf("expected id %s and claim_count 1, got id=%s claim_count=%d", created.ID, first.ID, first.ClaimCount)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w2", "project": "p1"})
+	if code != http.StatusOK {
+		t.Fatalf("second claim expected 200, got %d: %s", code, body)
+	}
+	var second struct {
+		ID         string `json:"id"`
+		ClaimCount int    `json:"claim_count"`
+	}
+	if err := json.Unmarshal(body, &second); err != nil {
+		t.Fatalf("unmarshal second claim failed: %v", err)
+	}
+	if second.ID != created.ID || second.ClaimCount != 2 {
+		t.Fatalf("expected id %s and claim_count 2, got id=%s claim_count=%d", created.ID, second.ID, second.ClaimCount)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=p1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks expected 200, got %d: %s", code, body)
+	}
+	var list []taskItem
+	if err := json.Unmarshal(body, &list); err != nil {
+		t.Fatalf("unmarshal list failed: %v", err)
+	}
+	if len(list) != 1 || list[0].ClaimCount != 2 {
+		t.Fatalf("expected 1 task with claim_count 2 in list, got %+v", list)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	var inspect taskItem
+	if err := json.Unmarshal(body, &inspect); err != nil {
+		t.Fatalf("unmarshal inspect failed: %v", err)
+	}
+	if inspect.ClaimCount != 2 {
+		t.Fatalf("expected claim_count 2 in single task inspect, got %d", inspect.ClaimCount)
+	}
+}
+
+func TestMigrationV3LegacyV2(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v2.db")
+	db0, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("setup open: %v", err)
+	}
+	setup := `CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  asset_path TEXT NOT NULL DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  worker TEXT,
+  lease_expires INTEGER,
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 0,
+  project TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX idx_tasks_queue ON tasks (status, priority DESC);
+CREATE INDEX idx_tasks_project ON tasks (project, status, priority DESC);
+INSERT INTO tasks (id, body, project) VALUES ('v2-task-1', 'existing body', 'p1');
+PRAGMA user_version = 2;`
+	if _, err := db0.Exec(setup); err != nil {
+		db0.Close()
+		t.Fatalf("setup exec: %v", err)
+	}
+	db0.Close()
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB v2 failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 30))
+	defer srv.Close()
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks/v2-task-1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/v2-task-1 expected 200, got %d", code)
+	}
+	var task taskItem
+	if err := json.Unmarshal(body, &task); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if task.ID != "v2-task-1" || task.ClaimCount != 0 {
+		t.Fatalf("unexpected task: %+v", task)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1", "project": "p1"})
+	if code != http.StatusOK {
+		t.Fatalf("claim expected 200, got %d: %s", code, body)
+	}
+	var claimed struct {
+		ID         string `json:"id"`
+		ClaimCount int    `json:"claim_count"`
+	}
+	if err := json.Unmarshal(body, &claimed); err != nil {
+		t.Fatalf("unmarshal claim failed: %v", err)
+	}
+	if claimed.ID != "v2-task-1" || claimed.ClaimCount != 1 {
+		t.Fatalf("unexpected claimed: %+v", claimed)
+	}
+	var userVersion int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		t.Fatalf("query user_version: %v", err)
+	}
+	if userVersion != 3 {
+		t.Fatalf("expected user_version 3, got %d", userVersion)
 	}
 }

@@ -95,7 +95,8 @@ func openDB(path string) (*sql.DB, error) {
   primitives JSON,
   body TEXT NOT NULL DEFAULT '',
   priority INTEGER NOT NULL DEFAULT 0,
-  project TEXT NOT NULL DEFAULT ''
+  project TEXT NOT NULL DEFAULT '',
+  claim_count INTEGER NOT NULL DEFAULT 0
 );
 DROP INDEX IF EXISTS idx_tasks_claim;
 CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);
@@ -107,7 +108,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 			return nil, err
 		}
 		if tableExists == 0 {
-			if _, err := db.Exec(fullSchema + "\nPRAGMA user_version = 2;"); err != nil {
+			if _, err := db.Exec(fullSchema + "\nPRAGMA user_version = 3;"); err != nil {
 				db.Close()
 				return nil, err
 			}
@@ -130,6 +131,12 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 	}
 	if version < 2 {
 		if err := migrateV2(db); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if version < 3 {
+		if err := migrateV3(db); err != nil {
 			db.Close()
 			return nil, err
 		}
@@ -193,6 +200,22 @@ func migrateV2(db *sql.DB) error {
 	return tx.Commit()
 }
 
+func migrateV3(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN claim_count INTEGER NOT NULL DEFAULT 0;"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 3;"); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 const maxBodyBytes = 1 << 20
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -225,6 +248,7 @@ type taskItem struct {
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
 	Project      string          `json:"project"`
+	ClaimCount   int             `json:"claim_count"`
 }
 
 func (t *taskItem) normalize(now int64) {
@@ -355,7 +379,7 @@ FROM tasks`
 		if req.Project == "" {
 			req.Project = "*"
 		}
-		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?
+		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = (
   SELECT id FROM tasks
   WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))`
@@ -367,12 +391,12 @@ WHERE id = (
 		query += `
   ORDER BY priority DESC, rowid ASC
   LIMIT 1
-) RETURNING id, asset_path, body, priority, project`
+) RETURNING id, asset_path, body, priority, project, claim_count`
 		var (
 			id, assetPath, body, project string
-			priority                     int
+			priority, claimCount         int
 		)
-		err := db.QueryRow(query, args...).Scan(&id, &assetPath, &body, &priority, &project)
+		err := db.QueryRow(query, args...).Scan(&id, &assetPath, &body, &priority, &project, &claimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -383,17 +407,19 @@ WHERE id = (
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
-			ID        string `json:"id"`
-			AssetPath string `json:"asset_path"`
-			Body      string `json:"body"`
-			Priority  int    `json:"priority"`
-			Project   string `json:"project"`
+			ID         string `json:"id"`
+			AssetPath  string `json:"asset_path"`
+			Body       string `json:"body"`
+			Priority   int    `json:"priority"`
+			Project    string `json:"project"`
+			ClaimCount int    `json:"claim_count"`
 		}{
-			ID:        id,
-			AssetPath: assetPath,
-			Body:      body,
-			Priority:  priority,
-			Project:   project,
+			ID:         id,
+			AssetPath:  assetPath,
+			Body:       body,
+			Priority:   priority,
+			Project:    project,
+			ClaimCount: claimCount,
 		})
 	})
 	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
@@ -409,9 +435,9 @@ WHERE id = (
 		}
 		id := r.PathValue("id")
 		query := `UPDATE tasks
-SET status='leased', worker=?, lease_expires=unixepoch()+?
+SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = ? AND (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
-RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project`
+RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count`
 		var (
 			item         taskItem
 			worker       sql.NullString
@@ -419,7 +445,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			prim         []byte
 		)
 		err := db.QueryRow(query, req.Worker, lease, id).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project)
+			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			var status string
 			err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
@@ -519,7 +545,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			offset = v
 		}
 		now := time.Now().Unix()
-		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks"
+		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks"
 		var where []string
 		var args []any
 		if status == "pending" {
@@ -572,7 +598,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 				leaseExpires sql.NullInt64
 				prim         []byte
 			)
-			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project); err != nil {
+			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount); err != nil {
 				internalError(w, err)
 				return
 			}
@@ -598,8 +624,8 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks WHERE id = ?", r.PathValue("id")).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project)
+		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", r.PathValue("id")).
+			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
