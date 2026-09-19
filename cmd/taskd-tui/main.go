@@ -559,6 +559,50 @@ func (u *ui) showCompleteConfirm(t task) {
 	u.confirm("complete", text, "Complete", func() {
 		u.act("POST", "/tasks/"+t.ID+"/close", nil, "completed task "+short(t.ID))
 	})
+
+}
+
+func (u *ui) showHelp() {
+	prev := u.app.GetFocus()
+	m := tview.NewModal()
+	m.SetText(tview.Escape("Keyboard Shortcuts\n\n" +
+		"[j/k] move\n" +
+		"[g/G] top/bottom\n" +
+		"[0-3] filter status\n" +
+		"[p] cycle project\n" +
+		"[n] new task\n" +
+		"[e] edit task\n" +
+		"[D] delete task\n" +
+		"[+/-] priority\n" +
+		"[c] claim task\n" +
+		"[u] release task\n" +
+		"[y] copy ID\n" +
+		"[r] refresh\n" +
+		"[Tab] toggle pane focus\n" +
+		"[q] quit"))
+	m.AddButtons([]string{"Close"})
+	close := func() {
+		u.modal = nil
+		u.pages.RemovePage("help")
+		if prev != nil {
+			u.app.SetFocus(prev)
+		} else {
+			u.app.SetFocus(u.table)
+		}
+	}
+	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+		close()
+	})
+	m.SetInputCapture(func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Rune() == '?' || ev.Rune() == 'q' {
+			close()
+			return nil
+		}
+		return ev
+	})
+	u.modal = m
+	u.pages.AddPage("help", m, false, true)
+	u.app.SetFocus(m)
 }
 
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
@@ -583,6 +627,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	switch ev.Rune() {
 	case 'q':
 		u.app.Stop()
+	case '?':
+		u.showHelp()
 	case 'j':
 		return tcell.NewEventKey(tcell.KeyDown, 0, 0)
 	case 'k':
@@ -677,6 +723,10 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 	}
 	if ev.Rune() == 'q' {
 		u.app.Stop()
+		return nil
+	}
+	if ev.Rune() == '?' {
+		u.showHelp()
 		return nil
 	}
 	if ev.Rune() == 'y' {
