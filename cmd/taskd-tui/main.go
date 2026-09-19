@@ -178,10 +178,10 @@ func (u *ui) showCreateForm() {
 	f.SetBorder(true).SetTitle(" new task ")
 	f.AddInputField("Project", cmp.Or(u.project, "taskd"), 20, nil, nil)
 	f.AddInputField("Priority", "0", 10, tview.InputFieldInteger, nil)
-	f.AddInputField("Body", "", 40, nil, nil)
+	f.AddTextArea("Body", "", 0, 0, 0, nil)
 	proj := f.GetFormItem(0).(*tview.InputField)
 	pri := f.GetFormItem(1).(*tview.InputField)
-	body := f.GetFormItem(2).(*tview.InputField)
+	body := f.GetFormItem(2).(*tview.TextArea)
 	close := func() {
 		u.form = nil
 		u.app.SetRoot(u.root, true).SetFocus(u.table)

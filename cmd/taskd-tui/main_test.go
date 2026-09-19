@@ -235,7 +235,7 @@ func TestCreateForm(t *testing.T) {
 	if got := form.GetFormItem(1).(*tview.InputField).GetText(); got != "0" {
 		t.Fatalf("default priority = %q, want 0", got)
 	}
-	if got := form.GetFormItem(2).(*tview.InputField).GetText(); got != "" {
+	if got := form.GetFormItem(2).(*tview.TextArea).GetText(); got != "" {
 		t.Fatalf("default body = %q, want empty", got)
 	}
 	u.app.QueueUpdateDraw(func() {
@@ -269,7 +269,7 @@ func TestCreateForm(t *testing.T) {
 	}
 	u.app.QueueUpdateDraw(func() {
 		u.form.GetFormItem(1).(*tview.InputField).SetText("42")
-		u.form.GetFormItem(2).(*tview.InputField).SetText("brand new task")
+		u.form.GetFormItem(2).(*tview.TextArea).SetText("brand new task\n\nWhy: multi-line test\nDone when: ok", true)
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
@@ -281,7 +281,7 @@ func TestCreateForm(t *testing.T) {
 	mu.Lock()
 	created := (*tasks)[3]
 	mu.Unlock()
-	if created.Project != "proj-a" || created.Priority != 42 || created.Body != "brand new task" {
+	if created.Project != "proj-a" || created.Priority != 42 || created.Body != "brand new task\n\nWhy: multi-line test\nDone when: ok" {
 		t.Fatalf("created task mismatch: %+v", created)
 	}
 	u.app.QueueUpdateDraw(func() {
