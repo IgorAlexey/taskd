@@ -3239,6 +3239,18 @@ func TestWebUIErrorSummary(t *testing.T) {
 	}
 }
 
+func TestWebUIFocusVisibleRing(t *testing.T) {
+	html := string(uiHTML)
+
+	rule := regexp.MustCompile(`(?s):focus-visible \{[^}]*outline: 3px solid[^}]*outline-offset:`)
+	if !rule.MatchString(html) {
+		t.Fatalf("expected a :focus-visible rule with a 3px outline and an offset in UI HTML")
+	}
+	if regexp.MustCompile(`:focus-visible \{\s*outline: 2px`).MatchString(html) {
+		t.Fatalf("did not expect a 2px :focus-visible outline in UI HTML")
+	}
+}
+
 func TestWebUIServesAccessibleQueueMarkup(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
