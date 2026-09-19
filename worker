@@ -67,6 +67,40 @@ detect_default_branch() {
     echo "main"
 }
 
+preserve_unpushed_commits() {
+    target_branch="$1"
+    target_project="$2"
+    target_slot="$3"
+
+    if ! unpushed="$(git rev-list --count "origin/$target_branch..HEAD" 2>/dev/null)"; then
+        echo "Error: failed to inspect rev-list origin/$target_branch..HEAD; aborting to preserve commits." >&2
+        return 1
+    fi
+
+    case "$unpushed" in
+        ''|*[!0-9]*)
+            echo "Error: invalid rev-list count: $unpushed; aborting to preserve commits." >&2
+            return 1
+            ;;
+    esac
+
+    if [ "$unpushed" -gt 0 ]; then
+        clean_project="$(printf '%s' "$target_project" | tr -c 'a-zA-Z0-9_-' '_')"
+        clean_project="${clean_project:-project}"
+        rescue_branch="rescue-$clean_project-$target_slot-$(date +%s)"
+        if git show-ref --verify --quiet "refs/heads/$rescue_branch" 2>/dev/null; then
+            rescue_branch="$rescue_branch-$$"
+        fi
+        if git branch "$rescue_branch" HEAD 2>/dev/null; then
+            echo "Warning: saved $unpushed unpushed commit(s) to branch $rescue_branch before reset." >&2
+        else
+            echo "Error: detected $unpushed unpushed commit(s) but failed to create rescue branch $rescue_branch; aborting to preserve commits." >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
 if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
     run_slot="$2"
     run_wt="$3"
@@ -127,6 +161,9 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
             echo "Warning: git fetch failed, retrying in 5s..." >&2
             idle_sleep 5
             continue
+        fi
+        if ! preserve_unpushed_commits "$run_branch" "$run_project" "$run_slot"; then
+            exit 1
         fi
         git reset --hard "origin/$run_branch" -q
         git clean -fdx -q
@@ -256,6 +293,10 @@ while [ "$#" -gt 0 ]; do
         --detect-branch)
             detect_default_branch
             exit 0
+            ;;
+        --preserve-unpushed)
+            preserve_unpushed_commits "${2:-main}" "${3:-default}" "${4:-1}"
+            exit $?
             ;;
         status)
             action="status"

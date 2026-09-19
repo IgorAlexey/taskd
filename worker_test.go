@@ -249,3 +249,93 @@ func TestWorkerStatus(t *testing.T) {
 		t.Fatalf("expected filtered output to exclude projB, got: %s", sOut)
 	}
 }
+
+func TestWorkerPreserveUnpushedCommits(t *testing.T) {
+	workerPath, err := filepath.Abs("worker")
+	if err != nil {
+		t.Fatalf("filepath.Abs failed: %v", err)
+	}
+
+	originRepo := t.TempDir()
+	cmd := exec.Command("git", "-C", originRepo, "init", "-b", "main", "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init origin: %v: %s", err, out)
+	}
+	cmd = exec.Command("git", "-C", originRepo, "-c", "core.hookspath=", "-c", "sendpatch.enabled=false", "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "chore: initial", "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit origin: %v: %s", err, out)
+	}
+
+	wtRepo := t.TempDir()
+	cmd = exec.Command("git", "clone", originRepo, wtRepo, "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git clone: %v: %s", err, out)
+	}
+	cmd = exec.Command("git", "-C", wtRepo, "checkout", "--detach", "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git checkout detach: %v: %s", err, out)
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "--preserve-unpushed", "main", "test/proj name", "1")
+	cmd.Dir = wtRepo
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("preserve-unpushed with no commits failed: %v: %s", err, out)
+	}
+
+	branchesOut, err := exec.Command("git", "-C", wtRepo, "branch", "--list", "rescue-*").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git branch list: %v: %s", err, branchesOut)
+	}
+	if strings.TrimSpace(string(branchesOut)) != "" {
+		t.Fatalf("expected no rescue branch when 0 unpushed commits, got: %s", string(branchesOut))
+	}
+
+	cmd = exec.Command("git", "-C", wtRepo, "-c", "core.hookspath=", "-c", "sendpatch.enabled=false", "-c", "user.name=test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "feat: local work", "-q")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git commit local: %v: %s", err, out)
+	}
+
+	headShaBytes, err := exec.Command("git", "-C", wtRepo, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse HEAD: %v: %s", err, headShaBytes)
+	}
+	headSha := strings.TrimSpace(string(headShaBytes))
+
+	cmd = exec.Command("/bin/sh", workerPath, "--preserve-unpushed", "main", "test/proj name", "1")
+	cmd.Dir = wtRepo
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("preserve-unpushed failed: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), "rescue-test_proj_name-1-") {
+		t.Fatalf("expected warning with sanitized rescue branch name, got: %s", string(out))
+	}
+
+	branchesOut, err = exec.Command("git", "-C", wtRepo, "branch", "--list", "rescue-test_proj_name-1-*").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git branch list: %v: %s", err, branchesOut)
+	}
+	rescueBranch := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(branchesOut)), "* "))
+	if rescueBranch == "" {
+		t.Fatalf("expected rescue branch to exist, got: %s", string(branchesOut))
+	}
+
+	rescueShaBytes, err := exec.Command("git", "-C", wtRepo, "rev-parse", rescueBranch).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse rescue branch: %v: %s", err, rescueShaBytes)
+	}
+	rescueSha := strings.TrimSpace(string(rescueShaBytes))
+	if rescueSha != headSha {
+		t.Fatalf("expected rescue branch SHA %s to match HEAD %s", rescueSha, headSha)
+	}
+
+	cmd = exec.Command("/bin/sh", workerPath, "--preserve-unpushed", "nonexistent-branch-xyz", "testproj", "1")
+	cmd.Dir = wtRepo
+	out, err = cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("expected preserve-unpushed with invalid branch to fail, got success")
+	}
+	if !strings.Contains(string(out), "failed to inspect rev-list") {
+		t.Fatalf("expected rev-list failure message, got: %s", string(out))
+	}
+}
