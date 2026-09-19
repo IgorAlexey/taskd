@@ -339,6 +339,14 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
+		http.Error(w, "invalid request body: unexpected trailing data", http.StatusBadRequest)
+		return false
+	}
 	return true
 }
 
