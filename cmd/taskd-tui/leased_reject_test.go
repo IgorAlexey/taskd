@@ -127,7 +127,7 @@ func TestTUICompleteLeasedTaskRejection(t *testing.T) {
 		return modal != nil
 	})
 }
-func TestTUIEditLeasedTaskRejection(t *testing.T) {
+func TestEditRefusedOnLeased(t *testing.T) {
 	h := newTestHarness(t)
 
 	h.selectID("bbbbbbb2")
@@ -137,12 +137,31 @@ func TestTUIEditLeasedTaskRejection(t *testing.T) {
 		return strings.Contains(h.message(), "cannot edit actively leased task")
 	})
 
-	var form *tview.Form
+	var (
+		form    *tview.Form
+		hasPage bool
+	)
 	h.query(func() {
 		form = h.u.form
+		hasPage = h.u.pages.HasPage("edit")
 	})
-	if form != nil {
-		t.Fatal("actively leased task must not open edit form")
+	if form != nil || hasPage {
+		t.Fatal("actively leased task must not open edit form or page")
+	}
+
+	h.selectID("ccccccc3")
+	h.press('e')
+
+	eventually(t, func() bool {
+		return strings.Contains(h.message(), "cannot edit done task")
+	})
+
+	h.query(func() {
+		form = h.u.form
+		hasPage = h.u.pages.HasPage("edit")
+	})
+	if form != nil || hasPage {
+		t.Fatal("done task must not open edit form or page")
 	}
 
 	h.mu.Lock()
@@ -162,7 +181,10 @@ func TestTUIEditLeasedTaskRejection(t *testing.T) {
 	h.press('e')
 
 	eventually(t, func() bool {
-		h.query(func() { form = h.u.form })
-		return form != nil
+		h.query(func() {
+			form = h.u.form
+			hasPage = h.u.pages.HasPage("edit")
+		})
+		return form != nil && hasPage
 	})
 }

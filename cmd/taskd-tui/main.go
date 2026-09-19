@@ -456,13 +456,16 @@ func (u *ui) refresh() {
 	})
 }
 
-func (u *ui) act(method, path string, body any, success string) {
+func (u *ui) act(method, path string, body any, success string, callbacks ...func(err error)) {
 	go func() {
 		err := u.call(method, path, body)
 		msg := success
 		ts, fetchErr := u.fetch()
 		ps, projErr := u.fetchProjects()
 		u.app.QueueUpdateDraw(func() {
+			for _, cb := range callbacks {
+				cb(err)
+			}
 			switch {
 			case err != nil:
 				u.setMsg(err.Error())
@@ -582,11 +585,17 @@ func (u *ui) showEditForm(t task) {
 		if newBody != t.Body {
 			payload["body"] = newBody
 		}
-		close()
 		if len(payload) == 0 {
+			close()
 			return
 		}
-		u.act("PATCH", "/tasks/"+t.ID, payload, "task updated")
+		u.act("PATCH", "/tasks/"+t.ID, payload, "task updated", func(err error) {
+			if err != nil {
+				f.SetTitle(fmt.Sprintf(" edit task (%s) ", err.Error()))
+				return
+			}
+			close()
+		})
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
@@ -855,6 +864,10 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showCreateForm()
 	case 'e':
 		if ok {
+			if t.Status == "done" {
+				u.setMsg("cannot edit done task")
+				break
+			}
 			if t.activelyLeased(time.Now().Unix()) {
 				u.setMsg("cannot edit actively leased task")
 				break
