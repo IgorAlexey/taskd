@@ -2636,3 +2636,30 @@ func TestCustomTaskIDValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestListTasksValidateStatus(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	invalidStatuses := []string{"running", "completed", "active", "", "PENDING", "unknown"}
+	for _, st := range invalidStatuses {
+		code, body := do(t, http.MethodGet, srv.URL+"/tasks?status="+st, nil)
+		if code != http.StatusBadRequest {
+			t.Fatalf("GET /tasks?status=%s expected 400, got %d: %s", st, code, body)
+		}
+	}
+
+	validStatuses := []string{"pending", "leased", "done"}
+	for _, st := range validStatuses {
+		code, body := do(t, http.MethodGet, srv.URL+"/tasks?status="+st, nil)
+		if code != http.StatusOK {
+			t.Fatalf("GET /tasks?status=%s expected 200, got %d: %s", st, code, body)
+		}
+	}
+}

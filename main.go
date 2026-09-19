@@ -389,6 +389,10 @@ WHERE id = (
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		status := q.Get("status")
+		if q.Has("status") && status != "pending" && status != "leased" && status != "done" {
+			http.Error(w, "invalid status", http.StatusBadRequest)
+			return
+		}
 		project := q.Get("project")
 		worker := q.Get("worker")
 		limit := 100
