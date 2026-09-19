@@ -323,6 +323,7 @@
 
     function showError(msg) {
       const b = document.getElementById('error-banner');
+      if (!b) return;
       if (!msg) {
         b.style.display = 'none';
         return;
@@ -336,11 +337,16 @@
         const res = await fetch(url, opts);
         if (!res.ok) {
           const txt = await res.text();
-          throw new Error(txt || res.statusText);
+          throw new Error(txt || res.statusText || ('HTTP ' + res.status));
         }
         showError(null);
         if (res.status === 204) return null;
-        return await res.json();
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('application/json')) {
+          return await res.json();
+        }
+        const txt = await res.text();
+        return txt ? JSON.parse(txt) : null;
       } catch (err) {
         showError(err.message);
         throw err;
@@ -351,9 +357,10 @@
       try {
         const projects = await fetchJSON('/projects');
         const select = document.getElementById('filter-project');
+        if (!select) return;
         const current = select.value;
         select.innerHTML = '<option value="">(all)</option>';
-        if (projects) {
+        if (Array.isArray(projects)) {
           for (const p of projects) {
             const opt = document.createElement('option');
             opt.value = p;
@@ -368,24 +375,38 @@
     }
 
     async function loadStats() {
-      const proj = document.getElementById('filter-project').value;
+      const select = document.getElementById('filter-project');
+      const proj = select ? select.value : '';
       let url = '/stats';
       if (proj) url += '?project=' + encodeURIComponent(proj);
       try {
         const stats = await fetchJSON(url);
         if (!stats) return;
-        document.getElementById('stat-pending').textContent = stats.pending ?? 0;
-        document.getElementById('stat-leased').textContent = stats.leased ?? 0;
-        document.getElementById('stat-done').textContent = stats.done ?? 0;
-        document.getElementById('stat-total').textContent = stats.total ?? 0;
+        const setVal = (id, val) => {
+          const el = document.getElementById(id);
+          if (el) el.textContent = val ?? 0;
+        };
+        setVal('stat-pending', stats.pending);
+        setVal('stat-leased', stats.leased);
+        setVal('stat-done', stats.done);
+        setVal('stat-total', stats.total);
       } catch (e) {
         console.error('Failed to load stats:', e);
       }
     }
 
+    function resetTaskDetails() {
+      const pane = document.getElementById('task-details-content');
+      if (pane) {
+        pane.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>';
+      }
+    }
+
     async function loadTasks() {
-      const proj = document.getElementById('filter-project').value;
-      const status = document.getElementById('filter-status').value;
+      const projEl = document.getElementById('filter-project');
+      const statusEl = document.getElementById('filter-status');
+      const proj = projEl ? projEl.value : '';
+      const status = statusEl ? statusEl.value : '';
       let url = '/tasks?limit=200';
       if (proj) url += '&project=' + encodeURIComponent(proj);
       if (status) url += '&status=' + encodeURIComponent(status);
@@ -393,29 +414,49 @@
       try {
         const tasks = await fetchJSON(url);
         const tbody = document.getElementById('task-table-body');
-        document.getElementById('queue-count').textContent = (tasks ? tasks.length : 0) + ' tasks';
-        if (!tasks || tasks.length === 0) {
+        const countEl = document.getElementById('queue-count');
+        const count = Array.isArray(tasks) ? tasks.length : 0;
+        if (countEl) countEl.textContent = count + ' tasks';
+
+        if (!tbody) return;
+
+        if (!Array.isArray(tasks) || tasks.length === 0) {
           tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td></tr>';
+          if (selectedTaskId) {
+            selectedTaskId = null;
+            resetTaskDetails();
+          }
           return;
         }
+
         tbody.innerHTML = '';
+        let foundSelected = false;
         for (const t of tasks) {
+          if (!t) continue;
           const tr = document.createElement('tr');
-          if (t.id === selectedTaskId) tr.className = 'selected';
+          if (t.id === selectedTaskId) {
+            tr.className = 'selected';
+            foundSelected = true;
+          }
           tr.onclick = () => selectTask(t.id);
-          const shortId = t.id.length > 10 ? t.id.slice(0, 8) + '…' : t.id;
-          const summary = t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : t.asset_path;
+          const tid = String(t.id || '');
+          const shortId = tid.length > 10 ? tid.slice(0, 8) + '…' : tid;
+          const summary = t.body ? (t.body.length > 50 ? t.body.slice(0, 50) + '…' : t.body) : (t.asset_path || '');
           tr.innerHTML = `
-            <td class="mono" title="${t.id}">${shortId}</td>
-            <td>${escapeHTML(t.project)}</td>
-            <td><span class="badge badge-${t.status}">${t.status}</span></td>
-            <td>${t.priority}</td>
+            <td class="mono" title="${escapeHTML(tid)}">${escapeHTML(shortId)}</td>
+            <td>${escapeHTML(t.project || '')}</td>
+            <td><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></td>
+            <td>${escapeHTML(String(t.priority ?? 0))}</td>
             <td class="mono">${escapeHTML(t.worker || '')}</td>
-            <td>${escapeHTML(summary || '')}</td>
+            <td>${escapeHTML(summary)}</td>
           `;
           tbody.appendChild(tr);
         }
-        if (selectedTaskId) {
+
+        if (selectedTaskId && !foundSelected) {
+          selectedTaskId = null;
+          resetTaskDetails();
+        } else if (selectedTaskId && foundSelected) {
           loadTaskDetails(selectedTaskId);
         }
       } catch (e) {
@@ -423,31 +464,63 @@
       }
     }
 
-    async function selectTask(id) {
+    function selectTask(id) {
+      if (!id) return;
       selectedTaskId = id;
-      loadTasks();
+      const tbody = document.getElementById('task-table-body');
+      if (tbody) {
+        for (const tr of tbody.querySelectorAll('tr')) {
+          const td = tr.querySelector('td.mono');
+          if (td && td.getAttribute('title') === id) {
+            tr.className = 'selected';
+          } else {
+            tr.className = '';
+          }
+        }
+      }
       loadTaskDetails(id);
     }
 
     async function loadTaskDetails(id) {
+      if (!id) {
+        resetTaskDetails();
+        return;
+      }
       try {
         const t = await fetchJSON('/tasks/' + encodeURIComponent(id));
         const pane = document.getElementById('task-details-content');
+        if (!pane) return;
         if (!t) {
           pane.innerHTML = '<p style="color: var(--text-muted);">Task not found</p>';
           return;
         }
         let primStr = '';
-        if (t.primitives) {
-          primStr = typeof t.primitives === 'string' ? t.primitives : JSON.stringify(t.primitives, null, 2);
+        if (t.primitives !== null && t.primitives !== undefined) {
+          if (typeof t.primitives === 'string') {
+            try {
+              primStr = JSON.stringify(JSON.parse(t.primitives), null, 2);
+            } catch (_) {
+              primStr = t.primitives;
+            }
+          } else {
+            primStr = JSON.stringify(t.primitives, null, 2);
+          }
+        }
+        let leaseExpStr = '';
+        if (t.status === 'leased' && t.lease_expires) {
+          try {
+            leaseExpStr = new Date(t.lease_expires * 1000).toLocaleString();
+          } catch (_) {
+            leaseExpStr = String(t.lease_expires);
+          }
         }
         pane.innerHTML = `
-          <div class="field"><label>ID</label><span class="mono">${escapeHTML(t.id)}</span></div>
-          <div class="field"><label>Project</label><span>${escapeHTML(t.project)}</span></div>
-          <div class="field"><label>Status</label><span class="badge badge-${t.status}">${t.status}</span></div>
-          <div class="field"><label>Priority</label><span>${t.priority}</span></div>
+          <div class="field"><label>ID</label><span class="mono">${escapeHTML(t.id || '')}</span></div>
+          <div class="field"><label>Project</label><span>${escapeHTML(t.project || '')}</span></div>
+          <div class="field"><label>Status</label><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
+          <div class="field"><label>Priority</label><span>${escapeHTML(String(t.priority ?? 0))}</span></div>
           ${t.worker ? `<div class="field"><label>Worker</label><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
-          ${t.lease_expires ? `<div class="field"><label>Lease Expires</label><span>${new Date(t.lease_expires * 1000).toLocaleString()}</span></div>` : ''}
+          ${leaseExpStr ? `<div class="field"><label>Lease Expires</label><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
           ${t.asset_path ? `<div class="field"><label>Asset Path</label><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
           <div class="field"><label>Body</label><pre>${escapeHTML(t.body || '')}</pre></div>
           ${primStr ? `<div class="field"><label>Primitives</label><pre>${escapeHTML(primStr)}</pre></div>` : ''}
@@ -458,12 +531,31 @@
     }
 
     async function submitTask(e) {
-      e.preventDefault();
-      const proj = document.getElementById('form-project').value.trim();
-      const body = document.getElementById('form-body').value;
-      const prio = parseInt(document.getElementById('form-priority').value, 10) || 0;
-      const asset = document.getElementById('form-asset').value.trim();
-      const customId = document.getElementById('form-id').value.trim();
+      if (e && e.preventDefault) e.preventDefault();
+      const projEl = document.getElementById('form-project');
+      const bodyEl = document.getElementById('form-body');
+      const prioEl = document.getElementById('form-priority');
+      const assetEl = document.getElementById('form-asset');
+      const idEl = document.getElementById('form-id');
+
+      const proj = projEl ? projEl.value.trim() : '';
+      const body = bodyEl ? bodyEl.value : '';
+      const prio = prioEl ? (parseInt(prioEl.value, 10) || 0) : 0;
+      const asset = assetEl ? assetEl.value.trim() : '';
+      const customId = idEl ? idEl.value.trim() : '';
+
+      if (!proj || proj === '*') {
+        showError('Project name is required');
+        return;
+      }
+      if (!body.trim() && !asset) {
+        showError('Either Body or Asset Path must be provided');
+        return;
+      }
+      if (prio < 0) {
+        showError('Priority must be 0 or greater');
+        return;
+      }
 
       const payload = {
         project: proj,
@@ -474,22 +566,25 @@
       if (customId) payload.id = customId;
 
       try {
-        await fetchJSON('/tasks', {
+        const res = await fetchJSON('/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        document.getElementById('form-body').value = '';
-        document.getElementById('form-asset').value = '';
-        document.getElementById('form-id').value = '';
-        await loadAll();
+        if (res) {
+          if (bodyEl) bodyEl.value = '';
+          if (assetEl) assetEl.value = '';
+          if (idEl) idEl.value = '';
+          showError(null);
+          await loadAll();
+        }
       } catch (err) {
         console.error('Failed to submit task:', err);
       }
     }
 
     function escapeHTML(str) {
-      if (!str) return '';
+      if (str === null || str === undefined) return '';
       return String(str).replace(/[&<>'"]/g, tag => ({
         '&': '&amp;',
         '<': '&lt;',
@@ -500,16 +595,20 @@
     }
 
     async function loadAll() {
-      await Promise.all([loadProjects(), loadStats(), loadTasks()]);
+      try {
+        await Promise.all([loadProjects(), loadStats(), loadTasks()]);
+      } catch (e) {
+        console.error('Failed to refresh data:', e);
+      }
     }
 
     function setupAutoRefresh() {
       const cb = document.getElementById('auto-refresh');
       if (refreshTimer) clearInterval(refreshTimer);
-      if (cb.checked) {
+      if (cb && cb.checked) {
         refreshTimer = setInterval(loadAll, 3000);
       }
-      cb.onchange = setupAutoRefresh;
+      if (cb) cb.onchange = setupAutoRefresh;
     }
 
     loadAll();

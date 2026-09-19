@@ -306,7 +306,7 @@ func validProject(p string) bool {
 	return p != "" && p != "*" && len(p) <= maxProjectLen
 }
 
-//go:embed index.html
+//go:embed web/index.html
 var uiHTML []byte
 
 func newHandler(db *sql.DB, lease int) http.Handler {
