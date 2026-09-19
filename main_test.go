@@ -386,3 +386,31 @@ func TestWAL(t *testing.T) {
 		t.Fatalf("expected journal_mode 'wal', got %q", mode)
 	}
 }
+func TestMaxBytesLimit(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	big := fmt.Sprintf(`{"asset_path":"%s"}`, strings.Repeat("x", 2<<20))
+	code, _ := post(t, srv.URL+"/tasks", big)
+	if code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for 2 MiB body, got %d", code)
+	}
+
+	bigClaim := fmt.Sprintf(`{"worker":"%s"}`, strings.Repeat("w", 2<<20))
+	code, _ = post(t, srv.URL+"/tasks/claim", bigClaim)
+	if code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("claim expected 413 for 2 MiB body, got %d", code)
+	}
+
+	bigDone := fmt.Sprintf(`{"worker":"w1","primitives":{"data":"%s"}}`, strings.Repeat("d", 2<<20))
+	code, _ = post(t, srv.URL+"/tasks/task-1/done", bigDone)
+	if code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("done expected 413 for 2 MiB body, got %d", code)
+	}
+}

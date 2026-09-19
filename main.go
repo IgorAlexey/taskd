@@ -47,7 +47,11 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 			ID        string `json:"id"`
 			AssetPath string `json:"asset_path"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.AssetPath == "" {
+		var maxErr *http.MaxBytesError
+		if err := json.NewDecoder(r.Body).Decode(&req); errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		} else if err != nil || req.AssetPath == "" {
 			http.Error(w, "missing asset_path", http.StatusBadRequest)
 			return
 		}
@@ -78,7 +82,11 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 		var req struct {
 			Worker string `json:"worker"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Worker == "" {
+		var maxErr *http.MaxBytesError
+		if err := json.NewDecoder(r.Body).Decode(&req); errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		} else if err != nil || req.Worker == "" {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
@@ -111,7 +119,11 @@ WHERE id = (
 			Worker     string          `json:"worker"`
 			Primitives json.RawMessage `json:"primitives"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Worker == "" {
+		var maxErr *http.MaxBytesError
+		if err := json.NewDecoder(r.Body).Decode(&req); errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return
+		} else if err != nil || req.Worker == "" {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
@@ -136,7 +148,10 @@ WHERE id = (
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	return mux
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		mux.ServeHTTP(w, r)
+	})
 }
 
 func main() {
