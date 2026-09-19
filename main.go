@@ -109,15 +109,68 @@ CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority
 		}
 	}
 	if version < 2 {
-		migrationV2 := `ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT '';
-CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);
-PRAGMA user_version = 2;`
-		if _, err := db.Exec(migrationV2); err != nil {
+		if err := migrateV2(db); err != nil {
 			db.Close()
 			return nil, err
 		}
 	}
 	return db, nil
+}
+
+func migrateV2(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query("SELECT name FROM pragma_table_info('tasks')")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	cols := make(map[string]bool)
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		cols[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	if !cols["body"] {
+		if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN body TEXT NOT NULL DEFAULT '';"); err != nil {
+			return err
+		}
+	}
+	if !cols["priority"] {
+		if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN priority INTEGER NOT NULL DEFAULT 0;"); err != nil {
+			return err
+		}
+	}
+	if !cols["project"] {
+		if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN project TEXT NOT NULL DEFAULT '';"); err != nil {
+			return err
+		}
+	}
+
+	stmts := []string{
+		"DROP INDEX IF EXISTS idx_tasks_claim;",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority DESC);",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority DESC);",
+		"PRAGMA user_version = 2;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
 }
 
 const maxBodyBytes = 1 << 20

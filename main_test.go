@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1595,5 +1596,158 @@ func TestGetTasksLimitValidation(t *testing.T) {
 	}
 	if len(tasks) != 2 {
 		t.Fatalf("expected 2 tasks, got %d", len(tasks))
+	}
+}
+
+func TestMigrationV2LegacyV1(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v1.db")
+	db0, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("setup open: %v", err)
+	}
+	setup := `CREATE TABLE tasks (id TEXT PRIMARY KEY, asset_path TEXT NOT NULL, status TEXT DEFAULT 'pending', worker TEXT, lease_expires INTEGER, primitives JSON);
+CREATE INDEX idx_tasks_claim ON tasks (status, lease_expires);
+INSERT INTO tasks (id, asset_path) VALUES ('legacy-1','models/car.glb');
+PRAGMA user_version = 1;`
+	if _, err := db0.Exec(setup); err != nil {
+		db0.Close()
+		t.Fatalf("setup exec: %v", err)
+	}
+	db0.Close()
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB legacy v1 failed: %v", err)
+	}
+
+	srv := httptest.NewServer(newHandler(db, 30))
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks expected 200, got %d", code)
+	}
+	var tasks []taskItem
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "legacy-1" || tasks[0].Priority != 0 || tasks[0].Body != "" {
+		t.Fatalf("unexpected tasks: %+v", tasks)
+	}
+
+	var userVersion int
+	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		t.Fatalf("query user_version: %v", err)
+	}
+	if userVersion != 2 {
+		t.Fatalf("expected user_version 2, got %d", userVersion)
+	}
+
+	var queueIdxCount int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_queue'").Scan(&queueIdxCount); err != nil {
+		t.Fatalf("query idx_tasks_queue: %v", err)
+	}
+	if queueIdxCount != 1 {
+		t.Fatalf("expected idx_tasks_queue count 1, got %d", queueIdxCount)
+	}
+
+	var claimIdxCount int
+	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_claim'").Scan(&claimIdxCount); err != nil {
+		t.Fatalf("query idx_tasks_claim: %v", err)
+	}
+	if claimIdxCount != 0 {
+		t.Fatalf("expected idx_tasks_claim count 0, got %d", claimIdxCount)
+	}
+
+	srv.Close()
+	db.Close()
+
+	db2, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("reopen legacy v1 after migration failed: %v", err)
+	}
+	defer db2.Close()
+
+	srv2 := httptest.NewServer(newHandler(db2, 30))
+	defer srv2.Close()
+
+	code, body = do(t, http.MethodGet, srv2.URL+"/tasks", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks on restarted db expected 200, got %d", code)
+	}
+	tasks = nil
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal tasks on restart failed: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "legacy-1" {
+		t.Fatalf("unexpected tasks on restart: %+v", tasks)
+	}
+}
+
+func TestMigrationV2RollbackOnFailure(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v1-fail.db")
+	db0, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("setup open: %v", err)
+	}
+	setup := `CREATE TABLE tasks (id TEXT PRIMARY KEY, asset_path TEXT NOT NULL, status TEXT DEFAULT 'pending', worker TEXT, lease_expires INTEGER, primitives JSON);
+CREATE INDEX idx_tasks_claim ON tasks (status, lease_expires);
+CREATE TABLE idx_tasks_queue (x INT);
+INSERT INTO tasks (id, asset_path) VALUES ('legacy-1','models/car.glb');
+PRAGMA user_version = 1;`
+	if _, err := db0.Exec(setup); err != nil {
+		db0.Close()
+		t.Fatalf("setup exec: %v", err)
+	}
+	db0.Close()
+
+	db, err := openDB(dbPath)
+	if err == nil {
+		db.Close()
+		t.Fatalf("expected openDB to fail due to conflicting idx_tasks_queue table")
+	}
+
+	dbCheck, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("reopen check: %v", err)
+	}
+	defer dbCheck.Close()
+
+	var userVersion int
+	if err := dbCheck.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		t.Fatalf("query user_version: %v", err)
+	}
+	if userVersion != 1 {
+		t.Fatalf("expected user_version 1 after rollback, got %d", userVersion)
+	}
+
+	var hasProject int
+	if err := dbCheck.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='project'").Scan(&hasProject); err != nil {
+		t.Fatalf("query project col: %v", err)
+	}
+	if hasProject != 0 {
+		t.Fatalf("expected no project column after rollback, got %d", hasProject)
+	}
+
+	var hasBody int
+	if err := dbCheck.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='body'").Scan(&hasBody); err != nil {
+		t.Fatalf("query body col: %v", err)
+	}
+	if hasBody != 0 {
+		t.Fatalf("expected no body column after rollback, got %d", hasBody)
+	}
+
+	var hasPriority int
+	if err := dbCheck.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='priority'").Scan(&hasPriority); err != nil {
+		t.Fatalf("query priority col: %v", err)
+	}
+	if hasPriority != 0 {
+		t.Fatalf("expected no priority column after rollback, got %d", hasPriority)
+	}
+
+	var claimIdxCount int
+	if err := dbCheck.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_claim'").Scan(&claimIdxCount); err != nil {
+		t.Fatalf("query idx_tasks_claim: %v", err)
+	}
+	if claimIdxCount != 1 {
+		t.Fatalf("expected idx_tasks_claim count 1 after rollback, got %d", claimIdxCount)
 	}
 }
