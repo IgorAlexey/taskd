@@ -20,6 +20,36 @@ Each task has a numeric priority and lower numbers are claimed first: 1 is
 the top, 0 is reserved for emergencies, and a task filed without a
 priority gets 3. Ties are broken by insertion order.
 
+## Quickstart
+
+Build and start the daemon, enqueue a task, and claim it:
+
+```sh
+# Build the binary
+go build -o taskd .
+
+# Start the daemon with an explicit database path (default is taskd.db in cwd)
+./taskd -db taskd.db &
+
+# Enqueue a task
+curl -s -XPOST http://localhost:8080/tasks -H 'Content-Type: application/json' -d '{"body":"my first task","project":"demo"}'
+# Output:
+# {"id":"b248c17131a98e3739387b4f7002e8b4"}
+
+# Claim the next pending task
+curl -s -XPOST http://localhost:8080/tasks/claim -H 'Content-Type: application/json' -d '{"worker":"me","project":"demo"}'
+# Output:
+# {"id":"b248c17131a98e3739387b4f7002e8b4","asset_path":"","status":"leased","worker":"me","lease_expires":1789818122,"priority":3,"body":"my first task","primitives":null,"project":"demo","claim_count":1}
+```
+
+The `-db` flag defaults to `taskd.db` relative to the current working directory;
+starting the daemon from another directory without `-db` opens a different
+database. Always provide an explicit path to keep data in a predictable place.
+
+Once running, view and manage tasks in your browser via `GET /ui` at
+`http://localhost:8080/ui`, or launch the terminal user interface in
+`cmd/taskd-tui` with `go run ./cmd/taskd-tui`.
+
 ## Backup
 
 A plain cp of the .db is not a backup: WAL mode leaves data in the wal file.
