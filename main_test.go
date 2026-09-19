@@ -1494,3 +1494,23 @@ func TestGetTask(t *testing.T) {
 		t.Fatalf("expected result 'ok', got %v", primMap["result"])
 	}
 }
+
+func TestValidatePositiveLease(t *testing.T) {
+	for _, val := range []string{"0", "-5"} {
+		_, err := parseFlags([]string{"-lease", val})
+		if err == nil {
+			t.Fatalf("expected -lease %s to fail, but got nil error", val)
+		}
+		if !strings.Contains(strings.ToLower(err.Error()), "lease") {
+			t.Fatalf("expected error for -lease %s to mention 'lease', got: %v", val, err)
+		}
+	}
+
+	cfg, err := parseFlags([]string{"-lease", "60"})
+	if err != nil {
+		t.Fatalf("unexpected error for valid lease: %v", err)
+	}
+	if cfg.lease != 60 {
+		t.Fatalf("expected lease 60, got %d", cfg.lease)
+	}
+}

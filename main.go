@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -411,22 +412,41 @@ WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
 	})
 }
 
-func main() {
-	var (
-		dbPath string
-		addr   string
-		lease  int
-	)
-	flag.StringVar(&dbPath, "db", "taskd.db", "database path")
-	flag.StringVar(&addr, "addr", ":8080", "listen address")
-	flag.IntVar(&lease, "lease", 300, "lease duration in seconds")
-	flag.Parse()
+type config struct {
+	dbPath string
+	addr   string
+	lease  int
+}
 
-	db, err := openDB(dbPath)
+func parseFlags(args []string) (config, error) {
+	var cfg config
+	fs := flag.NewFlagSet("taskd", flag.ContinueOnError)
+	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
+	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
+	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
+	if err := fs.Parse(args); err != nil {
+		return cfg, err
+	}
+	if cfg.lease <= 0 {
+		return cfg, fmt.Errorf("lease duration must be greater than 0: got %d", cfg.lease)
+	}
+	return cfg, nil
+}
+
+func main() {
+	cfg, err := parseFlags(os.Args[1:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			os.Exit(0)
+		}
+		log.Fatal(err)
+	}
+
+	db, err := openDB(cfg.dbPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	log.Fatal(http.ListenAndServe(addr, newHandler(db, lease)))
+	log.Fatal(http.ListenAndServe(cfg.addr, newHandler(db, cfg.lease)))
 }
