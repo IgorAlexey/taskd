@@ -78,8 +78,10 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var p struct {
-			Priority *int    `json:"priority"`
-			Body     *string `json:"body"`
+			Priority  *int    `json:"priority"`
+			Body      *string `json:"body"`
+			Project   *string `json:"project"`
+			AssetPath *string `json:"asset_path"`
 		}
 		json.NewDecoder(r.Body).Decode(&p)
 		mu.Lock()
@@ -91,6 +93,12 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 				}
 				if p.Body != nil {
 					tasks[i].Body = *p.Body
+				}
+				if p.Project != nil {
+					tasks[i].Project = *p.Project
+				}
+				if p.AssetPath != nil {
+					tasks[i].AssetPath = *p.AssetPath
 				}
 			}
 		}
@@ -902,19 +910,33 @@ func TestEditForm(t *testing.T) {
 	if form == nil {
 		t.Fatal("expected form to be open after pressing e")
 	}
-	bodyItem, ok := form.GetFormItem(0).(*tview.TextArea)
-	if !ok {
-		t.Fatalf("expected body item to be *tview.TextArea, got %T", form.GetFormItem(0))
+	projItem, ok := form.GetFormItemByLabel("Project").(*tview.InputField)
+	if !ok || projItem == nil {
+		t.Fatalf("expected project item to be *tview.InputField, got %T", form.GetFormItemByLabel("Project"))
 	}
-	if got := bodyItem.GetText(); got != "first task\n\nWhy: a" {
-		t.Fatalf("pre-filled body = %q, want first task\\n\\nWhy: a", got)
+	if got := projItem.GetText(); got != "proj-b" {
+		t.Fatalf("pre-filled project = %q, want proj-b", got)
 	}
-	priItem, ok := form.GetFormItem(1).(*tview.InputField)
-	if !ok {
-		t.Fatalf("expected pri item to be *tview.InputField, got %T", form.GetFormItem(1))
+	priItem, ok := form.GetFormItemByLabel("Priority").(*tview.InputField)
+	if !ok || priItem == nil {
+		t.Fatalf("expected pri item to be *tview.InputField, got %T", form.GetFormItemByLabel("Priority"))
 	}
 	if got := priItem.GetText(); got != "2" {
 		t.Fatalf("pre-filled priority = %q, want 2", got)
+	}
+	assetItem, ok := form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+	if !ok || assetItem == nil {
+		t.Fatalf("expected asset item to be *tview.InputField, got %T", form.GetFormItemByLabel("Asset Path"))
+	}
+	if got := assetItem.GetText(); got != "" {
+		t.Fatalf("pre-filled asset path = %q, want empty", got)
+	}
+	bodyItem, ok := form.GetFormItemByLabel("Body").(*tview.TextArea)
+	if !ok || bodyItem == nil {
+		t.Fatalf("expected body item to be *tview.TextArea, got %T", form.GetFormItemByLabel("Body"))
+	}
+	if got := bodyItem.GetText(); got != "first task\n\nWhy: a" {
+		t.Fatalf("pre-filled body = %q, want first task\\n\\nWhy: a", got)
 	}
 	fx, fy, fw, fh := form.GetRect()
 	if fx <= 0 || fy <= 0 || fw >= 80 || fh >= 25 {
@@ -933,9 +955,11 @@ func TestEditForm(t *testing.T) {
 	mu.Lock()
 	bodyUnchanged := (*tasks)[0].Body
 	priUnchanged := (*tasks)[0].Priority
+	projUnchanged := (*tasks)[0].Project
+	assetUnchanged := (*tasks)[0].AssetPath
 	mu.Unlock()
-	if bodyUnchanged != "first task\n\nWhy: a" || priUnchanged != 2 {
-		t.Fatalf("task was modified on cancel: body=%q pri=%d", bodyUnchanged, priUnchanged)
+	if bodyUnchanged != "first task\n\nWhy: a" || priUnchanged != 2 || projUnchanged != "proj-b" || assetUnchanged != "" {
+		t.Fatalf("task was modified on cancel: %+v", (*tasks)[0])
 	}
 
 	u.app.QueueUpdateDraw(func() {
@@ -948,7 +972,7 @@ func TestEditForm(t *testing.T) {
 		t.Fatal("expected form to be open after pressing e")
 	}
 	u.app.QueueUpdateDraw(func() {
-		priItem = u.form.GetFormItem(1).(*tview.InputField)
+		priItem = u.form.GetFormItemByLabel("Priority").(*tview.InputField)
 		priItem.SetText("")
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
@@ -958,6 +982,9 @@ func TestEditForm(t *testing.T) {
 	if form == nil {
 		t.Fatal("expected form to stay open on invalid priority")
 	}
+	if title := form.GetTitle(); !strings.Contains(title, "priority") {
+		t.Fatalf("expected title to indicate priority error, got %q", title)
+	}
 	mu.Lock()
 	priAfterInvalid := (*tasks)[0].Priority
 	mu.Unlock()
@@ -966,17 +993,194 @@ func TestEditForm(t *testing.T) {
 	}
 
 	u.app.QueueUpdateDraw(func() {
-		bodyItem = u.form.GetFormItem(0).(*tview.TextArea)
-		bodyItem.SetText("updated body\nwith multiple lines", false)
-		priItem = u.form.GetFormItem(1).(*tview.InputField)
+		priItem.SetText("2")
+		projItem = u.form.GetFormItemByLabel("Project").(*tview.InputField)
+		projItem.SetText("")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on invalid project")
+	}
+	if title := form.GetTitle(); !strings.Contains(title, "project") {
+		t.Fatalf("expected title to indicate project error, got %q", title)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		projItem.SetText("proj-b")
+		bodyItem = u.form.GetFormItemByLabel("Body").(*tview.TextArea)
+		bodyItem.SetText("", true)
+		assetItem = u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+		assetItem.SetText("")
+		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to stay open on missing body and asset path")
+	}
+	if title := form.GetTitle(); !strings.Contains(title, "missing body or asset path") {
+		t.Fatalf("expected title to indicate missing body error, got %q", title)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		projItem = u.form.GetFormItemByLabel("Project").(*tview.InputField)
+		projItem.SetText("proj-updated")
+		priItem = u.form.GetFormItemByLabel("Priority").(*tview.InputField)
 		priItem.SetText("5")
+		assetItem = u.form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+		assetItem.SetText("assets/task.json")
+		bodyItem = u.form.GetFormItemByLabel("Body").(*tview.TextArea)
+		bodyItem.SetText("updated body\nwith multiple lines", false)
 		u.form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
 	eventually(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return (*tasks)[0].Body == "updated body\nwith multiple lines" && (*tasks)[0].Priority == 5
+		return (*tasks)[0].Body == "updated body\nwith multiple lines" &&
+			(*tasks)[0].Priority == 5 &&
+			(*tasks)[0].Project == "proj-updated" &&
+			(*tasks)[0].AssetPath == "assets/task.json"
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form != nil {
+		t.Fatal("expected form to be closed after submit")
+	}
+}
+
+func TestEditFormAssetOnly(t *testing.T) {
+	u, tasks, mu := stub(t)
+	mu.Lock()
+	(*tasks)[0].Body = ""
+	(*tasks)[0].AssetPath = "orig/asset.txt"
+	mu.Unlock()
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	u.app.QueueUpdateDraw(func() {
+		u.table.Select(1, 0)
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
+	})
+	var form *tview.Form
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to be open after pressing e")
+	}
+	assetItem, ok := form.GetFormItemByLabel("Asset Path").(*tview.InputField)
+	if !ok || assetItem == nil {
+		t.Fatalf("expected asset item, got %T", form.GetFormItemByLabel("Asset Path"))
+	}
+	if got := assetItem.GetText(); got != "orig/asset.txt" {
+		t.Fatalf("pre-filled asset path = %q, want orig/asset.txt", got)
+	}
+	bodyItem, ok := form.GetFormItemByLabel("Body").(*tview.TextArea)
+	if !ok || bodyItem == nil {
+		t.Fatalf("expected body item, got %T", form.GetFormItemByLabel("Body"))
+	}
+	if got := bodyItem.GetText(); got != "" {
+		t.Fatalf("pre-filled body = %q, want empty", got)
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		assetItem.SetText("updated/asset.txt")
+		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return (*tasks)[0].AssetPath == "updated/asset.txt" && (*tasks)[0].Body == ""
+	})
+
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form != nil {
+		t.Fatal("expected form to be closed after submit")
+	}
+}
+
+func TestEditFormPriorityOnly(t *testing.T) {
+	u, tasks, mu := stub(t)
+	mu.Lock()
+	(*tasks)[0].AssetPath = "keep/asset.txt"
+	(*tasks)[0].Body = "keep body"
+	mu.Unlock()
+	ts, err := u.fetch()
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.render(ts)
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	u.app.QueueUpdateDraw(func() {
+		u.table.Select(1, 0)
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'e', 0))
+	})
+	var form *tview.Form
+	u.app.QueueUpdateDraw(func() {
+		form = u.form
+	})
+	if form == nil {
+		t.Fatal("expected form to be open after pressing e")
+	}
+
+	u.app.QueueUpdateDraw(func() {
+		priItem := form.GetFormItemByLabel("Priority").(*tview.InputField)
+		priItem.SetText("8")
+		form.GetButton(0).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+
+	eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return (*tasks)[0].Priority == 8 &&
+			(*tasks)[0].AssetPath == "keep/asset.txt" &&
+			(*tasks)[0].Body == "keep body" &&
+			(*tasks)[0].Project == "proj-b"
 	})
 
 	u.app.QueueUpdateDraw(func() {

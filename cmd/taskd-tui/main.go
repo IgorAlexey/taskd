@@ -538,26 +538,52 @@ func (u *ui) showCreateForm() {
 func (u *ui) showEditForm(t task) {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" edit task ")
-	body := tview.NewTextArea().SetLabel("Body").SetText(t.Body, false).SetSize(5, 0)
+	proj := tview.NewInputField().SetLabel("Project").SetText(t.Project).SetFieldWidth(20)
 	pri := tview.NewInputField().SetLabel("Priority").SetText(strconv.Itoa(t.Priority)).
 		SetFieldWidth(10).SetAcceptanceFunc(tview.InputFieldInteger)
-	f.AddFormItem(body).AddFormItem(pri)
+	asset := tview.NewInputField().SetLabel("Asset Path").SetText(t.AssetPath)
+	body := tview.NewTextArea().SetLabel("Body").SetText(t.Body, false).SetSize(5, 0)
+	f.AddFormItem(proj).AddFormItem(pri).AddFormItem(asset).AddFormItem(body)
 	close := func() {
 		u.form = nil
 		u.pages.RemovePage("edit")
 		u.app.SetFocus(u.table)
 	}
 	submit := func() {
+		pname := strings.TrimSpace(proj.GetText())
+		if pname == "" || pname == "*" {
+			f.SetTitle(" edit task (invalid project) ")
+			return
+		}
 		p, err := strconv.Atoi(pri.GetText())
 		if err != nil || p < 0 {
 			f.SetTitle(" edit task (invalid priority) ")
 			return
 		}
+		newBody := body.GetText()
+		apath := strings.TrimSpace(asset.GetText())
+		if strings.TrimSpace(newBody) == "" && apath == "" {
+			f.SetTitle(" edit task (missing body or asset path) ")
+			return
+		}
+		payload := map[string]any{}
+		if pname != t.Project {
+			payload["project"] = pname
+		}
+		if p != t.Priority {
+			payload["priority"] = p
+		}
+		if apath != t.AssetPath {
+			payload["asset_path"] = apath
+		}
+		if newBody != t.Body {
+			payload["body"] = newBody
+		}
 		close()
-		u.act("PATCH", "/tasks/"+t.ID, map[string]any{
-			"body":     body.GetText(),
-			"priority": p,
-		}, "task updated")
+		if len(payload) == 0 {
+			return
+		}
+		u.act("PATCH", "/tasks/"+t.ID, payload, "task updated")
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
