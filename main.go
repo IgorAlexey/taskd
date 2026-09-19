@@ -391,12 +391,13 @@ WHERE id = (
 		query += `
   ORDER BY priority DESC, rowid ASC
   LIMIT 1
-) RETURNING id, asset_path, body, priority, project, claim_count`
+) RETURNING id, asset_path, body, priority, project, claim_count, status, lease_expires`
 		var (
-			id, assetPath, body, project string
-			priority, claimCount         int
+			id, assetPath, body, project, status string
+			priority, claimCount                 int
+			leaseExpires                         int64
 		)
-		err := db.QueryRow(query, args...).Scan(&id, &assetPath, &body, &priority, &project, &claimCount)
+		err := db.QueryRow(query, args...).Scan(&id, &assetPath, &body, &priority, &project, &claimCount, &status, &leaseExpires)
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -407,19 +408,23 @@ WHERE id = (
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(struct {
-			ID         string `json:"id"`
-			AssetPath  string `json:"asset_path"`
-			Body       string `json:"body"`
-			Priority   int    `json:"priority"`
-			Project    string `json:"project"`
-			ClaimCount int    `json:"claim_count"`
+			ID           string `json:"id"`
+			AssetPath    string `json:"asset_path"`
+			Body         string `json:"body"`
+			Priority     int    `json:"priority"`
+			Project      string `json:"project"`
+			ClaimCount   int    `json:"claim_count"`
+			Status       string `json:"status"`
+			LeaseExpires int64  `json:"lease_expires"`
 		}{
-			ID:         id,
-			AssetPath:  assetPath,
-			Body:       body,
-			Priority:   priority,
-			Project:    project,
-			ClaimCount: claimCount,
+			ID:           id,
+			AssetPath:    assetPath,
+			Body:         body,
+			Priority:     priority,
+			Project:      project,
+			ClaimCount:   claimCount,
+			Status:       status,
+			LeaseExpires: leaseExpires,
 		})
 	})
 	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {

@@ -3706,3 +3706,55 @@ func TestReleaseTask(t *testing.T) {
 		t.Fatalf("expected claim to return released task %q, got %q", res.ID, claimResp.ID)
 	}
 }
+
+func TestClaimResponseFields(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "claim fields",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	before := time.Now().Unix()
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	var claimed struct {
+		ID           string `json:"id"`
+		Status       string `json:"status"`
+		LeaseExpires int64  `json:"lease_expires"`
+	}
+	if err := json.Unmarshal(body, &claimed); err != nil {
+		t.Fatalf("unmarshal claim response failed: %v", err)
+	}
+	if claimed.ID != created.ID {
+		t.Fatalf("claimed id %q != created id %q", claimed.ID, created.ID)
+	}
+	if claimed.Status != "leased" {
+		t.Fatalf("claimed status %q != %q", claimed.Status, "leased")
+	}
+	if claimed.LeaseExpires <= before {
+		t.Fatalf("claimed lease_expires %d <= %d", claimed.LeaseExpires, before)
+	}
+}
