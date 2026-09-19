@@ -2573,3 +2573,66 @@ func TestSignalNotifyShutdown(t *testing.T) {
 		})
 	}
 }
+
+func TestCustomTaskIDValidation(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	invalidIDs := []string{
+		"foo bar",
+		"foo\nbar",
+		"a/b",
+		"task?id",
+		"task#id",
+		"task\x00id",
+		"task@id",
+		"foo\tbar",
+		" ",
+		".",
+		"..",
+		strings.Repeat("a", 129),
+	}
+	for _, id := range invalidIDs {
+		code, body := post(t, srv.URL+"/tasks", map[string]any{
+			"id":      id,
+			"body":    "b",
+			"project": "p1",
+		})
+		if code != http.StatusBadRequest {
+			t.Fatalf("POST /tasks with invalid id %q expected 400, got %d: %s", id, code, body)
+		}
+	}
+
+	validIDs := []string{
+		"task-1",
+		"task.1",
+		"task_1",
+		"ValidTask.123_abc-XYZ",
+		strings.Repeat("a", 128),
+	}
+	for _, id := range validIDs {
+		code, body := post(t, srv.URL+"/tasks", map[string]any{
+			"id":      id,
+			"body":    "b",
+			"project": "p1",
+		})
+		if code != http.StatusCreated {
+			t.Fatalf("POST /tasks with valid id %q expected 201, got %d: %s", id, code, body)
+		}
+		var created struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &created); err != nil {
+			t.Fatalf("unmarshal created failed: %v", err)
+		}
+		if created.ID != id {
+			t.Fatalf("expected id %q, got %q", id, created.ID)
+		}
+	}
+}

@@ -232,6 +232,22 @@ func (t *taskItem) normalize(now int64) {
 	}
 }
 
+const maxTaskIDLen = 128
+
+func validTaskID(id string) bool {
+	if id == "" || len(id) > maxTaskIDLen || id == "." || id == ".." {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func newHandler(db *sql.DB, lease int) http.Handler {
 	mux := http.NewServeMux()
 
@@ -261,6 +277,9 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 				return
 			}
 			req.ID = hex.EncodeToString(b[:])
+		} else if !validTaskID(req.ID) {
+			http.Error(w, "invalid id", http.StatusBadRequest)
+			return
 		}
 		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, req.Priority, req.Project)
 		if err != nil {
