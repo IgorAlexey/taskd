@@ -45,4 +45,14 @@ func TestFocusIndicator(t *testing.T) {
 		u.bodyKeys(tcell.NewEventKey(tcell.KeyEscape, 0, 0))
 	})
 	expectFocus(false, tview.Styles.BorderColor)
+
+	u.app.QueueUpdateDraw(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyEnter, 0, 0))
+	})
+	expectFocus(true, tcell.ColorYellow)
+
+	u.app.QueueUpdateDraw(func() {
+		u.bodyKeys(tcell.NewEventKey(tcell.KeyEscape, 0, 0))
+	})
+	expectFocus(false, tview.Styles.BorderColor)
 }

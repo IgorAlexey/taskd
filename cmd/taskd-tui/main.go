@@ -1025,7 +1025,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			u.render(u.all)
 			return nil
 		}
-	case tcell.KeyTab, tcell.KeyBacktab:
+	case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyEnter:
 		u.app.SetFocus(u.body)
 		return nil
 	case tcell.KeyCtrlD, tcell.KeyCtrlU:
