@@ -2178,6 +2178,7 @@ func TestClearErrorOnReconnect(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	u := newUI(srv.URL, "", false)
+	u.msgTimeout = 20 * time.Millisecond
 	sim := tcell.NewSimulationScreen("")
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
@@ -2795,5 +2796,133 @@ func TestTUICompleteTask(t *testing.T) {
 	printUsage(&buf)
 	if out := buf.String(); !strings.Contains(out, "x              Complete selected task") {
 		t.Fatalf("help output missing x shortcut:\n%s", out)
+	}
+}
+func TestCopySelectedID(t *testing.T) {
+	u, _, _ := stub(t)
+	u.msgTimeout = 20 * time.Millisecond
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.pages, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 3 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	query(func() {
+		u.render(ts)
+	})
+
+	var copied string
+	origCopy := copyToClipboard
+	copyToClipboard = func(text string) {
+		copied = text
+	}
+	t.Cleanup(func() { copyToClipboard = origCopy })
+
+	query(func() {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, 'y', 0))
+	})
+	if copied != "aaaaaaa1" {
+		t.Fatalf("copied ID = %q, want aaaaaaa1", copied)
+	}
+
+	var msg, status string
+	query(func() {
+		msg = u.msg
+		status = u.status.GetText(true)
+	})
+	if msg != "copied aaaaaaa1 to clipboard" {
+		t.Fatalf("u.msg = %q, want copied aaaaaaa1 to clipboard", msg)
+	}
+	if !strings.Contains(status, "copied aaaaaaa1 to clipboard") {
+		t.Fatalf("status line missing copied confirmation: %q", status)
+	}
+
+	eventually(t, func() bool {
+		query(func() {
+			msg = u.msg
+			status = u.status.GetText(true)
+		})
+		return msg == "" && strings.Contains(status, "[j/k]")
+	})
+}
+
+func TestRefreshMessage(t *testing.T) {
+	u, _, _ := stub(t)
+	sim := tcell.NewSimulationScreen("")
+	u.msgTimeout = time.Minute
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.app.SetScreen(sim)
+	u.app.SetRoot(u.pages, true)
+
+	done := make(chan struct{})
+	go func() {
+		u.app.Run()
+		close(done)
+	}()
+	defer func() {
+		u.app.Stop()
+		<-done
+	}()
+
+	query := func(fn func()) {
+		ch := make(chan struct{})
+		u.app.QueueUpdate(func() {
+			fn()
+			close(ch)
+		})
+		<-ch
+	}
+
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 3 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	query(func() {
+		u.render(ts)
+	})
+
+	testMsg := "action completed successfully"
+	query(func() {
+		u.setMsg(testMsg)
+	})
+
+	for range 3 {
+		u.refresh()
+		eventually(t, func() bool {
+			var msg, status string
+			query(func() {
+				msg = u.msg
+				status = u.status.GetText(true)
+			})
+			return msg == testMsg && strings.Contains(status, testMsg)
+		})
 	}
 }

@@ -60,8 +60,7 @@ func defaultCopyToClipboard(text string) {
 func (u *ui) copySelectedID() {
 	if t, ok := u.selected(); ok {
 		copyToClipboard(t.ID)
-		u.msg = fmt.Sprintf("copied %s to clipboard", t.ID)
-		u.render(u.all)
+		u.setMsg(fmt.Sprintf("copied %s to clipboard", t.ID))
 	}
 }
 
@@ -87,6 +86,7 @@ type ui struct {
 	pending, leased, done int
 	msg                   string
 	msgRev                int
+	msgTimeout            time.Duration
 	shownID               string
 	shownBody             string
 	refreshing            atomic.Bool
@@ -388,7 +388,11 @@ func (u *ui) setMsg(msg string) {
 	rev := u.msgRev
 	u.renderStatus()
 	if msg != "" {
-		time.AfterFunc(3*time.Second, func() {
+		dur := u.msgTimeout
+		if dur <= 0 {
+			dur = 3 * time.Second
+		}
+		time.AfterFunc(dur, func() {
 			u.app.QueueUpdateDraw(func() {
 				if u.msgRev == rev {
 					u.msg = ""
@@ -449,7 +453,6 @@ func (u *ui) refresh() {
 		if perr != nil {
 			u.setMsg(perr.Error())
 		} else {
-			u.setMsg("")
 			u.projects = ps
 		}
 		u.render(ts)
