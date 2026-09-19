@@ -1369,3 +1369,128 @@ func TestDeleteExpiredLeasedTask(t *testing.T) {
 		t.Fatalf("second DELETE expected 404, got %d: %s", code, body)
 	}
 }
+
+func TestGetTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks/missing-id", nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("GET /tasks/missing-id expected 404, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "inspect me",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/%s expected 200, got %d: %s", created.ID, code, body)
+	}
+
+	var task struct {
+		ID           string          `json:"id"`
+		AssetPath    string          `json:"asset_path"`
+		Status       string          `json:"status"`
+		Worker       string          `json:"worker"`
+		LeaseExpires int64           `json:"lease_expires"`
+		Priority     int             `json:"priority"`
+		Body         string          `json:"body"`
+		Primitives   json.RawMessage `json:"primitives"`
+		Project      string          `json:"project"`
+	}
+	if err := json.Unmarshal(body, &task); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if task.ID != created.ID {
+		t.Fatalf("expected id %q, got %q", created.ID, task.ID)
+	}
+	if task.Body != "inspect me" {
+		t.Fatalf("expected body 'inspect me', got %q", task.Body)
+	}
+	if task.Status != "pending" {
+		t.Fatalf("expected status 'pending', got %q", task.Status)
+	}
+	if task.Project != "p1" {
+		t.Fatalf("expected project 'p1', got %q", task.Project)
+	}
+	if task.Priority != 0 {
+		t.Fatalf("expected priority 0, got %d", task.Priority)
+	}
+	if task.AssetPath != "" {
+		t.Fatalf("expected empty asset_path, got %q", task.AssetPath)
+	}
+	if task.Worker != "" {
+		t.Fatalf("expected empty worker, got %q", task.Worker)
+	}
+	if task.Primitives != nil && string(task.Primitives) != "null" {
+		t.Fatalf("expected null primitives, got %s", string(task.Primitives))
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d", code)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/%s expected 200, got %d", created.ID, code)
+	}
+	if err := json.Unmarshal(body, &task); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if task.Status != "leased" {
+		t.Fatalf("expected status 'leased', got %q", task.Status)
+	}
+	if task.Worker != "w1" {
+		t.Fatalf("expected worker 'w1', got %q", task.Worker)
+	}
+	if task.LeaseExpires <= 0 {
+		t.Fatalf("expected lease_expires > 0, got %d", task.LeaseExpires)
+	}
+
+	code, _ = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker":     "w1",
+		"primitives": map[string]string{"result": "ok"},
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("done failed: %d", code)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/%s expected 200, got %d", created.ID, code)
+	}
+	if err := json.Unmarshal(body, &task); err != nil {
+		t.Fatalf("unmarshal task failed: %v", err)
+	}
+	if task.Status != "done" {
+		t.Fatalf("expected status 'done', got %q", task.Status)
+	}
+	var primMap map[string]any
+	if err := json.Unmarshal(task.Primitives, &primMap); err != nil {
+		t.Fatalf("unmarshal primitives failed: %v", err)
+	}
+	if primMap["result"] != "ok" {
+		t.Fatalf("expected result 'ok', got %v", primMap["result"])
+	}
+}

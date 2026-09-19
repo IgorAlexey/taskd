@@ -103,6 +103,18 @@ func internalError(w http.ResponseWriter, err error) {
 	http.Error(w, "internal error", http.StatusInternalServerError)
 }
 
+type taskItem struct {
+	ID           string          `json:"id"`
+	AssetPath    string          `json:"asset_path"`
+	Status       string          `json:"status"`
+	Worker       string          `json:"worker"`
+	LeaseExpires int64           `json:"lease_expires"`
+	Priority     int             `json:"priority"`
+	Body         string          `json:"body"`
+	Primitives   json.RawMessage `json:"primitives"`
+	Project      string          `json:"project"`
+}
+
 func newHandler(db *sql.DB, lease int) http.Handler {
 	mux := http.NewServeMux()
 
@@ -268,18 +280,6 @@ WHERE id = (
 		}
 		defer rows.Close()
 
-		type taskItem struct {
-			ID           string          `json:"id"`
-			AssetPath    string          `json:"asset_path"`
-			Status       string          `json:"status"`
-			Worker       string          `json:"worker"`
-			LeaseExpires int64           `json:"lease_expires"`
-			Priority     int             `json:"priority"`
-			Body         string          `json:"body"`
-			Primitives   json.RawMessage `json:"primitives"`
-			Project      string          `json:"project"`
-		}
-
 		tasks := make([]taskItem, 0)
 		for rows.Next() {
 			var (
@@ -306,6 +306,30 @@ WHERE id = (
 		json.NewEncoder(w).Encode(tasks)
 	})
 
+	mux.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+		var (
+			item         taskItem
+			worker       sql.NullString
+			leaseExpires sql.NullInt64
+			prim         []byte
+		)
+		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks WHERE id = ?", r.PathValue("id")).
+			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "task not found", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		item.Worker = worker.String
+		item.LeaseExpires = leaseExpires.Int64
+		item.Primitives = prim
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(item)
+	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Body     *string `json:"body"`
