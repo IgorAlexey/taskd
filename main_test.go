@@ -5498,3 +5498,92 @@ func TestClaimReturnsWorkerAndPrimitives(t *testing.T) {
 		t.Fatalf("expected primitives key in claim response, got %s", body)
 	}
 }
+
+func TestProjectNameValidation(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	invalidProjects := []string{
+		"foo/bar",
+		"foo\\bar",
+		"foo bar",
+		"foo\tbar",
+		"foo\nbar",
+		"foo\x00bar",
+		"foo*bar",
+		"foo@bar",
+		"foo:bar",
+		"foo?bar",
+		"foo#bar",
+		"foo!bar",
+		"foo$bar",
+		"foo%bar",
+	}
+
+	for _, p := range invalidProjects {
+		code, body := post(t, srv.URL+"/tasks", map[string]string{
+			"body":    "test",
+			"project": p,
+		})
+		if code != http.StatusBadRequest {
+			t.Fatalf("POST /tasks with invalid project %q expected 400, got %d: %s", p, code, body)
+		}
+	}
+
+	validProjects := []string{
+		"proj",
+		"PROJ",
+		"proj-123",
+		"proj_123",
+		"proj.123",
+		"my-cool_proj.v1",
+	}
+
+	var taskID string
+	for _, p := range validProjects {
+		code, body := post(t, srv.URL+"/tasks", map[string]string{
+			"body":    "test",
+			"project": p,
+		})
+		if code != http.StatusCreated {
+			t.Fatalf("POST /tasks with valid project %q expected 201, got %d: %s", p, code, body)
+		}
+		var res struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(body, &res); err != nil {
+			t.Fatalf("unmarshal response failed: %v", err)
+		}
+		taskID = res.ID
+	}
+
+	for _, p := range invalidProjects {
+		code, body := do(t, http.MethodPatch, srv.URL+"/tasks/"+taskID, map[string]any{
+			"project": p,
+		})
+		if code != http.StatusBadRequest {
+			t.Fatalf("PATCH with invalid project %q expected 400, got %d: %s", p, code, body)
+		}
+	}
+
+	code, body := do(t, http.MethodPatch, srv.URL+"/tasks/"+taskID, map[string]any{
+		"project": "valid-updated_proj.2",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH with valid project expected 204, got %d: %s", code, body)
+	}
+
+	var pVal string
+	if err := db.QueryRow("SELECT project FROM tasks WHERE id = ?", taskID).Scan(&pVal); err != nil {
+		t.Fatalf("query db failed: %v", err)
+	}
+	if pVal != "valid-updated_proj.2" {
+		t.Fatalf("expected project %q, got %q", "valid-updated_proj.2", pVal)
+	}
+}

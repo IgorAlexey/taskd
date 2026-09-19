@@ -430,6 +430,10 @@ func (t *taskItem) normalize(now int64) {
 const maxTaskIDLen = 128
 const maxProjectLen = 64
 
+func validNameByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
+}
+
 func validTaskID(id string) bool {
 	if id == "" || len(id) > maxTaskIDLen || id == "." || id == ".." {
 		return false
@@ -437,18 +441,24 @@ func validTaskID(id string) bool {
 	if strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") {
 		return false
 	}
-	for i := 0; i < len(id); i++ {
-		c := id[i]
-		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' {
-			continue
+	for i := range len(id) {
+		if !validNameByte(id[i]) {
+			return false
 		}
-		return false
 	}
 	return true
 }
 
 func validProject(p string) bool {
-	return p != "" && p != "*" && len(p) <= maxProjectLen
+	if p == "" || len(p) > maxProjectLen {
+		return false
+	}
+	for i := range len(p) {
+		if !validNameByte(p[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 //go:embed web/index.html
