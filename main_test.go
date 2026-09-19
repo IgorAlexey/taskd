@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -3222,6 +3223,19 @@ func TestWebUI(t *testing.T) {
 	postResp.Body.Close()
 	if postResp.StatusCode != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 Method Not Allowed for POST /ui, got %d", postResp.StatusCode)
+	}
+}
+func TestWebUIErrorSummary(t *testing.T) {
+	html := string(uiHTML)
+
+	if !regexp.MustCompile(`<(?:input|textarea)[^>]*aria-invalid`).MatchString(html) {
+		t.Fatalf("expected aria-invalid on form controls in UI HTML")
+	}
+	if !regexp.MustCompile(`aria-describedby="[^"]*error`).MatchString(html) {
+		t.Fatalf("expected aria-describedby with error in UI HTML")
+	}
+	if !regexp.MustCompile(`role="alert"[^>]*error-summary|error-summary[^>]*role="alert"`).MatchString(html) {
+		t.Fatalf("expected error-summary with role=alert in UI HTML")
 	}
 }
 

@@ -233,6 +233,54 @@
     margin-bottom: 16px;
     font-size: 13px;
   }
+  .error-summary {
+    display: none;
+    background: rgba(248,81,73,0.1);
+    border: 2px solid var(--danger);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .error-summary:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .error-summary-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--danger);
+    margin-bottom: 6px;
+  }
+  .error-summary-list {
+    list-style: disc inside;
+    margin: 0;
+    padding: 0;
+  }
+  .error-summary-list li {
+    font-size: 12px;
+    line-height: 1.4;
+    margin-bottom: 2px;
+  }
+  .error-summary-list a {
+    color: var(--danger);
+    text-decoration: underline;
+    font-weight: 500;
+  }
+  .error-summary-list a:hover {
+    color: #ff7b72;
+  }
+  .field-error {
+    display: none;
+    color: var(--danger);
+    font-size: 12px;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .field input[aria-invalid="true"],
+  .field textarea[aria-invalid="true"] {
+    border-color: var(--danger);
+    background: rgba(248,81,73,0.06);
+  }
 </style>
 </head>
 <body>
@@ -315,25 +363,33 @@
       <div class="panel">
         <div class="panel-header">Submit Task</div>
         <div class="sidebar-section">
-          <form id="submit-task-form" onsubmit="submitTask(event)">
-            <div class="field">
-              <label>Project *</label>
-              <input type="text" id="form-project" required placeholder="e.g. default">
+          <form id="submit-task-form" onsubmit="submitTask(event)" novalidate>
+            <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1">
+              <div class="error-summary-title">There is a problem</div>
+              <ul class="error-summary-list" id="form-error-summary-list"></ul>
             </div>
             <div class="field">
-              <label>Priority</label>
-              <input type="number" id="form-priority" value="0">
+              <label for="form-project">Project *</label>
+              <span class="field-error" id="form-project-error"></span>
+              <input type="text" id="form-project" required placeholder="e.g. default" aria-invalid="false" aria-describedby="form-project-error">
             </div>
             <div class="field">
-              <label>Body</label>
-              <textarea id="form-body" placeholder="Task description or prompt..."></textarea>
+              <label for="form-priority">Priority</label>
+              <span class="field-error" id="form-priority-error"></span>
+              <input type="number" id="form-priority" value="0" aria-invalid="false" aria-describedby="form-priority-error">
             </div>
             <div class="field">
-              <label>Asset Path (optional)</label>
-              <input type="text" id="form-asset" placeholder="/path/to/asset">
+              <label for="form-body">Body</label>
+              <span class="field-error" id="form-body-error"></span>
+              <textarea id="form-body" placeholder="Task description or prompt..." aria-invalid="false" aria-describedby="form-body-error"></textarea>
             </div>
             <div class="field">
-              <label>Custom ID (optional)</label>
+              <label for="form-asset">Asset Path (optional)</label>
+              <span class="field-error" id="form-asset-error"></span>
+              <input type="text" id="form-asset" placeholder="/path/to/asset" aria-invalid="false" aria-describedby="form-asset-error">
+            </div>
+            <div class="field">
+              <label for="form-id">Custom ID (optional)</label>
               <input type="text" id="form-id" placeholder="auto-generated if empty">
             </div>
             <button type="submit" class="primary" style="width: 100%;">Submit Task</button>
@@ -562,8 +618,62 @@
       }
     }
 
+    function clearFormErrors() {
+      const summary = document.getElementById('form-error-summary');
+      if (summary) {
+        summary.style.display = 'none';
+        const list = document.getElementById('form-error-summary-list');
+        if (list) list.innerHTML = '';
+      }
+      const form = document.getElementById('submit-task-form');
+      if (form) {
+        form.querySelectorAll('[aria-invalid]').forEach(el => el.setAttribute('aria-invalid', 'false'));
+        form.querySelectorAll('.field-error').forEach(el => {
+          el.textContent = '';
+          el.style.display = 'none';
+        });
+      }
+    }
+
+    function showFormErrors(errors) {
+      clearFormErrors();
+      if (!errors || errors.length === 0) return;
+      const summary = document.getElementById('form-error-summary');
+      const list = document.getElementById('form-error-summary-list');
+      if (summary && list) {
+        list.innerHTML = '';
+        for (const err of errors) {
+          const li = document.createElement('li');
+          const a = document.createElement('a');
+          a.href = '#' + err.fieldId;
+          a.textContent = err.message;
+          a.onclick = function(e) {
+            e.preventDefault();
+            const target = document.getElementById(err.fieldId);
+            if (target) target.focus();
+          };
+          li.appendChild(a);
+          list.appendChild(li);
+
+          const targetIds = err.fieldIds || [err.fieldId];
+          for (const id of targetIds) {
+            const input = document.getElementById(id);
+            if (input) input.setAttribute('aria-invalid', 'true');
+            const errEl = document.getElementById(id + '-error');
+            if (errEl) {
+              errEl.textContent = 'Error: ' + err.message;
+              errEl.style.display = 'block';
+            }
+          }
+        }
+        summary.style.display = 'block';
+        summary.focus();
+      }
+    }
+
     async function submitTask(e) {
       if (e && e.preventDefault) e.preventDefault();
+      clearFormErrors();
       const projEl = document.getElementById('form-project');
       const bodyEl = document.getElementById('form-body');
       const prioEl = document.getElementById('form-priority');
@@ -576,16 +686,23 @@
       const asset = assetEl ? assetEl.value.trim() : '';
       const customId = idEl ? idEl.value.trim() : '';
 
+      const errors = [];
       if (!proj || proj === '*') {
-        showError('Project name is required');
-        return;
+        errors.push({ fieldId: 'form-project', message: 'Project name is required' });
       }
       if (!body.trim() && !asset) {
-        showError('Either Body or Asset Path must be provided');
-        return;
+        errors.push({
+          fieldId: 'form-body',
+          fieldIds: ['form-body', 'form-asset'],
+          message: 'Either Body or Asset Path must be provided'
+        });
       }
       if (prio < 0) {
-        showError('Priority must be 0 or greater');
+        errors.push({ fieldId: 'form-priority', message: 'Priority must be 0 or greater' });
+      }
+
+      if (errors.length > 0) {
+        showFormErrors(errors);
         return;
       }
 
@@ -607,6 +724,7 @@
           if (bodyEl) bodyEl.value = '';
           if (assetEl) assetEl.value = '';
           if (idEl) idEl.value = '';
+          clearFormErrors();
           showError(null);
           await loadAll();
         }
