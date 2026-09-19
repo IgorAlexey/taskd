@@ -917,3 +917,39 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 		}
 	})
 }
+
+func TestGotoTopAndBottom(t *testing.T) {
+	u, _, _ := stub(t)
+	ts, err := u.fetch()
+	if err != nil || len(ts) != 3 {
+		t.Fatalf("fetch: %v %d", err, len(ts))
+	}
+	u.render(ts)
+
+	r, _ := u.table.GetSelection()
+	if r != 1 {
+		t.Fatalf("initial selection = %d, want 1", r)
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'G', 0))
+	r, _ = u.table.GetSelection()
+	if r != 3 {
+		t.Fatalf("after G selection = %d, want 3", r)
+	}
+	if sel, ok := u.selected(); !ok || sel.ID != "ccccccc3" {
+		t.Fatalf("after G selected task = %+v", sel)
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'g', 0))
+	r, _ = u.table.GetSelection()
+	if r != 1 {
+		t.Fatalf("after g selection = %d, want 1", r)
+	}
+	if sel, ok := u.selected(); !ok || sel.ID != "aaaaaaa1" {
+		t.Fatalf("after g selected task = %+v", sel)
+	}
+
+	u.shown = nil
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'g', 0))
+	u.keys(tcell.NewEventKey(tcell.KeyRune, 'G', 0))
+}

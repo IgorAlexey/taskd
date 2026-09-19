@@ -271,6 +271,14 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		return tcell.NewEventKey(tcell.KeyDown, 0, 0)
 	case 'k':
 		return tcell.NewEventKey(tcell.KeyUp, 0, 0)
+	case 'g':
+		if len(u.shown) > 0 {
+			u.table.Select(1, 0)
+		}
+	case 'G':
+		if len(u.shown) > 0 {
+			u.table.Select(len(u.shown), 0)
+		}
 	case '0', '1', '2', '3':
 		u.filter = []string{"", "pending", "leased", "done"}[ev.Rune()-'0']
 		u.render(u.all)
