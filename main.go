@@ -220,6 +220,14 @@ type taskItem struct {
 	Project      string          `json:"project"`
 }
 
+func (t *taskItem) normalize(now int64) {
+	if t.Status == "leased" && t.LeaseExpires < now {
+		t.Status = "pending"
+		t.Worker = ""
+		t.LeaseExpires = 0
+	}
+}
+
 func newHandler(db *sql.DB, lease int) http.Handler {
 	mux := http.NewServeMux()
 
@@ -378,10 +386,17 @@ WHERE id = (
 			}
 			offset = v
 		}
+		now := time.Now().Unix()
 		query := "SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project FROM tasks"
 		var where []string
 		var args []any
-		if status != "" {
+		if status == "pending" {
+			where = append(where, "(status = 'pending' OR (status = 'leased' AND lease_expires < ?))")
+			args = append(args, now)
+		} else if status == "leased" {
+			where = append(where, "(status = 'leased' AND lease_expires >= ?)")
+			args = append(args, now)
+		} else if status != "" {
 			where = append(where, "status = ?")
 			args = append(args, status)
 		}
@@ -424,6 +439,7 @@ WHERE id = (
 			item.Worker = worker.String
 			item.LeaseExpires = leaseExpires.Int64
 			item.Primitives = prim
+			item.normalize(now)
 			tasks = append(tasks, item)
 		}
 		if err := rows.Err(); err != nil {
@@ -455,6 +471,7 @@ WHERE id = (
 		item.Worker = worker.String
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
+		item.normalize(time.Now().Unix())
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)

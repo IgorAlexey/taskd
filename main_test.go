@@ -2362,3 +2362,117 @@ func TestListWorkerFilter(t *testing.T) {
 		t.Fatalf("expected 3 tasks in total, got %d", len(allTasks))
 	}
 }
+
+func TestExpiredLeasedTasksTreatedAsPending(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 1))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{"body": "expire-pending", "project": "exp-p"})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w1", "project": "exp-p"})
+	if code != http.StatusOK {
+		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=exp-p&status=pending", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks pending expected 200, got %d: %s", code, body)
+	}
+	var pendingBefore []taskItem
+	if err := json.Unmarshal(body, &pendingBefore); err != nil {
+		t.Fatalf("unmarshal pendingBefore failed: %v", err)
+	}
+	if len(pendingBefore) != 0 {
+		t.Fatalf("expected 0 pending tasks before expiration, got %d", len(pendingBefore))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=exp-p&status=leased", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks leased expected 200, got %d: %s", code, body)
+	}
+	var leasedBefore []taskItem
+	if err := json.Unmarshal(body, &leasedBefore); err != nil {
+		t.Fatalf("unmarshal leasedBefore failed: %v", err)
+	}
+	if len(leasedBefore) != 1 || leasedBefore[0].Worker != "w1" || leasedBefore[0].Status != "leased" {
+		t.Fatalf("expected 1 leased task before expiration, got %+v", leasedBefore)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} before expiration expected 200, got %d: %s", code, body)
+	}
+	var singleBefore taskItem
+	if err := json.Unmarshal(body, &singleBefore); err != nil {
+		t.Fatalf("unmarshal singleBefore failed: %v", err)
+	}
+	if singleBefore.Status != "leased" || singleBefore.Worker != "w1" || singleBefore.LeaseExpires == 0 {
+		t.Fatalf("expected leased status and worker w1 before expiration, got %+v", singleBefore)
+	}
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=exp-p&status=pending", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks pending expected 200, got %d: %s", code, body)
+	}
+	var pendingAfter []taskItem
+	if err := json.Unmarshal(body, &pendingAfter); err != nil {
+		t.Fatalf("unmarshal pendingAfter failed: %v", err)
+	}
+	if len(pendingAfter) != 1 || pendingAfter[0].ID != created.ID || pendingAfter[0].Status != "pending" || pendingAfter[0].Worker != "" || pendingAfter[0].LeaseExpires != 0 {
+		t.Fatalf("expected 1 pending task with cleared worker after expiration, got %+v", pendingAfter)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+created.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/{id} expected 200, got %d: %s", code, body)
+	}
+	var singleAfter taskItem
+	if err := json.Unmarshal(body, &singleAfter); err != nil {
+		t.Fatalf("unmarshal singleAfter failed: %v", err)
+	}
+	if singleAfter.Status != "pending" || singleAfter.Worker != "" || singleAfter.LeaseExpires != 0 {
+		t.Fatalf("expected pending status and empty worker on expired task, got %+v", singleAfter)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=exp-p&status=leased", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks leased expected 200, got %d: %s", code, body)
+	}
+	var leasedAfter []taskItem
+	if err := json.Unmarshal(body, &leasedAfter); err != nil {
+		t.Fatalf("unmarshal leasedAfter failed: %v", err)
+	}
+	if len(leasedAfter) != 0 {
+		t.Fatalf("expected 0 leased tasks after expiration, got %d", len(leasedAfter))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?project=exp-p", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks expected 200, got %d: %s", code, body)
+	}
+	var allAfter []taskItem
+	if err := json.Unmarshal(body, &allAfter); err != nil {
+		t.Fatalf("unmarshal allAfter failed: %v", err)
+	}
+	if len(allAfter) != 1 || allAfter[0].Status != "pending" || allAfter[0].Worker != "" || allAfter[0].LeaseExpires != 0 {
+		t.Fatalf("expected all tasks query to return pending status for expired task, got %+v", allAfter)
+	}
+}
