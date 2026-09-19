@@ -749,8 +749,10 @@
         const res = await fetch('/tasks/' + encodeURIComponent(id));
         if (id !== selectedTaskId) return;
         if (res.status === 404) {
+          selectedTaskId = null;
+          syncURL(false);
           showError(null);
-          pane.innerHTML = '<p style="color: var(--text-muted);">Task not found</p>';
+          resetTaskDetails();
           return;
         }
         if (!res.ok) throw new Error(await res.text() || res.statusText);

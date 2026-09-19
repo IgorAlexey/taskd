@@ -233,8 +233,8 @@ func TestWebUIURLState(t *testing.T) {
 	if got.OffPage.Pane != "details" {
 		t.Errorf("off-page pane = %q, want the task the server still has", got.OffPage.Pane)
 	}
-	if got.Missing.URL != "/ui?task=gone" || got.Missing.Pane != "notfound" {
-		t.Errorf("missing task = %+v, want the URL kept and the pane saying so",
+	if got.Missing.URL != "/ui" || got.Missing.Pane != "idle" || got.Missing.Task != "" {
+		t.Errorf("missing task = %+v, want the URL and pane cleared on 404",
 			got.Missing)
 	}
 
