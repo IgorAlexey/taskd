@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -37,6 +38,7 @@ type task struct {
 	ClaimCount   int             `json:"claim_count"`
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
+	searchText   string
 }
 
 var client = &http.Client{Timeout: 3 * time.Second}
@@ -74,6 +76,8 @@ type ui struct {
 	modal                 *tview.Modal
 	filter                string
 	project               string
+	searching             bool
+	query                 string
 	icons                 bool
 	worker                string
 	all                   []task
@@ -111,7 +115,13 @@ func (u *ui) fetch() ([]task, error) {
 		return nil, fmt.Errorf("GET /tasks: %s", resp.Status)
 	}
 	var ts []task
-	return ts, json.NewDecoder(resp.Body).Decode(&ts)
+	if err := json.NewDecoder(resp.Body).Decode(&ts); err != nil {
+		return nil, err
+	}
+	for i := range ts {
+		ts[i].searchText = strings.ToLower(ts[i].Body + "\x00" + ts[i].AssetPath + "\x00" + ts[i].Worker + "\x00" + ts[i].ID)
+	}
+	return ts, nil
 }
 
 func (u *ui) fetchProjects() ([]string, error) {
@@ -232,8 +242,17 @@ func lease(t task, now int64) string {
 // emptyState is the placeholder shown when no task is visible, so the
 // operator can tell an empty queue apart from a filter that hid every
 // task, and knows which key clears the filter that did it.
+func matchTask(t task, qLower string) bool {
+	if qLower == "" {
+		return true
+	}
+	return strings.Contains(t.searchText, qLower)
+}
+
 func (u *ui) emptyState() string {
 	switch {
+	case u.query != "":
+		return "No tasks match query. Press 'Esc' to clear."
 	case u.filter != "" && u.project != "":
 		return "No tasks match filter. Press '0' to clear filter, 'p' to cycle project."
 	case u.filter != "":
@@ -250,7 +269,12 @@ func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	u.all, u.shown = all, u.shown[:0]
 	u.pending, u.leased, u.done = 0, 0, 0
-	for _, t := range all {
+	qLower := strings.ToLower(u.query)
+	for i := range all {
+		if all[i].searchText == "" {
+			all[i].searchText = strings.ToLower(all[i].Body + "\x00" + all[i].AssetPath + "\x00" + all[i].Worker + "\x00" + all[i].ID)
+		}
+		t := all[i]
 		if u.project != "" && t.Project != u.project {
 			continue
 		}
@@ -262,7 +286,7 @@ func (u *ui) render(all []task) {
 		case "done":
 			u.done++
 		}
-		if u.filter == "" || t.Status == u.filter {
+		if (u.filter == "" || t.Status == u.filter) && matchTask(t, qLower) {
 			u.shown = append(u.shown, t)
 		}
 	}
@@ -296,6 +320,8 @@ func (u *ui) render(all []task) {
 		}
 	}
 	u.table.Select(row, 0)
+	u.showBody()
+	u.renderStatus()
 }
 
 func truncWidth(s string, maxWidth int) string {
@@ -333,8 +359,12 @@ func (u *ui) renderStatus() {
 	line1 := truncWidth(fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
 		cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done), statusCols-uniseg.StringWidth(idx)) + idx
 	line2 := " [j/k] move [0-3] filter [p] project [n] new [e] edit [+/-] pri [D] del [q] quit"
-	if u.msg != "" {
+	if u.searching {
+		line2 = truncWidth("/"+u.query, statusCols)
+	} else if u.msg != "" {
 		line2 = truncWidth(" "+u.msg, statusCols)
+	} else if u.query != "" {
+		line2 = truncWidth(fmt.Sprintf(" filter: %s  (press / to edit, Esc to clear)", u.query), statusCols)
 	}
 	u.status.SetText(line1 + "\n" + line2)
 }
@@ -612,8 +642,59 @@ func (u *ui) showHelp() {
 	u.app.SetFocus(m)
 }
 
+func deleteWord(s string) string {
+	s = strings.TrimRight(s, " ")
+	if i := strings.LastIndex(s, " "); i >= 0 {
+		return s[:i+1]
+	}
+	return ""
+}
+
 func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
+	if u.searching {
+		switch ev.Key() {
+		case tcell.KeyEscape:
+			u.searching = false
+			u.query = ""
+			u.render(u.all)
+			return nil
+		case tcell.KeyEnter:
+			u.searching = false
+			u.renderStatus()
+			return nil
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			if len(u.query) > 0 {
+				_, size := utf8.DecodeLastRuneInString(u.query)
+				u.query = u.query[:len(u.query)-size]
+				u.render(u.all)
+			}
+			return nil
+		case tcell.KeyCtrlU:
+			u.query = ""
+			u.render(u.all)
+			return nil
+		case tcell.KeyCtrlW:
+			u.query = deleteWord(u.query)
+			u.render(u.all)
+			return nil
+		case tcell.KeyRune:
+			if ev.Rune() != 0 {
+				u.query += string(ev.Rune())
+				u.render(u.all)
+			}
+			return nil
+		default:
+			return nil
+		}
+	}
+
 	switch ev.Key() {
+	case tcell.KeyEscape:
+		if u.query != "" {
+			u.query = ""
+			u.render(u.all)
+			return nil
+		}
 	case tcell.KeyTab, tcell.KeyBacktab:
 		u.app.SetFocus(u.body)
 		return nil
@@ -636,6 +717,10 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.app.Stop()
 	case '?':
 		u.showHelp()
+	case '/':
+		u.searching = true
+		u.renderStatus()
+		return nil
 	case 'j':
 		return tcell.NewEventKey(tcell.KeyDown, 0, 0)
 	case 'k':
@@ -794,6 +879,7 @@ Keyboard shortcuts:
   j, Down        Move selection down
   k, Up          Move selection up
   Tab, Backtab   Switch focus between task table and task body
+  /              Filter tasks by keyword
   0              Show all tasks
   1              Filter pending tasks
   2              Filter leased tasks
