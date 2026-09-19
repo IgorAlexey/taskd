@@ -4503,3 +4503,109 @@ func TestRejectReservedTaskID(t *testing.T) {
 		}
 	}
 }
+
+func TestListWorkerFilterHonoursExpiry(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 2))
+	defer srv.Close()
+
+	if code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"id":      "w1t",
+		"body":    "b",
+		"project": "p",
+	}); code != http.StatusCreated {
+		t.Fatalf("POST /tasks expected 201, got %d: %s", code, body)
+	}
+
+	// Before claim, worker= is w1t, worker=slot-3 is empty.
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?worker=slot-3", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=slot-3 expected 200, got %d: %s", code, body)
+	}
+	var tasks []taskItem
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks for slot-3 before claim, got %d", len(tasks))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker= expected 200, got %d: %s", code, body)
+	}
+	tasks = nil
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "w1t" {
+		t.Fatalf("expected [w1t] for worker=, got %+v", tasks)
+	}
+
+	// Claim with slot-3
+	if code, body := post(t, srv.URL+"/tasks/w1t/claim", map[string]string{
+		"worker": "slot-3",
+	}); code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	// While lease is live: ?worker=slot-3 returns w1t, ?worker= returns empty
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=slot-3", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=slot-3 expected 200, got %d: %s", code, body)
+	}
+	tasks = nil
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "w1t" || tasks[0].Worker != "slot-3" {
+		t.Fatalf("expected [w1t] for worker=slot-3 while leased, got %+v", tasks)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker= expected 200, got %d: %s", code, body)
+	}
+	tasks = nil
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks for worker= while leased, got %d", len(tasks))
+	}
+
+	// Expire lease
+	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = 'w1t'"); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	// After expiry: ?worker=slot-3 returns empty, ?worker= returns w1t
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=slot-3", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=slot-3 expected 200, got %d: %s", code, body)
+	}
+	tasks = nil
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 tasks for worker=slot-3 after expiry, got %+v", tasks)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker= expected 200, got %d: %s", code, body)
+	}
+	tasks = nil
+	if err := json.Unmarshal(body, &tasks); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "w1t" {
+		t.Fatalf("expected [w1t] for worker= after expiry, got %+v", tasks)
+	}
+}

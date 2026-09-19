@@ -353,6 +353,8 @@ type taskItem struct {
 func (t *taskItem) normalize(now int64) {
 	if t.Status == "leased" && t.LeaseExpires < now {
 		t.Status = "pending"
+	}
+	if t.Status == "pending" {
 		t.Worker = ""
 		t.LeaseExpires = 0
 	}
@@ -695,7 +697,6 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			return
 		}
 		project := q.Get("project")
-		worker := q.Get("worker")
 		var priorityFilter *int
 		if q.Has("priority") {
 			v, err := strconv.Atoi(q.Get("priority"))
@@ -741,9 +742,15 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			where = append(where, "project = ?")
 			args = append(args, project)
 		}
-		if worker != "" {
-			where = append(where, "worker = ?")
-			args = append(args, worker)
+		if q.Has("worker") {
+			worker := strings.TrimSpace(q.Get("worker"))
+			if worker != "" {
+				where = append(where, "worker = ? AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))")
+				args = append(args, worker, now)
+			} else {
+				where = append(where, "(status = 'pending' OR (status = 'leased' AND lease_expires < ?))")
+				args = append(args, now)
+			}
 		}
 		if priorityFilter != nil {
 			where = append(where, "priority = ?")
