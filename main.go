@@ -39,6 +39,20 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claim ON tasks (status, lease_expires);`
 	return db, nil
 }
 
+const maxBodyBytes = 1 << 20
+
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	var maxErr *http.MaxBytesError
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		if errors.As(err, &maxErr) {
+			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			return false
+		}
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
 func newHandler(db *sql.DB, lease int) http.Handler {
 	mux := http.NewServeMux()
 
@@ -47,11 +61,10 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 			ID        string `json:"id"`
 			AssetPath string `json:"asset_path"`
 		}
-		var maxErr *http.MaxBytesError
-		if err := json.NewDecoder(r.Body).Decode(&req); errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		if !decodeJSON(w, r, &req) {
 			return
-		} else if err != nil || req.AssetPath == "" {
+		}
+		if req.AssetPath == "" {
 			http.Error(w, "missing asset_path", http.StatusBadRequest)
 			return
 		}
@@ -82,11 +95,10 @@ func newHandler(db *sql.DB, lease int) http.Handler {
 		var req struct {
 			Worker string `json:"worker"`
 		}
-		var maxErr *http.MaxBytesError
-		if err := json.NewDecoder(r.Body).Decode(&req); errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		if !decodeJSON(w, r, &req) {
 			return
-		} else if err != nil || req.Worker == "" {
+		}
+		if req.Worker == "" {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
@@ -119,11 +131,10 @@ WHERE id = (
 			Worker     string          `json:"worker"`
 			Primitives json.RawMessage `json:"primitives"`
 		}
-		var maxErr *http.MaxBytesError
-		if err := json.NewDecoder(r.Body).Decode(&req); errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+		if !decodeJSON(w, r, &req) {
 			return
-		} else if err != nil || req.Worker == "" {
+		}
+		if req.Worker == "" {
 			http.Error(w, "missing worker", http.StatusBadRequest)
 			return
 		}
@@ -149,7 +160,7 @@ WHERE id = (
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 		mux.ServeHTTP(w, r)
 	})
 }
