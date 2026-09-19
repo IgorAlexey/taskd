@@ -499,7 +499,7 @@ WHERE id = (
 		}
 		res, err := db.Exec(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path)
-WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
+WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
 			req.Body, req.Priority, req.Project, req.AssetPath, r.PathValue("id"))
 		if err != nil {
 			internalError(w, err)
@@ -511,14 +511,18 @@ WHERE id = ? AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
 			return
 		}
 		if n == 0 {
-			var exists int
-			err := db.QueryRow("SELECT 1 FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&exists)
+			var status string
+			err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&status)
 			if errors.Is(err, sql.ErrNoRows) {
 				http.Error(w, "task not found", http.StatusNotFound)
 				return
 			}
 			if err != nil {
 				internalError(w, err)
+				return
+			}
+			if status == "done" {
+				http.Error(w, "task is done", http.StatusConflict)
 				return
 			}
 			http.Error(w, "task is leased", http.StatusConflict)

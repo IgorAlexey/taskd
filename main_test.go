@@ -908,16 +908,16 @@ func TestPatchLeasedTask(t *testing.T) {
 	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
 		"body": "mutated after done",
 	})
-	if code != http.StatusNoContent {
-		t.Fatalf("PATCH on done task expected 204, got %d: %s", code, body)
+	if code != http.StatusConflict {
+		t.Fatalf("PATCH on done task expected 409, got %d: %s", code, body)
 	}
 
 	err = db.QueryRow("SELECT body FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
-	if bodyVal != "mutated after done" {
-		t.Fatalf("expected body %q, got %q", "mutated after done", bodyVal)
+	if bodyVal != "orig" {
+		t.Fatalf("expected body %q, got %q", "orig", bodyVal)
 	}
 
 	code, body = post(t, srv.URL+"/tasks", map[string]any{
@@ -2129,5 +2129,85 @@ func TestOpenDBHashPath(t *testing.T) {
 	}
 	if err := qDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("query tasks with question mark failed: %v", err)
+	}
+}
+
+func TestPatchDoneTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":     "initial",
+		"priority": 2,
+		"project":  "p-patch",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create failed: %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "p-patch",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+res.ID+"/done", map[string]any{
+		"worker": "w1",
+		"primitives": map[string]string{
+			"result": "finished",
+		},
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("done failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"body": "corrupted",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("PATCH body on done task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodPatch, srv.URL+"/tasks/"+res.ID, map[string]any{
+		"priority": 10,
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("PATCH priority on done task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET on done task expected 200, got %d: %s", code, body)
+	}
+	var check struct {
+		Body     string `json:"body"`
+		Priority int    `json:"priority"`
+		Status   string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &check); err != nil {
+		t.Fatalf("unmarshal GET task failed: %v", err)
+	}
+	if check.Body != "initial" {
+		t.Fatalf("expected body %q, got %q", "initial", check.Body)
+	}
+	if check.Priority != 2 {
+		t.Fatalf("expected priority 2, got %d", check.Priority)
+	}
+	if check.Status != "done" {
+		t.Fatalf("expected status done, got %q", check.Status)
 	}
 }
