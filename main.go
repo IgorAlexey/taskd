@@ -350,6 +350,18 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
+type queryContextKey struct{}
+
+func requestQuery(r *http.Request) url.Values {
+	if q, ok := r.Context().Value(queryContextKey{}).(url.Values); ok {
+		return q
+	}
+	if r.URL.RawQuery == "" {
+		return url.Values{}
+	}
+	return r.URL.Query()
+}
+
 func internalError(w http.ResponseWriter, err error) {
 	log.Print(err)
 	http.Error(w, "internal error", http.StatusInternalServerError)
@@ -596,7 +608,7 @@ func newHandlerWithCORS(db *sql.DB, lease int, corsOrigin string) http.Handler {
 	})
 	mux.HandleFunc("GET /ui", uiHandler)
 	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, r *http.Request) {
-		project := r.URL.Query().Get("project")
+		project := requestQuery(r).Get("project")
 		now := time.Now().Unix()
 		query := `SELECT
   COUNT(CASE WHEN status = 'pending' OR (status = 'leased' AND lease_expires < ?) THEN 1 END),
@@ -808,10 +820,6 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /tasks/{id}/close", func(w http.ResponseWriter, r *http.Request) {
-		for k := range r.URL.Query() {
-			http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
-			return
-		}
 		var buf [1]byte
 		n, err := r.Body.Read(buf[:])
 		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
@@ -891,15 +899,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	})
 
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		for k := range q {
-			switch k {
-			case "status", "project", "worker", "priority", "limit", "offset", "asset_path", "q":
-			default:
-				http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
-				return
-			}
-		}
+		q := requestQuery(r)
 		status := q.Get("status")
 		if q.Has("status") && status != "pending" && status != "leased" && status != "done" {
 			http.Error(w, "invalid status", http.StatusBadRequest)
@@ -1223,7 +1223,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			http.Error(w, "task is leased", http.StatusConflict)
 			return
 		}
-		f := r.URL.Query().Get("force")
+		f := requestQuery(r).Get("force")
 		force := f == "1" || f == "true"
 		if status == "done" && !force {
 			http.Error(w, "task is done", http.StatusConflict)
@@ -1272,6 +1272,37 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 					redirectWithQuery(w, r, target, http.StatusPermanentRedirect)
 					return
 				}
+			}
+		}
+		if r.URL.RawQuery != "" {
+			_, pattern := mux.Handler(r)
+			if pattern != "" && pattern != "GET /{$}" && pattern != "GET /ui" {
+				q, err := url.ParseQuery(r.URL.RawQuery)
+				if err != nil {
+					http.Error(w, fmt.Sprintf("invalid query string: %v", err), http.StatusBadRequest)
+					return
+				}
+				var allowed []string
+				switch pattern {
+				case "GET /stats":
+					allowed = []string{"project"}
+				case "GET /tasks":
+					allowed = []string{"status", "project", "worker", "priority", "limit", "offset", "asset_path", "q"}
+				case "DELETE /tasks/{id}":
+					allowed = []string{"force"}
+				}
+				keys := make([]string, 0, len(q))
+				for k := range q {
+					keys = append(keys, k)
+				}
+				slices.Sort(keys)
+				for _, k := range keys {
+					if !slices.Contains(allowed, k) {
+						http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
+						return
+					}
+				}
+				r = r.WithContext(context.WithValue(r.Context(), queryContextKey{}, q))
 			}
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
