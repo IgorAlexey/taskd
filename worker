@@ -163,7 +163,7 @@ if [ "$#" -ge 7 ] && [ "$1" = "--run-locked" ]; then
             continue
         fi
 
-        if grep -qE "IDLE:|CLEAN:" "$runlog" 2>/dev/null; then
+        if grep -qE "^(IDLE|CLEAN):" "$runlog" 2>/dev/null; then
             echo "Nothing to do. Sleeping 60s..."
             idle_sleep 60
         else
