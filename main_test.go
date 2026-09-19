@@ -3758,3 +3758,70 @@ func TestClaimResponseFields(t *testing.T) {
 		t.Fatalf("claimed lease_expires %d <= %d", claimed.LeaseExpires, before)
 	}
 }
+
+func TestDoneNotFoundVsConflict(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 60))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks/nonexistent-id/done", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusNotFound {
+		t.Fatalf("done nonexistent task expected 404, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]any{
+		"asset_path": "a.blend",
+		"project":    "proj",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("unmarshal created task: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("done unleased task expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]any{
+		"worker":  "w1",
+		"project": "proj",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim task failed: %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker": "w2",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("done task with wrong worker expected 409, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusNoContent {
+		t.Fatalf("done task with right worker expected 204, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/done", map[string]any{
+		"worker": "w1",
+	})
+	if code != http.StatusConflict {
+		t.Fatalf("done already-done task expected 409, got %d: %s", code, body)
+	}
+}

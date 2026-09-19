@@ -507,7 +507,17 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			return
 		}
 		if n == 0 {
-			http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+			var exists int
+			err := db.QueryRow("SELECT 1 FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&exists)
+			if errors.Is(err, sql.ErrNoRows) {
+				http.Error(w, "task not found", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			http.Error(w, "task not leased by worker", http.StatusConflict)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
