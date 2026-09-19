@@ -1,11 +1,16 @@
-# taskd
+<h1 align="center">taskd</h1>
 
-the task tracker for the modern era.
+<p align="center">
+  <strong>the task tracker for the modern era.</strong>
+  <br>
+  <strong><a href="https://igoralexey.com/taskd">igoralexey.com/taskd</a></strong>
+</p>
+
 
 taskd is an unapologetically simple, single-binary daemon backed by SQLite
 in WAL mode with atomic leases.
 
-It doesn't care if your workers are five
+taskd doesn't care if your workers are five
 local git worktrees, fifty servers on a LAN, or actual humans. 
 
 A worker claims a task, holds a lease, and either finishes or lets it expire.
