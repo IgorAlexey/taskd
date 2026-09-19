@@ -445,6 +445,8 @@
     let refreshTimer = null;
     let shownTaskId = null;
     let shownTaskRaw = '';
+    let currentTask = null;
+    let isEditingTask = false;
     // The project filter, the status filter and the selected task are the
     // state a reader can see, so they live in the URL: a link reproduces
     // the view and a reload keeps it. Filters replace the history entry,
@@ -599,6 +601,8 @@
     function resetTaskDetails() {
       shownTaskId = null;
       shownTaskRaw = '';
+      currentTask = null;
+      isEditingTask = false;
       const pane = document.getElementById('task-details-content');
       if (pane) {
         pane.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>';
@@ -737,6 +741,7 @@
 
     function selectTask(id) {
       if (!id) return;
+      if (selectedTaskId !== id) isEditingTask = false;
       selectedTaskId = id;
       syncURL(true);
       const tbody = document.getElementById('task-table-body');
@@ -756,10 +761,12 @@
         if (tr) selectTask(tr.dataset.taskId);
       });
     }
-
     async function loadTaskDetails(id) {
       if (!id) {
         resetTaskDetails();
+        return;
+      }
+      if (isEditingTask && currentTask && currentTask.id === id) {
         return;
       }
       const pane = document.getElementById('task-details-content');
@@ -791,6 +798,13 @@
         return;
       }
       if (id !== selectedTaskId) return;
+      currentTask = t;
+      renderTaskDetails(t, sameTask);
+    }
+
+    function renderTaskDetails(t, sameTask) {
+      const pane = document.getElementById('task-details-content');
+      if (!pane || !t) return;
       let primStr = '';
       if (t.primitives !== null && t.primitives !== undefined) {
         if (typeof t.primitives === 'string') {
@@ -812,6 +826,55 @@
         }
       }
       const prevScrollTop = sameTask ? pane.scrollTop : 0;
+      if (isEditingTask && t.status !== 'done') {
+        pane.innerHTML = `
+          <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
+          <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
+          <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
+          <div class="field">
+            <label for="edit-task-priority" class="field-label">Priority</label>
+            <input type="number" id="edit-task-priority" value="${escapeHTML(String(t.priority ?? ''))}">
+          </div>
+          <div class="field"><span class="field-label">Claim Count</span><span>${escapeHTML(String(t.claim_count ?? 0))}</span></div>
+          ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
+          ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
+          ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
+          <div class="field">
+            <label for="edit-task-body" class="field-label">Body</label>
+            <textarea id="edit-task-body">${escapeHTML(t.body || '')}</textarea>
+          </div>
+          ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button type="button" id="save-task-btn" class="primary" onclick="saveTaskEdit()">Save</button>
+            <button type="button" id="cancel-task-btn" onclick="cancelTaskEdit()">Cancel</button>
+          </div>
+        `;
+        const prioInput = document.getElementById('edit-task-priority');
+        const bodyInput = document.getElementById('edit-task-body');
+        const onKeyDown = function(e) {
+          if (e.key === 'Escape') cancelTaskEdit();
+        };
+        if (prioInput) {
+          prioInput.addEventListener('keydown', onKeyDown);
+          prioInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              saveTaskEdit();
+            }
+          });
+        }
+        if (bodyInput) {
+          bodyInput.addEventListener('keydown', onKeyDown);
+          bodyInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault();
+              saveTaskEdit();
+            }
+          });
+          bodyInput.focus();
+        }
+        return;
+      }
       pane.innerHTML = `
         <div class="field"><span class="field-label">ID</span><span class="mono">${escapeHTML(t.id || '')}</span></div>
         <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
@@ -824,6 +887,7 @@
         <div class="field"><span class="field-label">Body</span><pre>${escapeHTML(t.body || '')}</pre></div>
         ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
         <div class="task-actions">
+          ${t.status !== 'done' ? '<button type="button" id="edit-task-btn" onclick="toggleTaskEdit()">Edit Task</button>' : ''}
           ${t.status === 'leased' ? `
             <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
             <button type="button" id="release-task-btn">Release Task</button>
@@ -888,6 +952,67 @@
         await finishTaskAction();
       } catch (_) {}
 
+    }
+
+    function toggleTaskEdit() {
+      if (!currentTask || currentTask.status === 'done') return;
+      isEditingTask = !isEditingTask;
+      renderTaskDetails(currentTask, true);
+    }
+
+    function cancelTaskEdit() {
+      isEditingTask = false;
+      renderTaskDetails(currentTask, true);
+    }
+
+    async function saveTaskEdit() {
+      if (!currentTask || currentTask.status === 'done') return;
+      const bodyInput = document.getElementById('edit-task-body');
+      const prioInput = document.getElementById('edit-task-priority');
+      const body = bodyInput ? bodyInput.value : (currentTask.body || '');
+      const prioText = prioInput ? prioInput.value.trim() : '';
+      if (prioText === '') {
+        showError('Priority must be specified');
+        return;
+      }
+      const priority = parseInt(prioText, 10);
+      if (!Number.isInteger(priority) || priority < 0) {
+        showError('Priority must be a whole number, 0 or greater');
+        return;
+      }
+      if (body.trim() === '' && !currentTask.asset_path) {
+        showError('Either Body or Asset Path must be provided');
+        return;
+      }
+      const saveBtn = document.getElementById('save-task-btn');
+      const cancelBtn = document.getElementById('cancel-task-btn');
+      if (saveBtn) saveBtn.disabled = true;
+      if (cancelBtn) cancelBtn.disabled = true;
+      const payload = {
+        body: body,
+        priority: priority
+      };
+      try {
+        const res = await fetch('/tasks/' + encodeURIComponent(currentTask.id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || res.statusText || ('HTTP ' + res.status));
+        }
+        showError(null);
+        isEditingTask = false;
+        shownTaskRaw = '';
+        await loadTaskDetails(currentTask.id);
+        await loadTasks();
+        await loadStats();
+      } catch (err) {
+        if (saveBtn) saveBtn.disabled = false;
+        if (cancelBtn) cancelBtn.disabled = false;
+        showError(err.message);
+      }
     }
 
     function clearFormErrors() {
