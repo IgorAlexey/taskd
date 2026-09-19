@@ -3547,3 +3547,60 @@ func TestTouchTask(t *testing.T) {
 		t.Fatalf("touch expired task expected 409, got %d: %s", code, body)
 	}
 }
+
+func TestCORS(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	req, err := http.NewRequest(http.MethodOptions, srv.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("options request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("options expected 204, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("options expected Access-Control-Allow-Origin: *, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, POST, PATCH, DELETE, OPTIONS" {
+		t.Fatalf("options expected Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); got != "Content-Type" {
+		t.Fatalf("options expected Access-Control-Allow-Headers: Content-Type, got %q", got)
+	}
+
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get expected 200, got %d", resp.StatusCode)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "*" {
+		t.Fatalf("get expected Access-Control-Allow-Origin: *, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Methods"); got != "GET, POST, PATCH, DELETE, OPTIONS" {
+		t.Fatalf("get expected Access-Control-Allow-Methods: GET, POST, PATCH, DELETE, OPTIONS, got %q", got)
+	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); got != "Content-Type" {
+		t.Fatalf("get expected Access-Control-Allow-Headers: Content-Type, got %q", got)
+	}
+}
