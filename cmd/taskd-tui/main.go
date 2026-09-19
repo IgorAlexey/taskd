@@ -514,7 +514,7 @@ func (u *ui) showDeleteConfirm(t task) {
 	}
 	m := tview.NewModal()
 	m.SetText(fmt.Sprintf("Delete task %s?\nDeleted tasks cannot be recovered.", tview.Escape(name)))
-	m.AddButtons([]string{"Delete", "Cancel"})
+	m.AddButtons([]string{"Delete", "Cancel"}).SetFocus(1)
 	close := func() {
 		u.modal = nil
 		u.pages.RemovePage("delete")

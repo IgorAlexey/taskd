@@ -712,6 +712,7 @@ func TestDeleteConfirm(t *testing.T) {
 	})
 
 	u.app.QueueUpdateDraw(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyLeft, 0, 0), nil)
 		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
@@ -760,6 +761,7 @@ func TestDeleteConfirm(t *testing.T) {
 	})
 
 	u.app.QueueUpdateDraw(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyLeft, 0, 0), nil)
 		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
@@ -1327,6 +1329,7 @@ func TestTUIStatusLayout(t *testing.T) {
 		return modal != nil
 	})
 	query(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyLeft, 0, 0), nil)
 		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 
@@ -1358,6 +1361,7 @@ func TestTUIStatusLayout(t *testing.T) {
 		return modal != nil
 	})
 	query(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyLeft, 0, 0), nil)
 		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 	eventually(t, func() bool {
