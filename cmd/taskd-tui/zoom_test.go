@@ -193,16 +193,16 @@ func TestZoomTaskBody(t *testing.T) {
 	pressKey(tcell.KeyPgDn)
 
 	eventually(t, func() bool {
-		var seenLastLine bool
+		var scrolled bool
 		query(func() {
 			for _, line := range screenLines(sim, 80, 24) {
-				if strings.Contains(line, "last line 39") {
-					seenLastLine = true
+				if strings.Contains(line, "Paragraph 10") {
+					scrolled = true
 					break
 				}
 			}
 		})
-		return seenLastLine
+		return scrolled
 	})
 
 	pressBodyRune('z')

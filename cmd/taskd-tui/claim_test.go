@@ -216,22 +216,22 @@ func TestClaimCountDisplay(t *testing.T) {
 	u.table.Select(1, 0)
 	u.showBody()
 	body0 := u.body.GetText(true)
-	if !strings.Contains(body0, "Claims:  0") {
-		t.Fatalf("expected Claims:  0 in detail pane, got: %q", body0)
+	if !strings.Contains(body0, "Claims:    0") {
+		t.Fatalf("expected Claims:    0 in detail pane, got: %q", body0)
 	}
 
 	u.table.Select(2, 0)
 	u.showBody()
 	body1 := u.body.GetText(true)
-	if !strings.Contains(body1, "Claims:  1") {
-		t.Fatalf("expected Claims:  1 in detail pane, got: %q", body1)
+	if !strings.Contains(body1, "Claims:    1") {
+		t.Fatalf("expected Claims:    1 in detail pane, got: %q", body1)
 	}
 
 	u.table.Select(3, 0)
 	u.showBody()
 	body5 := u.body.GetText(true)
-	if !strings.Contains(body5, "Claims:  5") {
-		t.Fatalf("expected Claims:  5 in detail pane, got: %q", body5)
+	if !strings.Contains(body5, "Claims:    5") {
+		t.Fatalf("expected Claims:    5 in detail pane, got: %q", body5)
 	}
 }
 

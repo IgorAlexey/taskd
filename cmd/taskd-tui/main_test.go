@@ -2563,6 +2563,11 @@ func TestRefreshSurfacesProjectsError(t *testing.T) {
 }
 
 func TestShowBodyMetadata(t *testing.T) {
+	origNow := nowUnix
+	fixedNow := int64(1000000000)
+	nowUnix = func() int64 { return fixedNow }
+	defer func() { nowUnix = origNow }()
+
 	u, _, _ := stub(t)
 	ts, err := u.fetch()
 	if err != nil || len(ts) != 3 {
@@ -2573,9 +2578,10 @@ func TestShowBodyMetadata(t *testing.T) {
 
 	text := u.body.GetText(true)
 	for _, want := range []string{
-		"ID:      b5c58809d37082e304d2232cdce6b436",
-		"Project: proj-b",
-		"Status:  pending",
+		"ID:        b5c58809d37082e304d2232cdce6b436",
+		"Project:   proj-b",
+		"Status:    pending",
+		"Priority:  2",
 		"first task",
 	} {
 		if !strings.Contains(text, want) {
@@ -2584,6 +2590,9 @@ func TestShowBodyMetadata(t *testing.T) {
 	}
 	if strings.Contains(text, "Worker:") {
 		t.Fatalf("pending task must not show worker line: %q", text)
+	}
+	if strings.Contains(text, "Lease:") {
+		t.Fatalf("pending task must not show lease line: %q", text)
 	}
 	if strings.Contains(text, "Asset:") {
 		t.Fatalf("task without asset must not show asset line: %q", text)
@@ -2601,11 +2610,18 @@ func TestShowBodyMetadata(t *testing.T) {
 
 	u.table.Select(2, 0)
 	text = u.body.GetText(true)
-	if !strings.Contains(text, "Worker:  w1") {
+	if !strings.Contains(text, "Worker:    w1") {
 		t.Fatalf("leased task missing worker line: %q", text)
 	}
-	if !strings.Contains(text, "Status:  leased") {
+	if !strings.Contains(text, "Status:    leased") {
 		t.Fatalf("leased task missing status line: %q", text)
+	}
+	if !strings.Contains(text, "Priority:  1") {
+		t.Fatalf("leased task missing priority line: %q", text)
+	}
+	wantLease := lease(ts[1], fixedNow)
+	if !strings.Contains(text, "Lease:     "+wantLease) {
+		t.Fatalf("leased task missing lease line %q: %q", "Lease:     "+wantLease, text)
 	}
 
 	u.table.Select(3, 0)
@@ -2613,8 +2629,14 @@ func TestShowBodyMetadata(t *testing.T) {
 	if !strings.Contains(text, `result: {"commit":"x"}`) {
 		t.Fatalf("done task missing result: %q", text)
 	}
-	if !strings.Contains(text, "ID:      ccccccc3") {
+	if !strings.Contains(text, "ID:        ccccccc3") {
 		t.Fatalf("done task missing id line: %q", text)
+	}
+	if !strings.Contains(text, "Priority:  0") {
+		t.Fatalf("done task missing priority line: %q", text)
+	}
+	if strings.Contains(text, "Lease:") {
+		t.Fatalf("done task must not show lease line: %q", text)
 	}
 
 	u.shown = nil
@@ -2634,10 +2656,10 @@ func TestShowBodyAssetPath(t *testing.T) {
 	}})
 
 	text := u.body.GetText(true)
-	if !strings.Contains(text, "Asset:   models/car.glb") {
+	if !strings.Contains(text, "Asset:     models/car.glb") {
 		t.Fatalf("detail pane missing asset line: %q", text)
 	}
-	if !strings.Contains(text, "ID:      ddddddd4") {
+	if !strings.Contains(text, "ID:        ddddddd4") {
 		t.Fatalf("detail pane missing id line: %q", text)
 	}
 	if strings.TrimSpace(text) == "" {

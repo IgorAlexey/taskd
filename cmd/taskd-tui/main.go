@@ -49,6 +49,7 @@ var (
 	copyToClipboard           = defaultCopyToClipboard
 	clipboardOut    io.Writer = os.Stderr
 	gitCheckoutName           = defaultGitCheckoutName
+	nowUnix                   = func() int64 { return time.Now().Unix() }
 )
 
 func defaultGitCheckoutName() string {
@@ -560,17 +561,21 @@ func (u *ui) setMsg(msg string) {
 	}
 }
 
-func metaHeader(t task) string {
+func metaHeader(t task, now int64) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ID:      %s\n", t.ID)
-	fmt.Fprintf(&b, "Project: %s\n", t.Project)
-	fmt.Fprintf(&b, "Status:  %s\n", t.Status)
-	fmt.Fprintf(&b, "Claims:  %d\n", t.ClaimCount)
+	fmt.Fprintf(&b, "ID:        %s\n", t.ID)
+	fmt.Fprintf(&b, "Project:   %s\n", t.Project)
+	fmt.Fprintf(&b, "Status:    %s\n", t.Status)
+	fmt.Fprintf(&b, "Priority:  %d\n", t.Priority)
+	fmt.Fprintf(&b, "Claims:    %d\n", t.ClaimCount)
 	if t.Worker != "" {
-		fmt.Fprintf(&b, "Worker:  %s\n", t.Worker)
+		fmt.Fprintf(&b, "Worker:    %s\n", t.Worker)
+	}
+	if t.Status == "leased" {
+		fmt.Fprintf(&b, "Lease:     %s\n", lease(t, now))
 	}
 	if t.AssetPath != "" {
-		fmt.Fprintf(&b, "Asset:   %s\n", t.AssetPath)
+		fmt.Fprintf(&b, "Asset:     %s\n", t.AssetPath)
 	}
 	return b.String()
 }
@@ -585,7 +590,7 @@ func (u *ui) showBody() {
 		if text != "" {
 			text = strings.Repeat("-", 60) + "\n" + text
 		}
-		id, text = t.ID, metaHeader(t)+text
+		id, text = t.ID, metaHeader(t, nowUnix())+text
 	} else {
 		text = u.emptyState()
 	}
