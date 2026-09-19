@@ -427,6 +427,31 @@ WHERE id = (
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
 	})
+	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+		rows, err := db.Query("SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC")
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer rows.Close()
+
+		projects := make([]string, 0)
+		for rows.Next() {
+			var p string
+			if err := rows.Scan(&p); err != nil {
+				internalError(w, err)
+				return
+			}
+			projects = append(projects, p)
+		}
+		if err := rows.Err(); err != nil {
+			internalError(w, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(projects)
+	})
 	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Body     *string `json:"body"`

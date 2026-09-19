@@ -1835,3 +1835,61 @@ func TestDeleteDoneTaskRequiresForce(t *testing.T) {
 		t.Fatalf("GET after forced delete expected 404, got %d: %s", code, body)
 	}
 }
+
+func TestProjects(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := do(t, http.MethodGet, srv.URL+"/projects", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /projects on empty db expected 200, got %d: %s", code, body)
+	}
+	if strings.TrimSpace(string(body)) != "[]" {
+		t.Fatalf("GET /projects on empty db expected [], got %q", string(body))
+	}
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{"body": "t1", "project": "beta"})
+	if code != http.StatusCreated {
+		t.Fatalf("create t1 failed: %d: %s", code, body)
+	}
+	code, body = post(t, srv.URL+"/tasks", map[string]string{"body": "t2", "project": "alpha"})
+	if code != http.StatusCreated {
+		t.Fatalf("create t2 failed: %d: %s", code, body)
+	}
+	code, body = post(t, srv.URL+"/tasks", map[string]string{"body": "t3", "project": "alpha"})
+	if code != http.StatusCreated {
+		t.Fatalf("create t3 failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/projects", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /projects expected 200, got %d: %s", code, body)
+	}
+	var projects []string
+	if err := json.Unmarshal(body, &projects); err != nil {
+		t.Fatalf("unmarshal projects failed: %v", err)
+	}
+	if len(projects) != 2 || projects[0] != "alpha" || projects[1] != "beta" {
+		t.Fatalf("expected [alpha beta], got %v", projects)
+	}
+
+	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('raw1', 'empty proj', '')"); err != nil {
+		t.Fatalf("insert empty project task failed: %v", err)
+	}
+	code, body = do(t, http.MethodGet, srv.URL+"/projects", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /projects expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &projects); err != nil {
+		t.Fatalf("unmarshal projects failed: %v", err)
+	}
+	if len(projects) != 2 || projects[0] != "alpha" || projects[1] != "beta" {
+		t.Fatalf("expected [alpha beta], got %v", projects)
+	}
+}
