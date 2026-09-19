@@ -348,11 +348,11 @@
       </div>
       <div class="filter-bar" role="group" aria-label="Task filters">
         <label for="filter-project" style="color: var(--text-muted); font-size: 12px;">Project:</label>
-        <select id="filter-project" onchange="loadTasks()">
+        <select id="filter-project" onchange="onFilterChange()">
           <option value="">(all)</option>
         </select>
         <label for="filter-status" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Status:</label>
-        <select id="filter-status" onchange="loadTasks()">
+        <select id="filter-status" onchange="onFilterChange()">
           <option value="">(all)</option>
           <option value="pending">Pending</option>
           <option value="leased">Leased</option>
@@ -427,8 +427,93 @@
   </main>
 
   <script>
-    let selectedTaskId = null;
+    let uiState = { project: '', status: '', task: '' };
     let refreshTimer = null;
+
+    // --- begin pure url-state helpers ---
+    const TASK_STATUSES = ['pending', 'leased', 'done'];
+
+    function searchToState(search) {
+      const params = new URLSearchParams(search || '');
+      const status = params.get('status') || '';
+      return {
+        project: params.get('project') || '',
+        status: TASK_STATUSES.includes(status) ? status : '',
+        task: params.get('task') || '',
+      };
+    }
+
+    function stateToSearch(state) {
+      const s = state || {};
+      const params = new URLSearchParams();
+      if (s.project) params.set('project', s.project);
+      if (s.status) params.set('status', s.status);
+      if (s.task) params.set('task', s.task);
+      const q = params.toString();
+      return q ? '?' + q : '';
+    }
+    // --- end pure url-state helpers ---
+
+    function readURLState() {
+      return searchToState(location.search);
+    }
+
+    function ensureProjectOption(select, value) {
+      if (!select || !value) return;
+      for (const opt of select.options) {
+        if (opt.value === value) return;
+      }
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value;
+      select.appendChild(opt);
+    }
+
+    function renderURLState() {
+      const projEl = document.getElementById('filter-project');
+      if (projEl) {
+        ensureProjectOption(projEl, uiState.project);
+        projEl.value = uiState.project;
+      }
+      const statusEl = document.getElementById('filter-status');
+      if (statusEl) statusEl.value = uiState.status;
+      const tbody = document.getElementById('task-table-body');
+      if (!tbody) return;
+      for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
+        const sel = tr.dataset.taskId === uiState.task ? 'true' : 'false';
+        if (tr.getAttribute('aria-selected') !== sel) tr.setAttribute('aria-selected', sel);
+      }
+    }
+
+    function setURLState(next, push) {
+      const n = next || {};
+      const status = n.status ? String(n.status) : '';
+      uiState = {
+        project: n.project ? String(n.project) : '',
+        status: TASK_STATUSES.includes(status) ? status : '',
+        task: n.task ? String(n.task) : '',
+      };
+      const url = location.pathname + stateToSearch(uiState) + location.hash;
+      if (url !== location.pathname + location.search + location.hash) {
+        if (push) {
+          history.pushState({}, '', url);
+        } else {
+          history.replaceState({}, '', url);
+        }
+      }
+      renderURLState();
+    }
+
+    function onFilterChange() {
+      const projEl = document.getElementById('filter-project');
+      const statusEl = document.getElementById('filter-status');
+      setURLState({
+        project: projEl ? projEl.value : '',
+        status: statusEl ? statusEl.value : '',
+        task: uiState.task,
+      }, false);
+      loadTasks();
+    }
 
     function showError(msg) {
       const b = document.getElementById('error-banner');
@@ -441,10 +526,13 @@
       b.style.display = 'block';
     }
 
-    async function fetchJSON(url, opts) {
+    async function fetchJSON(url, opts, cfg) {
       try {
         const res = await fetch(url, opts);
         if (!res.ok) {
+          if (cfg && cfg.notFoundOk && res.status === 404) {
+            return null;
+          }
           const txt = await res.text();
           throw new Error(txt || res.statusText || ('HTTP ' + res.status));
         }
@@ -467,25 +555,27 @@
         const projects = await fetchJSON('/projects');
         const select = document.getElementById('filter-project');
         if (!select) return;
-        const current = select.value;
         select.innerHTML = '<option value="">(all)</option>';
-        if (Array.isArray(projects)) {
-          for (const p of projects) {
-            const opt = document.createElement('option');
-            opt.value = p;
-            opt.textContent = p;
-            select.appendChild(opt);
-          }
+        const known = Array.isArray(projects) ? projects.map(String) : [];
+        for (const p of known) {
+          const opt = document.createElement('option');
+          opt.value = p;
+          opt.textContent = p;
+          select.appendChild(opt);
         }
-        select.value = current;
+        if (uiState.project && !known.includes(uiState.project)) {
+          setURLState({ ...uiState, project: '' }, false);
+          loadTasks();
+          return;
+        }
+        renderURLState();
       } catch (e) {
         console.error('Failed to load projects:', e);
       }
     }
 
     async function loadStats() {
-      const select = document.getElementById('filter-project');
-      const proj = select ? select.value : '';
+      const proj = uiState.project;
       let url = '/stats';
       if (proj) url += '?project=' + encodeURIComponent(proj);
       try {
@@ -525,11 +615,11 @@
       };
     }
 
-    function createRow(t, isSelected) {
+    function createRow(t) {
       const f = rowFields(t);
       const tr = document.createElement('tr');
       tr.dataset.taskId = f.id;
-      tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+      tr.setAttribute('aria-selected', 'false');
       tr.innerHTML = `
         <th scope="row" class="mono"><button type="button" class="row-select" title="${escapeHTML(f.id)}">${escapeHTML(f.shortId)}</button></th>
         <td data-field="project">${escapeHTML(f.project)}</td>
@@ -545,12 +635,8 @@
       if (el && el.textContent !== text) el.textContent = text;
     }
 
-    function updateRow(tr, t, isSelected) {
+    function updateRow(tr, t) {
       const f = rowFields(t);
-      const selStr = isSelected ? 'true' : 'false';
-      if (tr.getAttribute('aria-selected') !== selStr) {
-        tr.setAttribute('aria-selected', selStr);
-      }
       setText(tr.querySelector('[data-field="project"]'), f.project);
       setText(tr.querySelector('[data-field="priority"]'), f.priority);
       setText(tr.querySelector('[data-field="worker"]'), f.worker);
@@ -563,10 +649,8 @@
     }
 
     async function loadTasks() {
-      const projEl = document.getElementById('filter-project');
-      const statusEl = document.getElementById('filter-status');
-      const proj = projEl ? projEl.value : '';
-      const status = statusEl ? statusEl.value : '';
+      const proj = uiState.project;
+      const status = uiState.status;
       let url = '/tasks?limit=200';
       if (proj) url += '&project=' + encodeURIComponent(proj);
       if (status) url += '&status=' + encodeURIComponent(status);
@@ -589,10 +673,6 @@
             emptyRow = document.createElement('tr');
             emptyRow.innerHTML = '<td colspan="6" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
             tbody.appendChild(emptyRow);
-          }
-          if (selectedTaskId) {
-            selectedTaskId = null;
-            resetTaskDetails();
           }
           return;
         }
@@ -617,32 +697,23 @@
           }
         }
 
-        let foundSelected = false;
         for (let i = 0; i < validTasks.length; i++) {
           const t = validTasks[i];
           const tid = String(t.id);
-          const isSelected = (selectedTaskId !== null && selectedTaskId !== undefined && tid === String(selectedTaskId));
-          if (isSelected) foundSelected = true;
 
           let tr = existingRows.get(tid);
           if (!tr) {
-            tr = createRow(t, isSelected);
+            tr = createRow(t);
             existingRows.set(tid, tr);
           } else {
-            updateRow(tr, t, isSelected);
+            updateRow(tr, t);
           }
 
           if (tbody.children[i] !== tr) {
             tbody.insertBefore(tr, tbody.children[i] || null);
           }
         }
-
-        if (selectedTaskId && !foundSelected) {
-          selectedTaskId = null;
-          resetTaskDetails();
-        } else if (selectedTaskId && foundSelected) {
-          loadTaskDetails(selectedTaskId);
-        }
+        renderURLState();
       } catch (e) {
         console.error('Failed to load tasks:', e);
       }
@@ -650,14 +721,8 @@
 
     function selectTask(id) {
       if (!id) return;
-      selectedTaskId = id;
-      const tbody = document.getElementById('task-table-body');
-      if (tbody) {
-        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-          tr.setAttribute('aria-selected', tr.dataset.taskId === id ? 'true' : 'false');
-        }
-      }
-      loadTaskDetails(id);
+      setURLState({ ...uiState, task: String(id) }, true);
+      loadTaskDetails(uiState.task);
     }
 
     function setupRowActivation() {
@@ -675,11 +740,13 @@
         return;
       }
       try {
-        const t = await fetchJSON('/tasks/' + encodeURIComponent(id));
+        const t = await fetchJSON('/tasks/' + encodeURIComponent(id), null, { notFoundOk: true });
+        if (String(id) !== uiState.task) return;
         const pane = document.getElementById('task-details-content');
         if (!pane) return;
         if (!t) {
           pane.innerHTML = '<p style="color: var(--text-muted);">Task not found</p>';
+          setURLState({ ...uiState, task: '' }, false);
           return;
         }
         let primStr = '';
@@ -847,7 +914,12 @@
 
     async function loadAll() {
       try {
-        await Promise.all([loadProjects(), loadStats(), loadTasks()]);
+        await Promise.all([
+          loadProjects(),
+          loadStats(),
+          loadTasks(),
+          uiState.task ? loadTaskDetails(uiState.task) : Promise.resolve(),
+        ]);
       } catch (e) {
         console.error('Failed to refresh data:', e);
       }
@@ -862,7 +934,20 @@
       if (cb) cb.onchange = setupAutoRefresh;
     }
 
+    window.addEventListener('popstate', () => {
+      uiState = readURLState();
+      renderURLState();
+      loadTasks();
+      if (uiState.task) {
+        loadTaskDetails(uiState.task);
+      } else {
+        resetTaskDetails();
+      }
+    });
+
     setupRowActivation();
+    uiState = readURLState();
+    setURLState(uiState, false);
     loadAll();
     setupAutoRefresh();
   </script>
