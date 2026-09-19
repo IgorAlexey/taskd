@@ -343,8 +343,8 @@ WHERE id = (
 		}
 		defer tx.Rollback()
 
-		var status string
-		err = tx.QueryRow("SELECT status FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&status)
+		var leased int
+		err = tx.QueryRow("SELECT CASE WHEN status = 'leased' AND lease_expires >= unixepoch() THEN 1 ELSE 0 END FROM tasks WHERE id = ?", r.PathValue("id")).Scan(&leased)
 		if errors.Is(err, sql.ErrNoRows) {
 			http.Error(w, "task not found", http.StatusNotFound)
 			return
@@ -353,7 +353,7 @@ WHERE id = (
 			internalError(w, err)
 			return
 		}
-		if status == "leased" {
+		if leased == 1 {
 			http.Error(w, "task is leased", http.StatusConflict)
 			return
 		}

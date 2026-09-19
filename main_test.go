@@ -1211,3 +1211,55 @@ func TestListProjectFilter(t *testing.T) {
 		t.Fatalf("expected 3 tasks for project *, got %d", len(tasksWildcard))
 	}
 }
+
+func TestDeleteExpiredLeasedTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]any{
+		"body":    "exp-del",
+		"project": "p1",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("create task failed: %d: %s", code, body)
+	}
+	var res struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal create response failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{
+		"worker":  "w1",
+		"project": "p1",
+	})
+	if code != http.StatusOK {
+		t.Fatalf("claim failed: %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusConflict {
+		t.Fatalf("DELETE on active leased task expected 409, got %d: %s", code, body)
+	}
+
+	if _, err := db.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", res.ID); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusNoContent {
+		t.Fatalf("DELETE on expired leased task expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodDelete, srv.URL+"/tasks/"+res.ID, nil)
+	if code != http.StatusNotFound {
+		t.Fatalf("second DELETE expected 404, got %d: %s", code, body)
+	}
+}
