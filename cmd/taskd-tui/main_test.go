@@ -107,7 +107,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	u := newUI(srv.URL, "")
+	u := newUI(srv.URL, "", false)
 	return u, &tasks, &mu
 }
 
@@ -401,7 +401,7 @@ func TestPriorityClamp(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "")
+	u := newUI(srv.URL, "", false)
 	ts, err := u.fetch()
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
@@ -893,7 +893,7 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 	})
 
 	t.Run("ui project filter initialization", func(t *testing.T) {
-		u := newUI("http://localhost:8080", "proj-a")
+		u := newUI("http://localhost:8080", "proj-a", false)
 		if u.url != "http://localhost:8080" {
 			t.Fatalf("expected url http://localhost:8080, got %q", u.url)
 		}
@@ -952,4 +952,124 @@ func TestGotoTopAndBottom(t *testing.T) {
 	u.shown = nil
 	u.keys(tcell.NewEventKey(tcell.KeyRune, 'g', 0))
 	u.keys(tcell.NewEventKey(tcell.KeyRune, 'G', 0))
+}
+
+func TestNerdFontIcons(t *testing.T) {
+	t.Run("parseFlags and env detection", func(t *testing.T) {
+		t.Setenv("TASKD_TUI_ICONS", "")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.icons {
+			t.Fatalf("expected default icons to be false, got true")
+		}
+
+		t.Setenv("TASKD_TUI_ICONS", "1")
+		cfg, err = parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.icons {
+			t.Fatalf("expected TASKD_TUI_ICONS=1 to enable icons")
+		}
+
+		t.Setenv("TASKD_TUI_ICONS", "true")
+		cfg, err = parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.icons {
+			t.Fatalf("expected TASKD_TUI_ICONS=true to enable icons")
+		}
+
+		t.Setenv("TASKD_TUI_ICONS", "1")
+		cfg, err = parseFlags([]string{"-icons=false"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.icons {
+			t.Fatalf("expected -icons=false to override env")
+		}
+
+		t.Setenv("TASKD_TUI_ICONS", "")
+		cfg, err = parseFlags([]string{"-icons"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !cfg.icons {
+			t.Fatalf("expected -icons flag to enable icons")
+		}
+	})
+
+	t.Run("usage documentation", func(t *testing.T) {
+		var buf bytes.Buffer
+		printUsage(&buf)
+		out := buf.String()
+		for _, want := range []string{"-icons", "TASKD_TUI_ICONS", "Nerd Font"} {
+			if !strings.Contains(out, want) {
+				t.Fatalf("help output missing %q:\n%s", want, out)
+			}
+		}
+	})
+
+	t.Run("ascii fallback rendering", func(t *testing.T) {
+		u := newUI("http://localhost:8080", "", false)
+		tasks := []task{
+			{ID: "t1", Status: "pending", Priority: 0, Body: "task 1"},
+			{ID: "t2", Status: "leased", Priority: 1, Body: "task 2"},
+			{ID: "t3", Status: "done", Priority: 2, Body: "task 3"},
+		}
+		u.render(tasks)
+		if got := u.table.GetCell(1, 0).Text; got != "pending" {
+			t.Fatalf("status cell = %q, want %q", got, "pending")
+		}
+		if got := u.table.GetCell(1, 1).Text; got != "0" {
+			t.Fatalf("priority cell = %q, want %q", got, "0")
+		}
+		if got := u.table.GetCell(2, 0).Text; got != "leased" {
+			t.Fatalf("status cell = %q, want %q", got, "leased")
+		}
+		if got := u.table.GetCell(2, 1).Text; got != "1" {
+			t.Fatalf("priority cell = %q, want %q", got, "1")
+		}
+		if got := u.table.GetCell(3, 0).Text; got != "done" {
+			t.Fatalf("status cell = %q, want %q", got, "done")
+		}
+		if got := u.table.GetCell(3, 1).Text; got != "2" {
+			t.Fatalf("priority cell = %q, want %q", got, "2")
+		}
+	})
+
+	t.Run("nerd font glyph rendering", func(t *testing.T) {
+		u := newUI("http://localhost:8080", "", true)
+		tasks := []task{
+			{ID: "t1", Status: "pending", Priority: 0, Body: "task 1"},
+			{ID: "t2", Status: "leased", Priority: 1, Body: "task 2"},
+			{ID: "t3", Status: "done", Priority: 2, Body: "task 3"},
+			{ID: "t4", Status: "pending", Priority: 5, Body: "task 4"},
+		}
+		u.render(tasks)
+		if got := u.table.GetCell(1, 0).Text; got != "\uf017 pending" {
+			t.Fatalf("status cell = %q, want %q", got, "\uf017 pending")
+		}
+		if got := u.table.GetCell(1, 1).Text; got != "\uf107 0" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf107 0")
+		}
+		if got := u.table.GetCell(2, 0).Text; got != "\uf021 leased" {
+			t.Fatalf("status cell = %q, want %q", got, "\uf021 leased")
+		}
+		if got := u.table.GetCell(2, 1).Text; got != "\uf106 1" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf106 1")
+		}
+		if got := u.table.GetCell(3, 0).Text; got != "\uf00c done" {
+			t.Fatalf("status cell = %q, want %q", got, "\uf00c done")
+		}
+		if got := u.table.GetCell(3, 1).Text; got != "\uf102 2" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf102 2")
+		}
+		if got := u.table.GetCell(4, 1).Text; got != "\uf06d 5" {
+			t.Fatalf("priority cell = %q, want %q", got, "\uf06d 5")
+		}
+	})
 }

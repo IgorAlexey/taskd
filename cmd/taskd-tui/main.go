@@ -45,6 +45,7 @@ type ui struct {
 	modal     *tview.Modal
 	filter    string
 	project   string
+	icons     bool
 	all       []task
 	shown     []task
 	msg       string
@@ -91,6 +92,49 @@ func (u *ui) selected() (task, bool) {
 	return u.shown[r-1], true
 }
 
+const (
+	iconUnknown = "\uf059"
+	iconPending = "\uf017"
+	iconLeased  = "\uf021"
+	iconDone    = "\uf00c"
+	iconPriLow  = "\uf107"
+	iconPriMed  = "\uf106"
+	iconPriHigh = "\uf102"
+	iconPriFire = "\uf06d"
+)
+
+func statusText(status string, icons bool) string {
+	if !icons || status == "" {
+		return status
+	}
+	glyph := iconUnknown
+	switch status {
+	case "pending":
+		glyph = iconPending
+	case "leased":
+		glyph = iconLeased
+	case "done":
+		glyph = iconDone
+	}
+	return glyph + " " + status
+}
+
+func priorityText(pri int, icons bool) string {
+	if !icons {
+		return strconv.Itoa(pri)
+	}
+	glyph := iconPriLow
+	switch {
+	case pri >= 3:
+		glyph = iconPriFire
+	case pri == 2:
+		glyph = iconPriHigh
+	case pri == 1:
+		glyph = iconPriMed
+	}
+	return glyph + " " + strconv.Itoa(pri)
+}
+
 func lease(t task, now int64) string {
 	if t.Status != "leased" {
 		return ""
@@ -119,7 +163,7 @@ func (u *ui) render(all []task) {
 	now, row := time.Now().Unix(), 1
 	for i, t := range u.shown {
 		title := cmp.Or(strings.SplitN(t.Body, "\n", 2)[0], t.AssetPath)
-		cells := []string{t.Status, fmt.Sprint(t.Priority), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
+		cells := []string{statusText(t.Status, u.icons), priorityText(t.Priority, u.icons), t.Project, lease(t, now), t.Worker, t.ID[:min(7, len(t.ID))], title}
 		for c, s := range cells {
 			u.table.SetCell(i+1, c, tview.NewTableCell(s).SetTextColor(colors[t.Status]).SetExpansion(c/6))
 		}
@@ -343,6 +387,7 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 type config struct {
 	url     string
 	project string
+	icons   bool
 }
 
 func printUsage(w io.Writer) {
@@ -355,13 +400,16 @@ Options:
     	taskd daemon URL (default: $TASKD_URL, $T, or "http://localhost:8080")
   -project string
     	filter tasks by project (default: $TASKD_PROJECT)
+  -icons
+    	use Nerd Font glyphs for status and priority (default: $TASKD_TUI_ICONS)
   -h, -help
     	show this help message
 
 Environment variables:
-  TASKD_URL      taskd daemon address
-  TASKD_PROJECT  default project filter
-  T              shorthand taskd daemon address
+  TASKD_URL        taskd daemon address
+  TASKD_PROJECT    default project filter
+  TASKD_TUI_ICONS  enable Nerd Font glyphs (1 or true)
+  T                shorthand taskd daemon address
 
 Keyboard shortcuts:
   j, Down        Move selection down
@@ -389,6 +437,8 @@ func parseFlags(args []string) (config, error) {
 		defaultURL = "http://localhost:8080"
 	}
 	defaultProject := os.Getenv("TASKD_PROJECT")
+	envIcons := os.Getenv("TASKD_TUI_ICONS")
+	defaultIcons := envIcons == "1" || strings.EqualFold(envIcons, "true")
 
 	var cfg config
 	fs := flag.NewFlagSet("taskd-tui", flag.ContinueOnError)
@@ -397,14 +447,15 @@ func parseFlags(args []string) (config, error) {
 	}
 	fs.StringVar(&cfg.url, "url", defaultURL, "taskd daemon address")
 	fs.StringVar(&cfg.project, "project", defaultProject, "filter tasks by project")
+	fs.BoolVar(&cfg.icons, "icons", defaultIcons, "use Nerd Font glyphs for status and priority")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
 	}
 	return cfg, nil
 }
 
-func newUI(url, project string) *ui {
-	u := &ui{url: strings.TrimRight(url, "/"), project: project, app: tview.NewApplication().EnableMouse(true)}
+func newUI(url, project string, icons bool) *ui {
+	u := &ui{url: strings.TrimRight(url, "/"), project: project, icons: icons, app: tview.NewApplication().EnableMouse(true)}
 	u.table = tview.NewTable().SetFixed(1, 0).SetSelectable(true, false)
 	u.table.SetSelectionChangedFunc(func(int, int) { u.showBody() }).SetInputCapture(u.keys)
 	u.body = tview.NewTextView().SetWrap(true)
@@ -424,7 +475,7 @@ func main() {
 		}
 		os.Exit(2)
 	}
-	u := newUI(cfg.url, cfg.project)
+	u := newUI(cfg.url, cfg.project, cfg.icons)
 	go func() {
 		for ; ; time.Sleep(time.Second) {
 			u.refresh()
