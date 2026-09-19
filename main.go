@@ -328,24 +328,85 @@ const defaultPriority = 3
 
 const maxBodyBytes = 1 << 20
 
+type apiError struct {
+	Error string `json:"error"`
+}
+
+func writeError(w http.ResponseWriter, code int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(code)
+	json.NewEncoder(w).Encode(apiError{Error: msg})
+}
+
+type route struct {
+	handler   http.HandlerFunc
+	params    []string
+	anyParams bool
+}
+
+func handleMethods(mux *http.ServeMux, pattern string, methods map[string]route) {
+	var allowed []string
+	for m := range methods {
+		allowed = append(allowed, m)
+	}
+	if slices.Contains(allowed, http.MethodGet) && !slices.Contains(allowed, http.MethodHead) {
+		allowed = append(allowed, http.MethodHead)
+	}
+	slices.Sort(allowed)
+	allowHeader := strings.Join(allowed, ", ")
+
+	mux.HandleFunc(pattern, func(w http.ResponseWriter, r *http.Request) {
+		rt, ok := methods[r.Method]
+		if !ok && r.Method == http.MethodHead {
+			rt, ok = methods[http.MethodGet]
+		}
+		if !ok {
+			w.Header().Set("Allow", allowHeader)
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if r.URL.RawQuery != "" && !rt.anyParams {
+			q, err := url.ParseQuery(r.URL.RawQuery)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid query string: %v", err))
+				return
+			}
+			keys := make([]string, 0, len(q))
+			for k := range q {
+				keys = append(keys, k)
+			}
+			slices.Sort(keys)
+			for _, k := range keys {
+				if !slices.Contains(rt.params, k) {
+					writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown query parameter: %s", k))
+					return
+				}
+			}
+			r = r.WithContext(context.WithValue(r.Context(), queryContextKey{}, q))
+		}
+		rt.handler(w, r)
+	})
+}
+
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
 	var maxErr *http.MaxBytesError
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
 		if errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return false
 		}
-		http.Error(w, "invalid request body: "+err.Error(), http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return false
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		if errors.As(err, &maxErr) {
-			http.Error(w, "request body too large", http.StatusRequestEntityTooLarge)
+			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return false
 		}
-		http.Error(w, "invalid request body: unexpected trailing data", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "invalid request body: unexpected trailing data")
 		return false
 	}
 	return true
@@ -365,14 +426,14 @@ func requestQuery(r *http.Request) url.Values {
 
 func internalError(w http.ResponseWriter, err error) {
 	log.Print(err)
-	http.Error(w, "internal error", http.StatusInternalServerError)
+	writeError(w, http.StatusInternalServerError, "internal error")
 }
 
 func writeTaskStateError(w http.ResponseWriter, db *sql.DB, id string) {
 	var status string
 	err := db.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&status)
 	if errors.Is(err, sql.ErrNoRows) {
-		http.Error(w, "task not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
@@ -381,15 +442,15 @@ func writeTaskStateError(w http.ResponseWriter, db *sql.DB, id string) {
 	}
 	switch status {
 	case "done":
-		http.Error(w, "task is done", http.StatusConflict)
+		writeError(w, http.StatusConflict, "task is done")
 	case "leased":
-		http.Error(w, "task is leased", http.StatusConflict)
+		writeError(w, http.StatusConflict, "task is leased")
 	case "pending":
-		http.Error(w, "task is pending", http.StatusConflict)
+		writeError(w, http.StatusConflict, "task is pending")
 	case "buried":
-		http.Error(w, "task is buried", http.StatusConflict)
+		writeError(w, http.StatusConflict, "task is buried")
 	default:
-		http.Error(w, "task state conflict", http.StatusConflict)
+		writeError(w, http.StatusConflict, "task state conflict")
 	}
 }
 
@@ -407,7 +468,7 @@ func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
 	}
 	worker, ok := cleanWorker(req.Worker)
 	if !ok {
-		http.Error(w, "missing worker", http.StatusBadRequest)
+		writeError(w, http.StatusBadRequest, "missing worker")
 		return "", false
 	}
 	return worker, true
@@ -417,14 +478,14 @@ func taskNotFoundOrConflict(w http.ResponseWriter, db *sql.DB, id string) {
 	var exists int
 	err := db.QueryRow("SELECT 1 FROM tasks WHERE id = ?", id).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
-		http.Error(w, "task not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "task not found")
 		return
 	}
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	http.Error(w, "task not leased by worker", http.StatusConflict)
+	writeError(w, http.StatusConflict, "task not leased by worker")
 }
 
 type queryer interface {
@@ -507,11 +568,11 @@ func resolveTaskIDHTTP(w http.ResponseWriter, q queryer, id string) (string, boo
 	}
 	var mm *errMultipleMatch
 	if errors.As(err, &mm) {
-		http.Error(w, mm.Error(), http.StatusConflict)
+		writeError(w, http.StatusConflict, mm.Error())
 		return "", false
 	}
 	if errors.Is(err, errTaskNotFound) {
-		http.Error(w, "task not found", http.StatusNotFound)
+		writeError(w, http.StatusNotFound, "task not found")
 		return "", false
 	}
 	internalError(w, err)
@@ -606,11 +667,15 @@ func newHandlerWithCORS(db *sql.DB, lease int, corsOrigin string) http.Handler {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(uiHTML)
 	}
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		redirectWithQuery(w, r, "/ui", http.StatusFound)
+	handleMethods(mux, "/{$}", map[string]route{
+		http.MethodGet: {handler: func(w http.ResponseWriter, r *http.Request) {
+			redirectWithQuery(w, r, "/ui", http.StatusFound)
+		}, anyParams: true},
 	})
-	mux.HandleFunc("GET /ui", uiHandler)
-	mux.HandleFunc("GET /stats", func(w http.ResponseWriter, r *http.Request) {
+	handleMethods(mux, "/ui", map[string]route{
+		http.MethodGet: {handler: uiHandler, anyParams: true},
+	})
+	statsHandler := func(w http.ResponseWriter, r *http.Request) {
 		project := requestQuery(r).Get("project")
 		now := time.Now().Unix()
 		query := `SELECT
@@ -639,8 +704,8 @@ FROM tasks`
 			"buried":  buried,
 			"total":   total,
 		})
-	})
-	mux.HandleFunc("POST /tasks", func(w http.ResponseWriter, r *http.Request) {
+	}
+	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			ID        string `json:"id"`
 			AssetPath string `json:"asset_path"`
@@ -654,21 +719,21 @@ FROM tasks`
 		req.AssetPath = strings.TrimSpace(req.AssetPath)
 		req.Project = strings.TrimSpace(req.Project)
 		if req.Body != "" && strings.TrimSpace(req.Body) == "" {
-			http.Error(w, "invalid body", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
 		if req.AssetPath == "" && req.Body == "" {
-			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "missing asset_path or body")
 			return
 		}
 		if !validProject(req.Project) {
-			http.Error(w, "invalid project", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid project")
 			return
 		}
 		priority := defaultPriority
 		if req.Priority != nil {
 			if *req.Priority < 0 {
-				http.Error(w, "invalid priority", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid priority")
 				return
 			}
 			priority = *req.Priority
@@ -681,14 +746,14 @@ FROM tasks`
 			}
 			req.ID = hex.EncodeToString(b[:])
 		} else if !validTaskID(req.ID) {
-			http.Error(w, "invalid id", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid id")
 			return
 		}
 		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, priority, req.Project)
 		if err != nil {
 			var se *sqlite.Error
 			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
-				http.Error(w, "duplicate id", http.StatusConflict)
+				writeError(w, http.StatusConflict, "duplicate id")
 				return
 			}
 			internalError(w, err)
@@ -697,9 +762,9 @@ FROM tasks`
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"id": req.ID})
-	})
+	}
 
-	mux.HandleFunc("POST /tasks/claim", func(w http.ResponseWriter, r *http.Request) {
+	claimHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Worker  string `json:"worker"`
 			Project string `json:"project"`
@@ -709,7 +774,7 @@ FROM tasks`
 		}
 		var ok bool
 		if req.Worker, ok = cleanWorker(req.Worker); !ok {
-			http.Error(w, "missing worker", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "missing worker")
 			return
 		}
 		req.Project = strings.TrimSpace(req.Project)
@@ -750,8 +815,8 @@ WHERE id = (
 		item.Primitives = prim
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
-	})
-	mux.HandleFunc("POST /tasks/{id}/claim", func(w http.ResponseWriter, r *http.Request) {
+	}
+	claimIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		worker, ok := decodeWorker(w, r)
 		if !ok {
 			return
@@ -785,9 +850,9 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		item.Primitives = prim
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
-	})
+	}
 
-	mux.HandleFunc("POST /tasks/{id}/done", func(w http.ResponseWriter, r *http.Request) {
+	doneIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Worker     string          `json:"worker"`
 			Primitives json.RawMessage `json:"primitives"`
@@ -797,7 +862,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		}
 		var ok bool
 		if req.Worker, ok = cleanWorker(req.Worker); !ok {
-			http.Error(w, "missing worker", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "missing worker")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
@@ -823,12 +888,12 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /tasks/{id}/close", func(w http.ResponseWriter, r *http.Request) {
+	}
+	closeIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var buf [1]byte
 		n, err := r.Body.Read(buf[:])
 		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
-			http.Error(w, "unexpected request body", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "unexpected request body")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
@@ -851,8 +916,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /tasks/{id}/touch", func(w http.ResponseWriter, r *http.Request) {
+	}
+	touchIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		worker, ok := decodeWorker(w, r)
 		if !ok {
 			return
@@ -876,8 +941,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /tasks/{id}/release", func(w http.ResponseWriter, r *http.Request) {
+	}
+	releaseIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		worker, ok := decodeWorker(w, r)
 		if !ok {
 			return
@@ -901,8 +966,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /tasks/{id}/bury", func(w http.ResponseWriter, r *http.Request) {
+	}
+	buryIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Worker   string `json:"worker"`
 			Priority *int   `json:"priority"`
@@ -912,11 +977,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		worker, ok := cleanWorker(req.Worker)
 		if !ok {
-			http.Error(w, "missing worker", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "missing worker")
 			return
 		}
 		if req.Priority != nil && *req.Priority < 0 {
-			http.Error(w, "invalid priority", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid priority")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
@@ -938,16 +1003,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
-	mux.HandleFunc("POST /tasks/{id}/kick", func(w http.ResponseWriter, r *http.Request) {
-		for k := range r.URL.Query() {
-			http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
-			return
-		}
+	}
+	kickIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var buf [1]byte
 		n, err := r.Body.Read(buf[:])
 		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
-			http.Error(w, "unexpected request body", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "unexpected request body")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
@@ -969,13 +1030,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
+	}
 
-	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
+	listTasksHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
 		status := q.Get("status")
 		if q.Has("status") && status != "pending" && status != "leased" && status != "done" && status != "buried" {
-			http.Error(w, "invalid status", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid status")
 			return
 		}
 		project := q.Get("project")
@@ -983,7 +1044,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if q.Has("priority") {
 			v, err := strconv.Atoi(q.Get("priority"))
 			if err != nil || v < 0 {
-				http.Error(w, "invalid priority", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid priority")
 				return
 			}
 			priorityFilter = &v
@@ -992,7 +1053,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if q.Has("limit") {
 			v, err := strconv.Atoi(q.Get("limit"))
 			if err != nil || v < 1 || v > 1000 {
-				http.Error(w, "invalid limit", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid limit")
 				return
 			}
 			limit = v
@@ -1001,7 +1062,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if q.Has("offset") {
 			v, err := strconv.Atoi(q.Get("offset"))
 			if err != nil || v < 0 {
-				http.Error(w, "invalid offset", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid offset")
 				return
 			}
 			offset = v
@@ -1014,7 +1075,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		if q.Has("fields") || q.Has("columns") {
 			if strings.TrimSpace(fieldsParam) == "" {
-				http.Error(w, "invalid fields", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid fields")
 				return
 			}
 			parts := strings.Split(fieldsParam, ",")
@@ -1028,12 +1089,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 						requestedFields = append(requestedFields, f)
 					}
 				default:
-					http.Error(w, "invalid fields", http.StatusBadRequest)
+					writeError(w, http.StatusBadRequest, "invalid fields")
 					return
 				}
 			}
 			if len(requestedFields) == 0 {
-				http.Error(w, "invalid fields", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid fields")
 				return
 			}
 		}
@@ -1201,9 +1262,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			buf.WriteString("]\n")
 			w.Write(buf.Bytes())
 		}
-	})
+	}
 
-	mux.HandleFunc("GET /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
 		if !ok {
 			return
@@ -1217,7 +1278,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", id).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "task not found", http.StatusNotFound)
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		if err != nil {
@@ -1231,8 +1292,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
-	})
-	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
+	}
+	projectsHandler := func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query("SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC")
 		if err != nil {
 			internalError(w, err)
@@ -1256,8 +1317,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(projects)
-	})
-	mux.HandleFunc("GET /workers", func(w http.ResponseWriter, r *http.Request) {
+	}
+	workersHandler := func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' ORDER BY worker ASC")
 		if err != nil {
 			internalError(w, err)
@@ -1281,8 +1342,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(workers)
-	})
-	mux.HandleFunc("PATCH /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+	}
+	patchTaskHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Body      *string `json:"body"`
 			Priority  *int    `json:"priority"`
@@ -1293,31 +1354,31 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if req.Body == nil && req.Priority == nil && req.Project == nil && req.AssetPath == nil {
-			http.Error(w, "missing fields to update", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "missing fields to update")
 			return
 		}
 		if req.Body != nil && *req.Body != "" && strings.TrimSpace(*req.Body) == "" {
-			http.Error(w, "invalid body", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid body")
 			return
 		}
 		if req.AssetPath != nil {
 			*req.AssetPath = strings.TrimSpace(*req.AssetPath)
 		}
 		if req.Priority != nil && *req.Priority < 0 {
-			http.Error(w, "invalid priority", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "invalid priority")
 			return
 		}
 		if req.Project != nil {
 			*req.Project = strings.TrimSpace(*req.Project)
 			if !validProject(*req.Project) {
-				http.Error(w, "invalid project", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "invalid project")
 				return
 			}
 		}
 		clearBody := req.Body != nil && *req.Body == ""
 		clearAsset := req.AssetPath != nil && *req.AssetPath == ""
 		if clearBody && clearAsset {
-			http.Error(w, "missing asset_path or body", http.StatusBadRequest)
+			writeError(w, http.StatusBadRequest, "missing asset_path or body")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
@@ -1328,7 +1389,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			var curBody, curAssetPath string
 			err := db.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", id).Scan(&curBody, &curAssetPath)
 			if errors.Is(err, sql.ErrNoRows) {
-				http.Error(w, "task not found", http.StatusNotFound)
+				writeError(w, http.StatusNotFound, "task not found")
 				return
 			}
 			if err != nil {
@@ -1336,7 +1397,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				return
 			}
 			if (clearBody && curAssetPath == "") || (clearAsset && curBody == "") {
-				http.Error(w, "missing asset_path or body", http.StatusBadRequest)
+				writeError(w, http.StatusBadRequest, "missing asset_path or body")
 				return
 			}
 		}
@@ -1358,9 +1419,9 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
-	})
+	}
 
-	mux.HandleFunc("DELETE /tasks/{id}", func(w http.ResponseWriter, r *http.Request) {
+	deleteTaskHandler := func(w http.ResponseWriter, r *http.Request) {
 		tx, err := db.Begin()
 		if err != nil {
 			internalError(w, err)
@@ -1379,7 +1440,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		)
 		err = tx.QueryRow("SELECT status, lease_expires FROM tasks WHERE id = ?", id).Scan(&status, &leaseExpires)
 		if errors.Is(err, sql.ErrNoRows) {
-			http.Error(w, "task not found", http.StatusNotFound)
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		if err != nil {
@@ -1387,13 +1448,13 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if status == "leased" && leaseExpires.Int64 >= time.Now().Unix() {
-			http.Error(w, "task is leased", http.StatusConflict)
+			writeError(w, http.StatusConflict, "task is leased")
 			return
 		}
 		f := requestQuery(r).Get("force")
 		force := f == "1" || f == "true"
 		if status == "done" && !force {
-			http.Error(w, "task is done", http.StatusConflict)
+			writeError(w, http.StatusConflict, "task is done")
 			return
 		}
 		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", id); err != nil {
@@ -1405,6 +1466,55 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+
+	handleMethods(mux, "/stats", map[string]route{
+		http.MethodGet: {handler: statsHandler, params: []string{"project"}},
+	})
+	handleMethods(mux, "/tasks", map[string]route{
+		http.MethodGet: {handler: listTasksHandler, params: []string{
+			"status", "project", "worker", "priority", "limit", "offset",
+			"asset_path", "q", "fields", "columns",
+		}},
+		http.MethodPost: {handler: createTaskHandler},
+	})
+	handleMethods(mux, "/tasks/claim", map[string]route{
+		http.MethodPost: {handler: claimHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/claim", map[string]route{
+		http.MethodPost: {handler: claimIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/done", map[string]route{
+		http.MethodPost: {handler: doneIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/close", map[string]route{
+		http.MethodPost: {handler: closeIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/touch", map[string]route{
+		http.MethodPost: {handler: touchIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/release", map[string]route{
+		http.MethodPost: {handler: releaseIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/bury", map[string]route{
+		http.MethodPost: {handler: buryIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}/kick", map[string]route{
+		http.MethodPost: {handler: kickIDHandler},
+	})
+	handleMethods(mux, "/tasks/{id}", map[string]route{
+		http.MethodGet:    {handler: getTaskHandler},
+		http.MethodPatch:  {handler: patchTaskHandler},
+		http.MethodDelete: {handler: deleteTaskHandler, params: []string{"force"}},
+	})
+	handleMethods(mux, "/projects", map[string]route{
+		http.MethodGet: {handler: projectsHandler},
+	})
+	handleMethods(mux, "/workers", map[string]route{
+		http.MethodGet: {handler: workersHandler},
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, "not found")
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1433,43 +1543,12 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 				cleanURL.RawPath = strings.TrimSuffix(cleanURL.RawPath, "/")
 			}
 			cleanReq.URL = &cleanURL
-			if _, matched := mux.Handler(&cleanReq); matched != "" {
+			if _, matched := mux.Handler(&cleanReq); matched != "" && matched != "/" {
 				target := cleanURL.EscapedPath()
 				if strings.HasPrefix(target, "/") && !strings.HasPrefix(target, "//") {
 					redirectWithQuery(w, r, target, http.StatusPermanentRedirect)
 					return
 				}
-			}
-		}
-		if r.URL.RawQuery != "" {
-			_, pattern := mux.Handler(r)
-			if pattern != "" && pattern != "GET /{$}" && pattern != "GET /ui" {
-				q, err := url.ParseQuery(r.URL.RawQuery)
-				if err != nil {
-					http.Error(w, fmt.Sprintf("invalid query string: %v", err), http.StatusBadRequest)
-					return
-				}
-				var allowed []string
-				switch pattern {
-				case "GET /stats":
-					allowed = []string{"project"}
-				case "GET /tasks":
-					allowed = []string{"status", "project", "worker", "priority", "limit", "offset", "asset_path", "q", "fields", "columns"}
-				case "DELETE /tasks/{id}":
-					allowed = []string{"force"}
-				}
-				keys := make([]string, 0, len(q))
-				for k := range q {
-					keys = append(keys, k)
-				}
-				slices.Sort(keys)
-				for _, k := range keys {
-					if !slices.Contains(allowed, k) {
-						http.Error(w, fmt.Sprintf("unknown query parameter: %s", k), http.StatusBadRequest)
-						return
-					}
-				}
-				r = r.WithContext(context.WithValue(r.Context(), queryContextKey{}, q))
 			}
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)

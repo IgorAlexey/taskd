@@ -3033,8 +3033,8 @@ func TestListPriorityFilter(t *testing.T) {
 		if code != http.StatusBadRequest {
 			t.Fatalf("GET /tasks?%s expected 400, got %d: %s", q, code, body)
 		}
-		if got := strings.TrimSpace(string(body)); got != "invalid priority" {
-			t.Fatalf("GET /tasks?%s expected body %q, got %q", q, "invalid priority", got)
+		if got := strings.TrimSpace(string(body)); got != `{"error":"invalid priority"}` {
+			t.Fatalf("GET /tasks?%s expected body %q, got %q", q, `{"error":"invalid priority"}`, got)
 		}
 	}
 }
