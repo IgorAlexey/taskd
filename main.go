@@ -3068,6 +3068,7 @@ HTTP Endpoints:
   POST   /tasks              create a task (requires project, body/asset_path; optional id, priority)
   POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait)
   GET    /tasks/{id}         get task details
+         {id} accepts unique prefixes (returns 409 on collision)
   PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path, optional if_version)
   POST   /tasks/{id}/claim   claim a specific task (requires worker)
   POST   /tasks/{id}/done    complete task with primitives (requires worker, optional claim_count)
