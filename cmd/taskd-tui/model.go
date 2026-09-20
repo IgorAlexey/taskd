@@ -497,7 +497,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if targetDetail {
 				m.detail.ScrollDown(3)
 			} else {
-				m.move(3)
+				return m, m.scrollDown(3)
 			}
 		}
 		return m, nil
@@ -644,8 +644,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.typeQuery()
 				}
 			case msg.Code == tea.KeyDown || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'n'):
-				m.move(1)
-				return m, nil
+				return m, m.scrollDown(1)
 			case msg.Code == tea.KeyUp || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'p'):
 				m.move(-1)
 				return m, nil
@@ -666,8 +665,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "q" || isCtrlC(msg):
 				return m.actionQuit()
 			case msg.Text == "]" || msg.Code == ']':
-				m.move(1)
-				return m, nil
+				return m, m.scrollDown(1)
 			case msg.Text == "[" || msg.Code == '[':
 				m.move(-1)
 				return m, nil
@@ -713,8 +711,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "q" || isCtrlC(msg):
 				return m, tea.Quit
 			case msg.Text == "j" || msg.Code == tea.KeyDown:
-				m.move(1)
-				return m, nil
+				return m, m.scrollDown(1)
 			case msg.Text == "k" || msg.Code == tea.KeyUp:
 				m.move(-1)
 				return m, nil
@@ -747,11 +744,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd':
-				m.move(max(1, m.tableRows()/2))
-				return m, nil
+				return m, m.scrollDown(max(1, m.tableRows()/2))
 			case msg.Code == tea.KeyPgDown:
-				m.move(max(1, m.tableRows()))
-				return m, nil
+				return m, m.scrollDown(max(1, m.tableRows()))
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.move(-max(1, m.tableRows()/2))
 				return m, nil
@@ -1269,6 +1264,14 @@ func (m *model) move(delta int) {
 	m.lastRow = m.cursor
 	m.clamp()
 	m.syncDetail()
+}
+func (m *model) scrollDown(delta int) tea.Cmd {
+	m.move(delta)
+	if m.cursor >= len(m.shown)-1 && m.more && m.pages < maxPageDepth {
+		m.pages++
+		return m.startPoll()
+	}
+	return nil
 }
 
 func (m *model) clamp() {

@@ -108,3 +108,53 @@ func TestDetailArrowKeys(t *testing.T) {
 		})
 	}
 }
+
+func TestContinuousScrollPagination(t *testing.T) {
+	t.Run("key_j", func(t *testing.T) {
+		m := createNavigationTestModel(100, 1)
+		m.more = true
+		m.cursor = len(m.shown) - 1
+		m.lastRow = m.cursor
+
+		res, cmd := m.Update(tea.KeyPressMsg{Text: "j"})
+		m = res.(model)
+		if m.pages != 2 {
+			t.Fatalf("pages = %d, want 2", m.pages)
+		}
+		if cmd == nil {
+			t.Fatalf("expected non-nil poll command")
+		}
+	})
+
+	t.Run("mouse_wheel_down", func(t *testing.T) {
+		m := createNavigationTestModel(100, 1)
+		m.more = true
+		m.cursor = len(m.shown) - 1
+		m.lastRow = m.cursor
+
+		res, cmd := m.Update(tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+		m = res.(model)
+		if m.pages != 2 {
+			t.Fatalf("pages = %d, want 2", m.pages)
+		}
+		if cmd == nil {
+			t.Fatalf("expected non-nil poll command")
+		}
+	})
+
+	t.Run("page_down_near_bottom", func(t *testing.T) {
+		m := createNavigationTestModel(50, 1)
+		m.more = true
+		m.cursor = 40
+		m.lastRow = 40
+
+		res, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyPgDown})
+		m = res.(model)
+		if m.pages != 2 {
+			t.Fatalf("pages = %d, want 2", m.pages)
+		}
+		if cmd == nil {
+			t.Fatalf("expected non-nil poll command")
+		}
+	})
+}
