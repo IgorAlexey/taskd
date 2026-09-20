@@ -1,0 +1,256 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"sync"
+	"testing"
+	"time"
+)
+
+func TestBulkKick(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	for i := 0; i < 15; i++ {
+		_, err := db.rw.Exec(
+			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'test', 'buried', ?, 3, 2, 'w1', ?)",
+			"test-"+string(rune('a'+i)), "task", int64(1000+i),
+		)
+		if err != nil {
+			t.Fatalf("insert test task %d failed: %v", i, err)
+		}
+	}
+
+	for i := 0; i < 3; i++ {
+		_, err := db.rw.Exec(
+			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'other', 'buried', ?, 3, 1, 'w2', ?)",
+			"other-"+string(rune('a'+i)), "task", int64(2000+i),
+		)
+		if err != nil {
+			t.Fatalf("insert other task %d failed: %v", i, err)
+		}
+	}
+
+	payload := []byte(`{"project":"test","limit":10}`)
+	resp, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader(payload))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	var res struct {
+		Kicked int `json:"kicked"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if res.Kicked != 10 {
+		t.Fatalf("expected kicked 10, got %d", res.Kicked)
+	}
+
+	var pendingCount, buriedTestCount, buriedOtherCount int
+	if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = 'test' AND status = 'pending'").Scan(&pendingCount); err != nil {
+		t.Fatalf("query pending failed: %v", err)
+	}
+	if pendingCount != 10 {
+		t.Fatalf("expected 10 pending tasks in test, got %d", pendingCount)
+	}
+
+	if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = 'test' AND status = 'buried'").Scan(&buriedTestCount); err != nil {
+		t.Fatalf("query buried test failed: %v", err)
+	}
+	if buriedTestCount != 5 {
+		t.Fatalf("expected 5 buried tasks in test, got %d", buriedTestCount)
+	}
+
+	if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = 'other' AND status = 'buried'").Scan(&buriedOtherCount); err != nil {
+		t.Fatalf("query buried other failed: %v", err)
+	}
+	if buriedOtherCount != 3 {
+		t.Fatalf("expected 3 buried tasks in other, got %d", buriedOtherCount)
+	}
+
+	var claimsReset, workersReset int
+	if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = 'test' AND status = 'pending' AND claim_count = 0").Scan(&claimsReset); err != nil {
+		t.Fatalf("query claims reset failed: %v", err)
+	}
+	if claimsReset != 10 {
+		t.Fatalf("expected claim_count reset to 0 for all 10 kicked tasks, got %d", claimsReset)
+	}
+
+	if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = 'test' AND status = 'pending' AND worker IS NULL").Scan(&workersReset); err != nil {
+		t.Fatalf("query workers reset failed: %v", err)
+	}
+	if workersReset != 10 {
+		t.Fatalf("expected worker reset to NULL for all 10 kicked tasks, got %d", workersReset)
+	}
+
+	respAll, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick all failed: %v", err)
+	}
+	defer respAll.Body.Close()
+
+	if respAll.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200 for all kick, got %d", respAll.StatusCode)
+	}
+
+	var resAll struct {
+		Kicked int `json:"kicked"`
+	}
+	if err := json.NewDecoder(respAll.Body).Decode(&resAll); err != nil {
+		t.Fatalf("failed to decode all response: %v", err)
+	}
+	if resAll.Kicked != 8 {
+		t.Fatalf("expected kicked 8 (5 test + 3 other), got %d", resAll.Kicked)
+	}
+
+	respZero, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick zero failed: %v", err)
+	}
+	defer respZero.Body.Close()
+	var resZero struct {
+		Kicked int `json:"kicked"`
+	}
+	if err := json.NewDecoder(respZero.Body).Decode(&resZero); err != nil {
+		t.Fatalf("failed to decode zero response: %v", err)
+	}
+	if resZero.Kicked != 0 {
+		t.Fatalf("expected kicked 0 when no buried tasks, got %d", resZero.Kicked)
+	}
+
+	respNeg, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader([]byte(`{"limit":-1}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick neg limit failed: %v", err)
+	}
+	defer respNeg.Body.Close()
+	if respNeg.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for negative limit, got %d", respNeg.StatusCode)
+	}
+
+	respInvalidProj, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader([]byte(`{"project":"bad proj!"}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick invalid proj failed: %v", err)
+	}
+	defer respInvalidProj.Body.Close()
+	if respInvalidProj.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for invalid project, got %d", respInvalidProj.StatusCode)
+	}
+
+	respGarbageLimit, err := http.Post(srv.URL+"/tasks/kick?limit=garbage", "application/json", bytes.NewReader([]byte(`{"project":"test"}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick garbage limit failed: %v", err)
+	}
+	defer respGarbageLimit.Body.Close()
+	if respGarbageLimit.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for garbage limit, got %d", respGarbageLimit.StatusCode)
+	}
+
+	respConfLimit, err := http.Post(srv.URL+"/tasks/kick?limit=5", "application/json", bytes.NewReader([]byte(`{"limit":10}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick conf limit failed: %v", err)
+	}
+	defer respConfLimit.Body.Close()
+	if respConfLimit.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for conflicting limit, got %d", respConfLimit.StatusCode)
+	}
+
+	respConfProj, err := http.Post(srv.URL+"/tasks/kick?project=p1", "application/json", bytes.NewReader([]byte(`{"project":"p2"}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick conf proj failed: %v", err)
+	}
+	defer respConfProj.Body.Close()
+	if respConfProj.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400 for conflicting project, got %d", respConfProj.StatusCode)
+	}
+}
+func TestBulkKickWakesWaiters(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	for i := 1; i <= 2; i++ {
+		_, err := db.rw.Exec(
+			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'wake-proj', 'buried', 'task', 3, 1, 'w1', ?)",
+			"wake-"+string(rune('0'+i)), int64(3000+i),
+		)
+		if err != nil {
+			t.Fatalf("insert buried task failed: %v", err)
+		}
+	}
+
+	var wg sync.WaitGroup
+	claimed := make(chan string, 2)
+
+	for i := 1; i <= 2; i++ {
+		wg.Add(1)
+		workerName := "worker-" + string(rune('0'+i))
+		go func(worker string) {
+			defer wg.Done()
+			claimPayload := []byte(`{"worker":"` + worker + `","project":"wake-proj","wait":5}`)
+			resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimPayload))
+			if err != nil {
+				return
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusOK {
+				return
+			}
+			var item struct {
+				ID string `json:"id"`
+			}
+			if err := json.NewDecoder(resp.Body).Decode(&item); err == nil && item.ID != "" {
+				claimed <- item.ID
+			}
+		}(workerName)
+	}
+
+	for i := 0; i < 50; i++ {
+		if db.waiterCount() >= 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	kickPayload := []byte(`{"project":"wake-proj","limit":2}`)
+	resp, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader(kickPayload))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	wg.Wait()
+	close(claimed)
+
+	var count int
+	for range claimed {
+		count++
+	}
+	if count != 2 {
+		t.Fatalf("expected both waiters to be woken and claim tasks, got %d", count)
+	}
+}

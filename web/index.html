@@ -2605,7 +2605,7 @@
           message: 'Custom ID must be 1-128 characters: letters, digits, dot, underscore or hyphen'
         };
       }
-      if (id === '.' || id === '..' || /^(claim|purge)$/i.test(id)) {
+      if (id === '.' || id === '..' || /^(claim|purge|kick)$/i.test(id)) {
         return { fieldId: 'form-id', message: 'Custom ID "' + id + '" is reserved, pick another one' };
       }
       return null;

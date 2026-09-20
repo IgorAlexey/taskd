@@ -1235,7 +1235,7 @@ func validTaskID(id string) bool {
 	if id == "" || len(id) > maxTaskIDLen || id == "." || id == ".." {
 		return false
 	}
-	if strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") {
+	if strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") || strings.EqualFold(id, "kick") {
 		return false
 	}
 	for i := range len(id) {
@@ -2543,6 +2543,113 @@ RETURNING status, project`,
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int64{"deleted": deleted})
 	}
+	bulkKickTasksHandler := func(w http.ResponseWriter, r *http.Request) {
+		q := requestQuery(r)
+		var req struct {
+			Project *string `json:"project"`
+			Limit   *int    `json:"limit"`
+		}
+		if !decodeBody(w, r, &req, true) {
+			return
+		}
+
+		if q.Has("project") && req.Project != nil && q.Get("project") != *req.Project {
+			writeError(w, http.StatusBadRequest, "conflicting project parameter")
+			return
+		}
+
+		var project string
+		if req.Project != nil {
+			project = *req.Project
+		} else if q.Has("project") {
+			project = q.Get("project")
+		}
+
+		var projectFilter string
+		if project != "" {
+			if project != "*" && !validProject(project) {
+				writeError(w, http.StatusBadRequest, "invalid project")
+				return
+			}
+			if project != "*" {
+				projectFilter = project
+			}
+		} else if q.Has("project") || req.Project != nil {
+			writeError(w, http.StatusBadRequest, "project cannot be empty")
+			return
+		}
+
+		var qLimit *int
+		if q.Has("limit") {
+			v, err := strconv.Atoi(q.Get("limit"))
+			if err != nil || v < 0 {
+				writeError(w, http.StatusBadRequest, "invalid limit")
+				return
+			}
+			qLimit = &v
+		}
+		if req.Limit != nil && *req.Limit < 0 {
+			writeError(w, http.StatusBadRequest, "invalid limit")
+			return
+		}
+		if qLimit != nil && req.Limit != nil && *qLimit != *req.Limit {
+			writeError(w, http.StatusBadRequest, "conflicting limit parameter")
+			return
+		}
+
+		var limit *int
+		if req.Limit != nil {
+			limit = req.Limit
+		} else {
+			limit = qLimit
+		}
+
+		var query string
+		var args []any
+		if limit == nil {
+			query = "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, version = version + 1 WHERE status = 'buried'"
+			if projectFilter != "" {
+				query += " AND project = ?"
+				args = append(args, projectFilter)
+			}
+			query += " RETURNING project"
+		} else {
+			query = "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, version = version + 1 WHERE id IN (SELECT id FROM tasks WHERE status = 'buried'"
+			if projectFilter != "" {
+				query += " AND project = ?"
+				args = append(args, projectFilter)
+			}
+			query += " ORDER BY priority ASC, created_at ASC LIMIT ?) RETURNING project"
+			args = append(args, *limit)
+		}
+
+		rows, err := db.rw.Query(query, args...)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer rows.Close()
+
+		var kicked int
+		for rows.Next() {
+			var proj string
+			if err := rows.Scan(&proj); err != nil {
+				internalError(w, err)
+				return
+			}
+			kicked++
+			if proj != "" {
+				db.notifyPending(proj)
+			}
+		}
+		if err := rows.Err(); err != nil {
+			internalError(w, err)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int{"kicked": kicked})
+	}
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		if err := db.rw.PingContext(r.Context()); err != nil {
 			writeError(w, http.StatusInternalServerError, "database ping failed")
@@ -2568,6 +2675,9 @@ RETURNING status, project`,
 	})
 	handleMethods(mux, "/tasks/purge", map[string]route{
 		http.MethodPost: {handler: purgeTasksHandler, params: []string{"project"}},
+	})
+	handleMethods(mux, "/tasks/kick", map[string]route{
+		http.MethodPost: {handler: bulkKickTasksHandler, params: []string{"project", "limit"}},
 	})
 	handleMethods(mux, "/tasks/claim", map[string]route{
 		http.MethodPost: {handler: claimHandler},
@@ -2714,6 +2824,7 @@ HTTP Endpoints:
   GET    /tasks/{id}/notes   retrieve task notes collection
   POST   /tasks/{id}/notes   append a note (requires author, text)
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
+  POST   /tasks/kick         bulk-unbury tasks (optional project, limit)
   GET    /projects           list active projects
   GET    /workers            list active workers
   GET    /stats              task queue statistics
