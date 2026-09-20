@@ -148,6 +148,15 @@ const (
 // rows is the whole form in reading order. Field rows take their rank
 // unless focused, which pins them; a field with text in it outranks
 // every empty one, so what the user typed stays on screen longest.
+func (f formModel) cancel() formModel {
+	if f.dirty() {
+		f.discarding = true
+		return f
+	}
+	f.cancelled = true
+	return f
+}
+
 func (f formModel) rows(th theme) []formRow {
 	field := func(n, rank int, value, text string) formRow {
 		switch {
@@ -158,10 +167,18 @@ func (f formModel) rows(th theme) []formRow {
 		}
 		return formRow{text: text, rank: rank, field: n}
 	}
-	save, saveRank := th.dim.Render("[ save ]"), rankButton
+	saveToken := "[ save ]"
+	cancelToken := "[ cancel ]"
+	save, saveRank := th.dim.Render(saveToken), rankButton
 	if f.focus == 4 {
-		save, saveRank = th.accentPill.Render("[ save ]"), 0
+		save, saveRank = th.accentPill.Render(saveToken), 0
 	}
+	cancel, cancelRank := th.dim.Render(cancelToken), rankButton
+	if f.focus == 5 {
+		cancel, cancelRank = th.accentPill.Render(cancelToken), 0
+	}
+	btnRank := min(saveRank, cancelRank)
+	gapStr := strings.Repeat(" ", buttonGap)
 	rows := []formRow{
 		{text: th.accent.Render(f.title), rank: rankTitle, field: -1},
 		{rank: rankSeparator, field: -1},
@@ -176,7 +193,7 @@ func (f formModel) rows(th theme) []formRow {
 		rows = append(rows, formRow{text: th.err.Render(f.errText), rank: rankError, field: -1})
 	}
 	rows = append(rows,
-		formRow{text: save, rank: saveRank, field: 4},
+		formRow{text: save + gapStr + cancel, rank: btnRank, field: 4},
 		formRow{rank: rankHint, field: -1},
 		formRow{text: th.dim.Render("Tab next  ctrl-s save  Esc cancel"), rank: rankHint, field: -1},
 	)
@@ -225,7 +242,7 @@ func box(head, keep []string, boxWidth, height int, align lipgloss.Position, th 
 }
 
 func (f *formModel) setFocus(target int) tea.Cmd {
-	f.focus = (target%5 + 5) % 5
+	f.focus = (target%6 + 6) % 6
 	f.project.Blur()
 	f.priority.Blur()
 	f.asset.Blur()
@@ -239,7 +256,7 @@ func (f *formModel) setFocus(target int) tea.Cmd {
 		return f.asset.Focus()
 	case 3:
 		return f.body.Focus()
-	case 4:
+	case 4, 5:
 		return nil
 	}
 	return nil
@@ -313,12 +330,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if msg.Code == tea.KeyEscape {
-			if f.dirty() {
-				f.discarding = true
-				return f, nil
-			}
-			f.cancelled = true
-			return f, nil
+			return f.cancel(), nil
 		}
 
 		if msg.Code == 's' && msg.Mod&tea.ModCtrl != 0 {
@@ -353,6 +365,9 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				f.errText = ""
 				f.done = true
 				return f, nil
+			}
+			if f.focus == 5 {
+				return f.cancel(), nil
 			}
 		}
 
@@ -522,6 +537,21 @@ func (f *formModel) fitRows(width, height int, th theme) (rows []formRow, wrappe
 	return rows, wrapped, head, boxWidth
 }
 
+type formButtonTarget struct {
+	field int
+	start int
+	end   int
+}
+
+func formButtonBounds(left int) []formButtonTarget {
+	saveW := ansi.StringWidth("[ save ]")
+	cancelW := ansi.StringWidth("[ cancel ]")
+	return []formButtonTarget{
+		{field: 4, start: left, end: left + saveW},
+		{field: 5, start: left + saveW + buttonGap, end: left + saveW + buttonGap + cancelW},
+	}
+}
+
 func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 	if msg.Button != tea.MouseLeft || f.discarding {
 		return f, nil
@@ -561,11 +591,20 @@ func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 				return f.refit(), cmd
 			case 4:
 				contentLeft := left + boxStyle.GetBorderLeftSize() + boxStyle.GetPaddingLeft()
-				btnWidth := ansi.StringWidth(r.text)
-				if msg.X >= contentLeft && msg.X < contentLeft+btnWidth {
-					f.setFocus(4)
-					f.done = true
-					return f, nil
+				for _, btn := range formButtonBounds(contentLeft) {
+					if msg.X >= btn.start && msg.X < btn.end {
+						f.setFocus(btn.field)
+						if btn.field == 4 {
+							if err := f.validate(); err != "" {
+								f.errText = err
+								return f.refit(), nil
+							}
+							f.errText = ""
+							f.done = true
+							return f, nil
+						}
+						return f.cancel(), nil
+					}
 				}
 			default:
 				if r.rank == rankBodyLabel {
