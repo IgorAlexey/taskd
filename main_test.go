@@ -934,3 +934,46 @@ func TestGetTasksEmptyStatus(t *testing.T) {
 		t.Fatalf("expected status 400, got %d", recInvalid.Code)
 	}
 }
+
+func TestGetTasksInvalidSortOrderFields(t *testing.T) {
+	db, err := openDB(":memory:", 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	handler := newHandler(db, 30)
+
+	cases := []struct {
+		param   string
+		wantErr string
+	}{
+		{
+			param:   "?sort=bad",
+			wantErr: `invalid sort "bad", must be one of [id, project, status, priority, claim_count, worker, created_at]`,
+		},
+		{
+			param:   "?order=bad",
+			wantErr: `invalid order "bad", must be one of [asc, desc]`,
+		},
+		{
+			param:   "?fields=bad",
+			wantErr: `invalid field "bad", must be one of [id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]`,
+		},
+	}
+
+	for _, tc := range cases {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/tasks"+tc.param, nil))
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("GET /tasks%s status = %d, want 400", tc.param, rec.Code)
+		}
+		var errResp map[string]string
+		if err := json.Unmarshal(rec.Body.Bytes(), &errResp); err != nil {
+			t.Fatalf("decode /tasks%s error failed: %v", tc.param, err)
+		}
+		if got := errResp["error"]; got != tc.wantErr {
+			t.Fatalf("GET /tasks%s error = %q, want %q", tc.param, got, tc.wantErr)
+		}
+	}
+}

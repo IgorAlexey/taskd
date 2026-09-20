@@ -175,63 +175,6 @@ func TestValidationErrorsDetailed(t *testing.T) {
 			t.Fatalf("error must not echo unbounded overlength project")
 		}
 	})
-	t.Run("sort invalid", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/tasks?sort=invalid")
-		if err != nil {
-			t.Fatalf("GET failed: %v", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", resp.StatusCode)
-		}
-		var apiErr apiError
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			t.Fatalf("decode failed: %v", err)
-		}
-		want := `invalid sort "invalid", must be one of [id, project, status, priority, claim_count, worker, created_at]`
-		if apiErr.Error != want {
-			t.Fatalf("got error %q, want %q", apiErr.Error, want)
-		}
-	})
-
-	t.Run("order invalid", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/tasks?order=invalid")
-		if err != nil {
-			t.Fatalf("GET failed: %v", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", resp.StatusCode)
-		}
-		var apiErr apiError
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			t.Fatalf("decode failed: %v", err)
-		}
-		want := `invalid order "invalid", must be one of [asc, desc]`
-		if apiErr.Error != want {
-			t.Fatalf("got error %q, want %q", apiErr.Error, want)
-		}
-	})
-
-	t.Run("fields invalid", func(t *testing.T) {
-		resp, err := http.Get(srv.URL + "/tasks?fields=invalid")
-		if err != nil {
-			t.Fatalf("GET failed: %v", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", resp.StatusCode)
-		}
-		var apiErr apiError
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			t.Fatalf("decode failed: %v", err)
-		}
-		want := `invalid field "invalid", must be one of [id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]`
-		if apiErr.Error != want {
-			t.Fatalf("got error %q, want %q", apiErr.Error, want)
-		}
-	})
-
 	t.Run("claim wait invalid", func(t *testing.T) {
 		payload := `{"wait":-1}`
 		resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(payload))
