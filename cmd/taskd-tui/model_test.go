@@ -183,3 +183,66 @@ func TestEditFormNoChanges(t *testing.T) {
 		}
 	})
 }
+func TestPasteRouting(t *testing.T) {
+	t.Run("PasteInSearch", func(t *testing.T) {
+		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
+		up, _ := m.Update(tea.KeyPressMsg{Text: "/"})
+		m = up.(model)
+		if m.mode != modeSearch {
+			t.Fatalf("expected modeSearch, got %v", m.mode)
+		}
+
+		up, _ = m.Update(tea.PasteMsg{Content: "sample-query\r\n"})
+		m = up.(model)
+		if m.query != "sample-query" {
+			t.Fatalf("query = %q, want %q", m.query, "sample-query")
+		}
+
+		up, _ = m.Update(tea.PasteMsg{Content: " more\nterms"})
+		m = up.(model)
+		if m.query != "sample-query more terms" {
+			t.Fatalf("query = %q, want %q", m.query, "sample-query more terms")
+		}
+	})
+
+	t.Run("PasteInForm", func(t *testing.T) {
+		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
+		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})
+		m = up.(model)
+		if m.mode != modeForm {
+			t.Fatalf("expected modeForm, got %v", m.mode)
+		}
+
+		up, _ = m.Update(tea.PasteMsg{Content: "pasted-project"})
+		m = up.(model)
+		if m.form.project.Value() != "pasted-project" {
+			t.Fatalf("form project = %q, want %q", m.form.project.Value(), "pasted-project")
+		}
+
+		m.form.setFocus(fieldBody)
+		up, _ = m.Update(tea.PasteMsg{Content: "pasted task body"})
+		m = up.(model)
+		if !strings.Contains(m.form.body.Value(), "pasted task body") {
+			t.Fatalf("form body = %q, want to contain %q", m.form.body.Value(), "pasted task body")
+		}
+	})
+
+	t.Run("PasteInNote", func(t *testing.T) {
+		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
+		m.tasks = []task{{ID: "task-1", Status: "pending", Project: "p1"}}
+		m.rebuildShown()
+		m.cursor = 0
+
+		up, _ := m.Update(tea.KeyPressMsg{Text: "a"})
+		m = up.(model)
+		if m.mode != modeNote {
+			t.Fatalf("expected modeNote, got %v", m.mode)
+		}
+
+		up, _ = m.Update(tea.PasteMsg{Content: "pasted-note-content"})
+		m = up.(model)
+		if m.note.input.Value() != "pasted-note-content" {
+			t.Fatalf("note input = %q, want %q", m.note.input.Value(), "pasted-note-content")
+		}
+	})
+}

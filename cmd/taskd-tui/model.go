@@ -138,7 +138,7 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.form, cmd = m.form.Update(msg)
 			return m.handleFormResult(cmd)
-		case tea.MouseWheelMsg, tea.MouseClickMsg:
+		case tea.MouseWheelMsg, tea.MouseClickMsg, tea.PasteMsg:
 			if m.formSeq != 0 {
 				return m, nil
 			}
@@ -252,11 +252,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.isModal() {
 		switch msg.(type) {
-		case tea.KeyPressMsg, tea.MouseWheelMsg, tea.MouseClickMsg:
+		case tea.KeyPressMsg, tea.MouseWheelMsg, tea.MouseClickMsg, tea.PasteMsg:
 			return m.updateModal(msg)
 		}
 	}
 	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		if m.mode == modeSearch {
+			content := strings.TrimRight(msg.Content, "\r\n")
+			content = strings.ReplaceAll(content, "\r\n", " ")
+			content = strings.ReplaceAll(content, "\n", " ")
+			content = strings.ReplaceAll(content, "\r", " ")
+			if content != "" {
+				m.query += content
+				return m, m.typeQuery()
+			}
+		}
+		return m, nil
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height

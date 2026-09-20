@@ -471,20 +471,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			}
 		}
 
-		var cmd tea.Cmd
 		switch f.focus {
-		case fieldProject:
-			f.project, cmd = f.project.Update(msg)
-		case fieldPriority:
-			f.priority, cmd = f.priority.Update(msg)
-		case fieldAsset:
-			f.asset, cmd = f.asset.Update(msg)
-		case fieldID:
-			if !f.editing {
-				f.customID, cmd = f.customID.Update(msg)
-			}
-		case fieldBody:
-			f.body, cmd = f.body.Update(msg)
 		case fieldSave:
 			if msg.Code == tea.KeySpace && msg.Mod == 0 {
 				return f.activateSave()
@@ -493,9 +480,13 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			if msg.Code == tea.KeySpace && msg.Mod == 0 {
 				return f.cancel(), nil
 			}
+		default:
+			return f.updateFocused(msg)
 		}
-		return f.refit(), cmd
+		return f.refit(), nil
 
+	case tea.PasteMsg:
+		return f.updateFocused(msg)
 	case tea.MouseClickMsg:
 		return f.handleClick(msg)
 
@@ -526,6 +517,24 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		}
 		return f, tea.Batch(cmds...)
 	}
+}
+func (f formModel) updateFocused(msg tea.Msg) (formModel, tea.Cmd) {
+	var cmd tea.Cmd
+	switch f.focus {
+	case fieldProject:
+		f.project, cmd = f.project.Update(msg)
+	case fieldPriority:
+		f.priority, cmd = f.priority.Update(msg)
+	case fieldAsset:
+		f.asset, cmd = f.asset.Update(msg)
+	case fieldID:
+		if !f.editing {
+			f.customID, cmd = f.customID.Update(msg)
+		}
+	case fieldBody:
+		f.body, cmd = f.body.Update(msg)
+	}
+	return f.refit(), cmd
 }
 
 func (f formModel) submit() (method, path string, body map[string]any, success string, errText string) {
