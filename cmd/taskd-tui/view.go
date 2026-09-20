@@ -185,6 +185,26 @@ func leaseLeft(t task, now time.Time) string {
 	return fmt.Sprintf("%dm%02ds", mins, secs)
 }
 
+func createdAge(createdAt int64, now time.Time) string {
+	if createdAt <= 0 || now.IsZero() {
+		return ""
+	}
+	diff := now.Unix() - createdAt
+	if diff < 0 {
+		diff = 0
+	}
+	switch {
+	case diff < 60:
+		return fmt.Sprintf("%ds", diff)
+	case diff < 3600:
+		return fmt.Sprintf("%dm", diff/60)
+	case diff < 86400:
+		return fmt.Sprintf("%dh", diff/3600)
+	default:
+		return fmt.Sprintf("%dd", diff/86400)
+	}
+}
+
 func highlightCode(s string, th theme) string {
 	var b strings.Builder
 	for {
@@ -751,6 +771,9 @@ func (m model) View() tea.View {
 			}
 			if curTask.AssetPath != "" && curTask.AssetPath != title {
 				chips = append(chips, curTask.AssetPath)
+			}
+			if age := createdAge(curTask.CreatedAt, m.now); age != "" {
+				chips = append(chips, age)
 			}
 			chipsLine := m.theme.dim.Render(strings.Join(chips, "  "))
 			detailLines = append(detailLines, padLineIndent(chipsLine, w))
