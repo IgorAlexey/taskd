@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"os/exec"
 	"time"
 
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 )
 
 // task mirrors the daemon's JSON representation of a queue entry.
@@ -194,12 +196,13 @@ type model struct {
 	detail   viewport.Model // scrolls the detail pane body
 	detailID string         // task the viewport content was built for
 
-	form       formModel
-	confirm    confirmModel
-	help       helpModel
-	note       noteModel
-	notesCache map[string][]taskNote
-	noteSeq    uint64
+	form         formModel
+	confirm      confirmModel
+	help         helpModel
+	note         noteModel
+	notesCache   map[string][]taskNote
+	noteSeq      uint64
+	editorRunner func(cmd *exec.Cmd, fn func(error) tea.Msg) tea.Cmd
 }
 type tabDef struct {
 	key    string

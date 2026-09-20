@@ -1791,26 +1791,38 @@ func (m model) actionEditInEditor() (model, tea.Cmd) {
 
 	editor := resolveEditor()
 	cmd := buildEditorCmd(editor, tmpPath)
+	runner := m.editorRunner
+	if runner == nil {
+		runner = Suspend
+	}
 
-	return m, Suspend(cmd, func(err error) tea.Msg {
+	return m, runner(cmd, func(err error) tea.Msg {
+		keepDraftForPatch := false
+		defer func() {
+			if !keepDraftForPatch {
+				os.Remove(tmpPath)
+			}
+		}()
+
 		if err != nil {
-			os.Remove(tmpPath)
 			return editorFinishedMsg{err: err}
 		}
 		data, readErr := os.ReadFile(tmpPath)
 		if readErr != nil {
-			os.Remove(tmpPath)
 			return editorFinishedMsg{err: readErr}
 		}
 		newBody := string(data)
 		if newBody == t.Body {
-			os.Remove(tmpPath)
 			return editorFinishedMsg{status: "task body unchanged"}
 		}
 		if strings.TrimSpace(newBody) == "" {
-			os.Remove(tmpPath)
-			return editorFinishedMsg{status: "task body empty, unchanged"}
+			if strings.TrimSpace(t.AssetPath) == "" {
+				return editorFinishedMsg{status: "task body empty, unchanged"}
+			}
+			newBody = ""
 		}
+		/* Hand off tmpPath to editorPatchCmd; preserved on network error. */
+		keepDraftForPatch = true
 		return editorFinishedMsg{
 			taskID:   t.ID,
 			version:  t.Version,
