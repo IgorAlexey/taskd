@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -32,7 +33,28 @@ var (
 	touchCalls   []string
 	patchMu      sync.Mutex
 	patchCalls   []string
+	buryMu       sync.Mutex
+	buryCalls    []string
+	kickMu       sync.Mutex
+	kickCalls    []kickCall
 )
+
+type kickCall struct {
+	uri  string
+	body int64
+}
+
+func buryCallsSnapshot() []string {
+	buryMu.Lock()
+	defer buryMu.Unlock()
+	return slices.Clone(buryCalls)
+}
+
+func kickCallsSnapshot() []kickCall {
+	kickMu.Lock()
+	defer kickMu.Unlock()
+	return slices.Clone(kickCalls)
+}
 
 type closeCall struct {
 	uri  string
@@ -87,6 +109,12 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	patchMu.Lock()
 	patchCalls = nil
 	patchMu.Unlock()
+	buryMu.Lock()
+	buryCalls = nil
+	buryMu.Unlock()
+	kickMu.Lock()
+	kickCalls = nil
+	kickMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
@@ -127,7 +155,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		mu.Lock()
 		defer mu.Unlock()
 		project := r.URL.Query().Get("project")
-		var pending, leased, done, total int
+		var pending, leased, done, buried, total int
 		for _, t := range normalize(tasks) {
 			if project != "" && project != "*" && t.Project != project {
 				continue
@@ -140,6 +168,8 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 				leased++
 			case "done":
 				done++
+			case "buried":
+				buried++
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -147,6 +177,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 			"pending": pending,
 			"leased":  leased,
 			"done":    done,
+			"buried":  buried,
 			"total":   total,
 		})
 	})
@@ -225,6 +256,57 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 				return
 			}
 			tasks[i].Status, tasks[i].Worker, tasks[i].LeaseExpires = "pending", "", 0
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /tasks/{id}/bury", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Worker == "" {
+			http.Error(w, "missing worker", http.StatusBadRequest)
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		buryMu.Lock()
+		buryCalls = append(buryCalls, r.PathValue("id")+" "+req.Worker)
+		buryMu.Unlock()
+		for i := range tasks {
+			if tasks[i].ID != r.PathValue("id") {
+				continue
+			}
+			if tasks[i].Status != "leased" || tasks[i].Worker != req.Worker || tasks[i].LeaseExpires < time.Now().Unix() {
+				http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+				return
+			}
+			tasks[i].Status, tasks[i].Worker, tasks[i].LeaseExpires = "buried", "", 0
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /tasks/{id}/kick", func(w http.ResponseWriter, r *http.Request) {
+		if body, err := io.ReadAll(r.Body); err != nil || len(body) > 0 {
+			http.Error(w, "unexpected request body", http.StatusBadRequest)
+			return
+		}
+		kickMu.Lock()
+		kickCalls = append(kickCalls, kickCall{uri: r.URL.RequestURI(), body: r.ContentLength})
+		kickMu.Unlock()
+		mu.Lock()
+		defer mu.Unlock()
+		for i := range tasks {
+			if tasks[i].ID != r.PathValue("id") {
+				continue
+			}
+			if tasks[i].Status != "buried" {
+				http.Error(w, "task is "+tasks[i].Status, http.StatusConflict)
+				return
+			}
+			tasks[i].Status, tasks[i].ClaimCount = "pending", 0
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
@@ -418,7 +500,9 @@ func TestRenderAndKeys(t *testing.T) {
 	if !strings.Contains(u.status.GetText(true), "project all") {
 		t.Fatalf("status line project = %q", u.status.GetText(true))
 	}
-	if !strings.Contains(u.status.GetText(true), "pending 1  leased 1  done 1") {
+	u.width = 120
+	u.renderStatus()
+	if !strings.Contains(u.status.GetText(true), "pending 1  leased 1  buried 0  done 1") {
 		t.Fatalf("status = %q", u.status.GetText(true))
 	}
 
@@ -3230,6 +3314,7 @@ func TestRefreshMessage(t *testing.T) {
 }
 func TestDefaultViewHidesDone(t *testing.T) {
 	u := newUI("http://localhost:8080", "", false, "")
+	u.width = 120
 	if u.filter != "live" {
 		t.Fatalf("expected default filter to be %q, got %q", "live", u.filter)
 	}
@@ -3250,7 +3335,7 @@ func TestDefaultViewHidesDone(t *testing.T) {
 	if !strings.Contains(u.status.GetText(true), "live") {
 		t.Fatalf("status line %q should show 'live' filter name", u.status.GetText(true))
 	}
-	if !strings.Contains(u.status.GetText(true), "pending 1  leased 1  done 1") {
+	if !strings.Contains(u.status.GetText(true), "pending 1  leased 1  buried 0  done 1") {
 		t.Fatalf("status line %q should show counts for all tasks", u.status.GetText(true))
 	}
 

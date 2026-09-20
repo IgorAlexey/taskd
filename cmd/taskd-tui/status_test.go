@@ -15,6 +15,7 @@ func statusLine(t *testing.T, u *ui) string {
 
 func TestProjectScopedCounts(t *testing.T) {
 	u := newUI("http://localhost:8080", "", false, "")
+	u.width = 120
 	all := []task{
 		{ID: "a1", Project: "proj-a", Status: "pending", Body: "a pending"},
 		{ID: "a2", Project: "proj-a", Status: "done", Body: "a done"},
@@ -24,32 +25,32 @@ func TestProjectScopedCounts(t *testing.T) {
 	}
 
 	u.render(all)
-	if u.pending != 3 || u.leased != 1 || u.done != 1 {
-		t.Fatalf("unscoped counts = %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 3 || u.stats.Leased != 1 || u.stats.Done != 1 {
+		t.Fatalf("unscoped counts = %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 
 	u.project = "proj-a"
 	u.render(all)
-	if u.pending != 1 || u.leased != 0 || u.done != 1 {
-		t.Fatalf("proj-a counts = %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 1 || u.stats.Leased != 0 || u.stats.Done != 1 {
+		t.Fatalf("proj-a counts = %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
-	if got := statusLine(t, u); !strings.Contains(got, "pending 1  leased 0  done 1") {
+	if got := statusLine(t, u); !strings.Contains(got, "pending 1  leased 0  buried 0  done 1") {
 		t.Fatalf("proj-a status line = %q", got)
 	}
 
 	u.project = "proj-b"
 	u.render(all)
-	if u.pending != 2 || u.leased != 1 || u.done != 0 {
-		t.Fatalf("proj-b counts = %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 2 || u.stats.Leased != 1 || u.stats.Done != 0 {
+		t.Fatalf("proj-b counts = %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
-	if got := statusLine(t, u); !strings.Contains(got, "pending 2  leased 1  done 0") {
+	if got := statusLine(t, u); !strings.Contains(got, "pending 2  leased 1  buried 0  done 0") {
 		t.Fatalf("proj-b status line = %q", got)
 	}
 
 	u.filter = "pending"
 	u.render(all)
-	if u.pending != 2 || u.leased != 1 || u.done != 0 {
-		t.Fatalf("status filter must not change counts, got %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 2 || u.stats.Leased != 1 || u.stats.Done != 0 {
+		t.Fatalf("status filter must not change counts, got %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 	if len(u.shown) != 2 {
 		t.Fatalf("proj-b pending rows = %d", len(u.shown))
@@ -58,8 +59,8 @@ func TestProjectScopedCounts(t *testing.T) {
 	u.project = "proj-c"
 	u.filter = ""
 	u.render(all)
-	if u.pending != 0 || u.leased != 0 || u.done != 0 {
-		t.Fatalf("unknown project counts = %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 0 || u.stats.Leased != 0 || u.stats.Done != 0 {
+		t.Fatalf("unknown project counts = %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 }
 

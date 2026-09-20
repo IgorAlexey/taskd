@@ -115,9 +115,9 @@ func TestStatsBacklogExceedsPagination(t *testing.T) {
 		var pending, leased, doneCount int
 		var line string
 		query(func() {
-			pending = u.pending
-			leased = u.leased
-			doneCount = u.done
+			pending = u.stats.Pending
+			leased = u.stats.Leased
+			doneCount = u.stats.Done
 			line = strings.SplitN(u.status.GetText(true), "\n", 2)[0]
 		})
 		if pending == 600 && leased == 25 && doneCount == 50 && strings.Contains(line, "pending 600  leased 25") {
@@ -129,24 +129,24 @@ func TestStatsBacklogExceedsPagination(t *testing.T) {
 	query(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'l', 0))
 	})
-	if u.pending != 600 || u.leased != 25 || u.done != 50 {
-		t.Fatalf("keystroke 'l' vaporized stats: %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 600 || u.stats.Leased != 25 || u.stats.Done != 50 {
+		t.Fatalf("keystroke 'l' vaporized stats: %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 
 	query(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, '/', 0))
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'a', 0))
 	})
-	if u.pending != 600 || u.leased != 25 || u.done != 50 {
-		t.Fatalf("search keystrokes vaporized stats: %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 600 || u.stats.Leased != 25 || u.stats.Done != 50 {
+		t.Fatalf("search keystrokes vaporized stats: %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 
 	query(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyEscape, 0, 0))
 		u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
 	})
-	if u.pending != 600 || u.leased != 25 || u.done != 50 {
-		t.Fatalf("keystroke '0' vaporized stats: %d/%d/%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 600 || u.stats.Leased != 25 || u.stats.Done != 50 {
+		t.Fatalf("keystroke '0' vaporized stats: %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 }
 
@@ -201,9 +201,9 @@ func TestStatsFallbackOnServerError(t *testing.T) {
 	for range 50 {
 		var pending, leased, doneCount int
 		query(func() {
-			pending = u.pending
-			leased = u.leased
-			doneCount = u.done
+			pending = u.stats.Pending
+			leased = u.stats.Leased
+			doneCount = u.stats.Done
 		})
 		if pending == 1 && leased == 1 && doneCount == 0 {
 			return
@@ -213,9 +213,9 @@ func TestStatsFallbackOnServerError(t *testing.T) {
 
 	var pending, leased, doneCount int
 	query(func() {
-		pending = u.pending
-		leased = u.leased
-		doneCount = u.done
+		pending = u.stats.Pending
+		leased = u.stats.Leased
+		doneCount = u.stats.Done
 	})
 	t.Fatalf("expected fallback in-memory stats (1/1/0), got %d/%d/%d", pending, leased, doneCount)
 }

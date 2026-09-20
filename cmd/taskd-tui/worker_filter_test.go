@@ -224,7 +224,7 @@ func TestTUIWorkerFilter(t *testing.T) {
 			queried := make(chan struct{})
 			u.app.QueueUpdate(func() {
 				got = fmt.Sprintf("%d %d %d %v",
-					u.pending, u.leased, u.done, u.hasServerStats)
+					u.stats.Pending, u.stats.Leased, u.stats.Done, u.hasServerStats)
 				close(queried)
 			})
 			<-queried

@@ -51,8 +51,8 @@ func TestFetchProjectQuery(t *testing.T) {
 		t.Fatalf("expected 2 tasks for proj-b, got %d", len(tasks))
 	}
 	u.render(tasks)
-	if u.pending != 1 || u.done != 1 || u.leased != 0 {
-		t.Fatalf("status counts corrupted: pending=%d leased=%d done=%d", u.pending, u.leased, u.done)
+	if u.stats.Pending != 1 || u.stats.Done != 1 || u.stats.Leased != 0 {
+		t.Fatalf("status counts corrupted: pending=%d leased=%d done=%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
 	}
 
 	// The argument scopes the query, not the field: a refresh that started
@@ -80,7 +80,7 @@ func TestFetchProjectQuery(t *testing.T) {
 		t.Fatalf("fetch must return all statuses for project, got %d tasks", len(tasks))
 	}
 	u.render(tasks)
-	if u.pending != 1 || u.done != 1 {
+	if u.stats.Pending != 1 || u.stats.Done != 1 {
 		t.Fatalf("status counts must reflect project total even with filter active")
 	}
 	if len(u.shown) != 1 || u.shown[0].ID != "t2" {

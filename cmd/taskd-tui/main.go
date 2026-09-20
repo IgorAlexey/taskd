@@ -129,28 +129,28 @@ type ui struct {
 	// project and workerFilter are the active scope. The event goroutine
 	// is their only writer and takes projectMu; readers on other
 	// goroutines use proj() or scope().
-	projectMu             sync.Mutex
-	project               string
-	workerFilter          string
-	searching             bool
-	query                 string
-	icons                 bool
-	worker                string
-	width                 int
-	all                   []task
-	shown                 []task
-	projects              []string
-	pending, leased, done int
-	hasServerStats        bool
-	statsProject          string
-	msg                   string
-	msgRev                int
-	msgTimeout            time.Duration
-	shownID               string
-	shownBody             string
-	refreshing            atomic.Bool
-	disconnected          atomic.Bool
-	pollInterval          time.Duration
+	projectMu      sync.Mutex
+	project        string
+	workerFilter   string
+	searching      bool
+	query          string
+	icons          bool
+	worker         string
+	width          int
+	all            []task
+	shown          []task
+	projects       []string
+	stats          stats
+	hasServerStats bool
+	statsProject   string
+	msg            string
+	msgRev         int
+	msgTimeout     time.Duration
+	shownID        string
+	shownBody      string
+	refreshing     atomic.Bool
+	disconnected   atomic.Bool
+	pollInterval   time.Duration
 	// loaded reports whether an answer for the live filter has landed.
 	// Adopting a filter clears it; any answer sets it, including a failed
 	// one, so a filter nobody fetches cannot wedge the table.
@@ -243,6 +243,7 @@ type stats struct {
 	Pending int `json:"pending"`
 	Leased  int `json:"leased"`
 	Done    int `json:"done"`
+	Buried  int `json:"buried"`
 }
 
 func (u *ui) fetchStats(project string) (stats, error) {
@@ -303,6 +304,7 @@ const (
 	iconPending = "\uf017"
 	iconLeased  = "\uf021"
 	iconDone    = "\uf00c"
+	iconBuried  = "\uf186"
 	iconPriLow  = "\uf107"
 	iconPriMed  = "\uf106"
 	iconPriHigh = "\uf102"
@@ -321,6 +323,8 @@ func statusText(status string, icons bool) string {
 		glyph = iconLeased
 	case "done":
 		glyph = iconDone
+	case "buried":
+		glyph = iconBuried
 	}
 	return glyph + " " + status
 }
@@ -405,7 +409,7 @@ func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	u.all, u.shown = all, u.shown[:0]
 	if !u.hasServerStats || u.statsProject != u.project {
-		u.pending, u.leased, u.done = 0, 0, 0
+		u.stats = stats{}
 		for i := range all {
 			t := all[i]
 			if u.project != "" && t.Project != u.project {
@@ -413,11 +417,13 @@ func (u *ui) render(all []task) {
 			}
 			switch t.Status {
 			case "pending":
-				u.pending++
+				u.stats.Pending++
 			case "leased":
-				u.leased++
+				u.stats.Leased++
 			case "done":
-				u.done++
+				u.stats.Done++
+			case "buried":
+				u.stats.Buried++
 			}
 		}
 	}
@@ -433,7 +439,7 @@ func (u *ui) render(all []task) {
 		var matchFilter bool
 		switch u.filter {
 		case "live":
-			matchFilter = t.Status != "done"
+			matchFilter = t.Status != "done" && t.Status != "buried"
 		case "":
 			matchFilter = true
 		default:
@@ -448,7 +454,7 @@ func (u *ui) render(all []task) {
 	for i, h := range []string{"STATUS", "PRI", "PROJECT", "LEASE", "WORKER", "ID", "CLAIMS", "TITLE"} {
 		u.table.SetCell(0, i, tview.NewTableCell(h).SetTextColor(tcell.ColorYellow).SetSelectable(false).SetClickedFunc(headerClicked))
 	}
-	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen}
+	colors := map[string]tcell.Color{"pending": tcell.ColorWhite, "leased": tcell.ColorOrange, "done": tcell.ColorGreen, "buried": tcell.ColorRed}
 	now, row := time.Now().Unix(), u.selectedRow()
 	for i, t := range u.shown {
 		title := taskTitle(t)
@@ -559,6 +565,8 @@ func (u *ui) renderStatus() {
 	if u.workerFilter != "" {
 		wk = "  worker " + truncWidth(u.workerFilter, 20)
 	}
+	counts := fmt.Sprintf("pending %d  leased %d  buried %d  done %d",
+		u.stats.Pending, u.stats.Leased, u.stats.Buried, u.stats.Done)
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	var prefix string
 	if u.disconnected.Load() {
@@ -568,11 +576,11 @@ func (u *ui) renderStatus() {
 			prefix = fmt.Sprintf(" [disconnected]  project %s%s", proj, wk)
 		}
 	} else if u.origin != "" {
-		prefix = fmt.Sprintf(" %s  %s  project %s%s  pending %d  leased %d  done %d",
-			u.origin, cmp.Or(u.filter, "all"), proj, wk, u.pending, u.leased, u.done)
+		prefix = fmt.Sprintf(" %s  %s  project %s%s  %s",
+			u.origin, cmp.Or(u.filter, "all"), proj, wk, counts)
 	} else {
-		prefix = fmt.Sprintf(" %s  project %s%s  pending %d  leased %d  done %d",
-			cmp.Or(u.filter, "all"), proj, wk, u.pending, u.leased, u.done)
+		prefix = fmt.Sprintf(" %s  project %s%s  %s",
+			cmp.Or(u.filter, "all"), proj, wk, counts)
 	}
 	avail := cols - uniseg.StringWidth(idx)
 	var line1 string
@@ -581,7 +589,7 @@ func (u *ui) renderStatus() {
 	} else {
 		line1 = truncWidth(prefix, cols)
 	}
-	line2 := " [j/k] [0-4] filt [n] new [e] edit [+/-] pri [D] del [z] zoom [?] help [q] quit"
+	line2 := " [j/k] [0-5] filt [n] new [e] edit [+/-] pri [D] del [z] zoom [?] help [q] quit"
 	if u.searching {
 		line2 = truncWidth("/"+u.query, cols)
 	} else if u.msg != "" {
@@ -718,7 +726,7 @@ func (u *ui) refreshOnce(project, worker string) {
 		}
 		u.loaded = true
 		if serr == nil && worker == "" {
-			u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
+			u.stats = st
 			u.hasServerStats = true
 			u.statsProject = project
 		} else {
@@ -774,7 +782,7 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			}
 			u.loaded = true
 			if statsErr == nil && worker == "" {
-				u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
+				u.stats = st
 				u.hasServerStats = true
 				u.statsProject = project
 			} else {
@@ -1108,6 +1116,20 @@ func (u *ui) showCompleteConfirm(t task) {
 
 }
 
+func (u *ui) showBuryConfirm(t task) {
+	text := fmt.Sprintf("Bury task %s?\nThe task is parked out of the queue until it is kicked.", tview.Escape(taskLabel(t)))
+	u.confirm("bury", text, "Bury", func() {
+		u.act("POST", "/tasks/"+t.ID+"/bury", map[string]string{"worker": u.worker}, "buried task "+short(t.ID))
+	})
+}
+
+func (u *ui) showKickConfirm(t task) {
+	text := fmt.Sprintf("Kick task %s?\nThe task returns to pending and its claim count resets.", tview.Escape(taskLabel(t)))
+	u.confirm("kick", text, "Kick", func() {
+		u.act("POST", "/tasks/"+t.ID+"/kick", nil, "kicked task "+short(t.ID))
+	})
+}
+
 func (u *ui) showHelp() {
 	prev := u.app.GetFocus()
 	m := tview.NewModal()
@@ -1115,7 +1137,7 @@ func (u *ui) showHelp() {
 		"[j/k] move\n" +
 		"[g/G] top/bottom\n" +
 		"[Ctrl+D/U] half page\n" +
-		"[0-4] filter status\n" +
+		"[0-5] filter status\n" +
 		"[/] keyword filter\n" +
 		"[p] cycle project  [w] cycle worker\n" +
 		"[n] new task [e] edit task\n" +
@@ -1123,6 +1145,8 @@ func (u *ui) showHelp() {
 		"[u] release task\n" +
 		"[t] touch lease\n" +
 		"[x] complete task\n" +
+		"[b] bury own task\n" +
+		"[K] kick task\n" +
 		"[D] delete task\n" +
 		"[+/-] priority\n" +
 		"[z] zoom task body\n" +
@@ -1253,8 +1277,8 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		if len(u.shown) > 0 {
 			u.table.Select(len(u.shown), 0)
 		}
-	case '0', '1', '2', '3', '4':
-		u.filter = []string{"", "pending", "leased", "done", "live"}[ev.Rune()-'0']
+	case '0', '1', '2', '3', '4', '5':
+		u.filter = []string{"", "pending", "leased", "done", "live", "buried"}[ev.Rune()-'0']
 		u.render(u.all)
 	case 'l':
 		u.filter = "live"
@@ -1353,6 +1377,26 @@ func (u *ui) actionKeys(ev *tcell.EventKey) bool {
 				break
 			}
 			u.showCompleteConfirm(t)
+		}
+	case 'b':
+		if ok {
+			if !t.activelyLeased(time.Now().Unix()) {
+				u.setMsg("task is not actively leased")
+				break
+			}
+			if u.worker == "" || t.Worker != u.worker {
+				u.setMsg("cannot bury task leased by another worker")
+				break
+			}
+			u.showBuryConfirm(t)
+		}
+	case 'K':
+		if ok {
+			if t.Status != "buried" {
+				u.setMsg("task is not buried")
+				break
+			}
+			u.showKickConfirm(t)
 		}
 	case 'z':
 		u.toggleZoom()
@@ -1551,6 +1595,7 @@ Keyboard shortcuts:
   2              Filter leased tasks
   3              Filter done tasks
   4, l           Filter live tasks (pending and leased)
+  5              Filter buried tasks
   p              Cycle project filter
   w              Cycle worker filter
   + / =          Raise task priority (lower number)
@@ -1562,6 +1607,8 @@ Keyboard shortcuts:
   t              Touch lease on selected leased task
   D              Delete selected task
   x              Complete selected task
+  b              Bury task leased by this worker
+  K              Kick selected buried task back to pending
   z              Zoom task body to full screen
   y              Copy task ID to clipboard
   Y              Copy task body to clipboard
