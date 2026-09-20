@@ -107,7 +107,7 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modeForm:
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
-			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+			if isCtrlC(msg) {
 				m.formSeq = 0
 				if m.form.dirty() && !m.form.discarding {
 					m.form.discarding = true
@@ -161,15 +161,12 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modeConfirm:
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
-			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
-				return m, tea.Quit
-			}
 			switch {
 			case msg.Text == "y" || msg.Text == "Y":
 				m.mode = modeTable
 				return m, actCmd(m.client, m.confirm.method, m.confirm.path, m.confirm.body, m.confirm.success)
 			case msg.Code == tea.KeyEnter || msg.Code == tea.KeyEscape ||
-				msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
+				msg.Text == "n" || msg.Text == "N" || msg.Text == "q" || isCtrlC(msg):
 				m.mode = modeTable
 				return m, nil
 			}
@@ -179,10 +176,7 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case modeHelp:
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
-			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
-				return m, tea.Quit
-			}
-			if msg.Code == tea.KeyEscape || msg.Text == "?" || msg.Text == "q" || msg.Code == tea.KeyEnter {
+			if msg.Code == tea.KeyEscape || msg.Text == "?" || msg.Text == "q" || msg.Code == tea.KeyEnter || isCtrlC(msg) {
 				m.mode = m.help.prev
 				if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
 					m.mode = modeTable
@@ -468,13 +462,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
-		if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
-			return m, tea.Quit
-		}
 		switch m.mode {
 		case modeSearch:
 			switch {
-			case msg.Code == tea.KeyEscape:
+			case msg.Code == tea.KeyEscape || isCtrlC(msg):
 				m.query = ""
 				m.mode = modeTable
 				return m, m.commitQuery()
@@ -513,7 +504,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.actionBack()
 			case msg.Text == "z":
 				return m.actionToggleZoom()
-			case msg.Text == "q":
+			case msg.Text == "q" || isCtrlC(msg):
 				return m.actionQuit()
 			case msg.Text == "j":
 				m.detail.ScrollDown(1)
@@ -549,7 +540,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, cmd
 			}
 			switch {
-			case msg.Text == "q":
+			case msg.Text == "q" || isCtrlC(msg):
 				return m, tea.Quit
 			case msg.Text == "j" || msg.Code == tea.KeyDown:
 				m.move(1)
@@ -1344,4 +1335,8 @@ func (m model) actionQuit() (model, tea.Cmd) {
 func (m model) actionBack() (model, tea.Cmd) {
 	m.mode = modeTable
 	return m, nil
+}
+
+func isCtrlC(msg tea.KeyPressMsg) bool {
+	return msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c'
 }
