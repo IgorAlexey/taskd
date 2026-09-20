@@ -640,6 +640,10 @@ func listFilterFingerprint(q url.Values) string {
 		}
 		b.WriteByte(0)
 	}
+	if q.Get("order") == "desc" {
+		b.WriteString("order=desc")
+		b.WriteByte(0)
+	}
 	sum := sha256.Sum256([]byte(b.String()))
 	return base64.RawURLEncoding.EncodeToString(sum[:9])
 }
@@ -1505,6 +1509,15 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			}
 			offset = v
 		}
+		order := "asc"
+		if q.Has("order") {
+			order = strings.ToLower(strings.TrimSpace(q.Get("order")))
+			if order != "asc" && order != "desc" {
+				writeError(w, http.StatusBadRequest, "invalid order")
+				return
+			}
+			q.Set("order", order)
+		}
 		var after *listCursor
 		if q.Has("after") {
 			c, ok := decodeListCursor(q.Get("after"), listFilterFingerprint(q))
@@ -1610,12 +1623,20 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		args = append(args, now, now, now)
 		args = append(args, whereArgs...)
 		if after != nil {
-			dataWhere := append(slices.Clone(where), "rowid > ?")
+			rowidClause := "rowid > ?"
+			if order == "desc" {
+				rowidClause = "rowid < ?"
+			}
+			dataWhere := append(slices.Clone(where), rowidClause)
 			dataWhereSQL = " WHERE " + strings.Join(dataWhere, " AND ")
 			args = append(args, after.Rowid)
 		}
 		query += dataWhereSQL
-		query += " ORDER BY rowid ASC LIMIT ?"
+		if order == "desc" {
+			query += " ORDER BY rowid DESC LIMIT ?"
+		} else {
+			query += " ORDER BY rowid ASC LIMIT ?"
+		}
 		args = append(args, limit)
 		if offset > 0 {
 			query += " OFFSET ?"
@@ -1971,7 +1992,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 	handleMethods(mux, "/tasks", map[string]route{
 		http.MethodGet: {handler: listTasksHandler, params: []string{
 			"status", "project", "worker", "priority", "limit", "offset",
-			"asset_path", "q", "fields", "columns", "after",
+			"asset_path", "q", "fields", "columns", "after", "order",
 		}},
 		http.MethodPost: {handler: createTaskHandler},
 	})
@@ -2079,6 +2100,7 @@ HTTP Endpoints:
          ?limit=             1..1000, default 100
          ?offset=            integer >= 0
          ?after=             opaque cursor token from X-Next-Cursor
+         ?order=             asc | desc, default asc
          ?asset_path=        exact match
          ?q=                 substring of id, body, project, worker, or asset_path
          ?fields=            comma list from id, asset_path, status, worker,
