@@ -1233,7 +1233,10 @@
         }
       }
       const prevScrollTop = sameTask ? pane.scrollTop : 0;
-      if (isEditingTask && t.status !== 'done') {
+      if (t.status === 'leased' || t.status === 'done') {
+        isEditingTask = false;
+      }
+      if (isEditingTask) {
         pane.innerHTML = `
           <div class="field">
             <span class="field-label">ID</span>
@@ -1325,7 +1328,7 @@
         </div>
         ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
         <div class="task-actions">
-          ${t.status !== 'done' ? '<button type="button" id="edit-task-btn" onclick="toggleTaskEdit()">Edit Task</button>' : ''}
+          ${t.status !== 'done' ? `<button type="button" id="edit-task-btn"${t.status === 'leased' ? ' disabled aria-disabled="true" title="Leased tasks cannot be edited"' : ''}>Edit Task</button>` : ''}
           ${t.status === 'leased' ? `
             <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
             <button type="button" id="touch-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Touch Lease</button>
@@ -1343,6 +1346,8 @@
       `;
       if (sameTask) pane.scrollTop = prevScrollTop;
 
+      const editBtn = document.getElementById('edit-task-btn');
+      if (editBtn) editBtn.onclick = () => toggleTaskEdit();
 
       const compBtn = document.getElementById('complete-task-btn');
       if (compBtn) compBtn.onclick = () => completeTask(t.id, t.worker);
@@ -1528,7 +1533,7 @@
     }
 
     function toggleTaskEdit() {
-      if (!currentTask || currentTask.status === 'done') return;
+      if (!currentTask || currentTask.status === 'done' || currentTask.status === 'leased') return;
       isEditingTask = !isEditingTask;
       renderTaskDetails(currentTask, true);
     }
@@ -1539,7 +1544,7 @@
     }
 
     async function saveTaskEdit() {
-      if (!currentTask || currentTask.status === 'done') return;
+      if (!currentTask || currentTask.status === 'done' || currentTask.status === 'leased') return;
       const projInput = document.getElementById('edit-task-project');
       const prioInput = document.getElementById('edit-task-priority');
       const assetInput = document.getElementById('edit-task-asset-path');

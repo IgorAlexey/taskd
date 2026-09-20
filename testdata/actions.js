@@ -257,7 +257,7 @@ const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setInterval', 'clearInterval',
   script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, touchTask, releaseTask, claimTask, kickTask,' +
-  ' closeTask, clearSelectedTask, submitTask, loadStats, loadProjects, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
+  ' closeTask, clearSelectedTask, submitTask, loadStats, loadProjects, toggleTaskEdit, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
 (async () => {
@@ -266,6 +266,8 @@ const api = new Function(
   await api.selectTask('t-pending');
   const pendingHTML = els['task-details-content'].innerHTML;
   results.pendingHasDelete = pendingHTML.includes('id="delete-task-btn"');
+  results.pendingHasEdit = pendingHTML.includes('id="edit-task-btn"');
+  results.pendingEditDisabled = /id="edit-task-btn"[^>]*disabled/.test(pendingHTML);
   results.pendingHasComplete = pendingHTML.includes('id="complete-task-btn"');
   results.pendingHasRelease = pendingHTML.includes('id="release-task-btn"');
   results.pendingHasClaim = pendingHTML.includes('id="claim-task-btn"');
@@ -326,12 +328,25 @@ const api = new Function(
   results.leasedDeleteDisabled = /id="delete-task-btn"[^>]*disabled/.test(leasedHTML) &&
     /id="delete-task-btn"[^>]*aria-disabled="true"/.test(leasedHTML);
   results.leasedDeleteTitle = /id="delete-task-btn"[^>]*title="[^"]+"/.test(leasedHTML);
+  results.leasedHasEdit = leasedHTML.includes('id="edit-task-btn"');
+  results.leasedEditDisabled = /id="edit-task-btn"[^>]*disabled/.test(leasedHTML) &&
+    /id="edit-task-btn"[^>]*aria-disabled="true"/.test(leasedHTML);
+  results.leasedEditTitle = /id="edit-task-btn"[^>]*title="[^"]+"/.test(leasedHTML);
   results.leasedHasComplete = leasedHTML.includes('id="complete-task-btn"');
   results.leasedHasTouch = leasedHTML.includes('id="touch-task-btn"');
   results.leasedHasRelease = leasedHTML.includes('id="release-task-btn"');
   results.leasedHasClaim = leasedHTML.includes('id="claim-task-btn"');
   results.leasedHasClose = leasedHTML.includes('id="close-task-btn"');
   results.leasedHasKick = leasedHTML.includes('id="kick-task-btn"');
+  const leasedPaneBeforeEdit = els['task-details-content'].innerHTML;
+  if (els['edit-task-btn'] && els['edit-task-btn'].onclick) {
+    await els['edit-task-btn'].onclick();
+  } else if (typeof api.toggleTaskEdit === 'function') {
+    api.toggleTaskEdit();
+  }
+  const leasedPaneAfterEdit = els['task-details-content'].innerHTML;
+  results.leasedEditIgnored = (leasedPaneAfterEdit === leasedPaneBeforeEdit) &&
+    !leasedPaneAfterEdit.includes('id="save-task-btn"');
 
   confirmAnswer = true;
   confirmAsked = 0;

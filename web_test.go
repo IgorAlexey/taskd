@@ -358,6 +358,7 @@ func TestWebUITaskActions(t *testing.T) {
 	}{
 		{"copy-id-btn", "Copy"},
 		{"copy-body-btn", "Copy"},
+		{"edit-task-btn", "Edit Task"},
 		{"delete-task-btn", "Delete Task"},
 		{"touch-task-btn", "Touch Lease"},
 		{"release-task-btn", "Release Task"},
@@ -398,6 +399,8 @@ func TestWebUITaskActions(t *testing.T) {
 		PendingHasTouch         bool
 		PendingHasKick          bool
 		PendingHasCopy          bool
+		PendingHasEdit          bool
+		PendingEditDisabled     bool
 		CopySuccess             bool
 		CopyFailure             bool
 		PendingHasCopyBody      bool
@@ -414,6 +417,10 @@ func TestWebUITaskActions(t *testing.T) {
 		LeasedDeleteCalls       int
 		LeasedHasComplete       bool
 		LeasedHasTouch          bool
+		LeasedHasEdit           bool
+		LeasedEditDisabled      bool
+		LeasedEditTitle         bool
+		LeasedEditIgnored       bool
 		LeasedHasRelease        bool
 		LeasedHasClaim          bool
 		LeasedHasClose          bool
@@ -536,6 +543,13 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.PendingDeletedPaneReset {
 		t.Errorf("pane not reset after pending delete")
+	}
+	if !got.PendingHasEdit || got.PendingEditDisabled {
+		t.Errorf("pending edit button mismatch: hasEdit=%v disabled=%v", got.PendingHasEdit, got.PendingEditDisabled)
+	}
+	if !got.LeasedHasEdit || !got.LeasedEditDisabled || !got.LeasedEditTitle || !got.LeasedEditIgnored {
+		t.Errorf("leased edit button mismatch: hasEdit=%v disabled=%v title=%v ignored=%v",
+			got.LeasedHasEdit, got.LeasedEditDisabled, got.LeasedEditTitle, got.LeasedEditIgnored)
 	}
 
 	if !got.LeasedHasDelete || !got.LeasedDeleteDisabled || !got.LeasedDeleteTitle {
