@@ -2815,11 +2815,11 @@ RETURNING status, project`,
 
 		var projectFilter string
 		if project != "" {
-			if project != "*" && !validProject(project) {
-				writeError(w, http.StatusBadRequest, "invalid project")
-				return
-			}
 			if project != "*" {
+				if msg, ok := checkProject(project); !ok {
+					writeError(w, http.StatusBadRequest, msg)
+					return
+				}
 				projectFilter = project
 			}
 		} else if q.Has("project") || req.Project != nil {
@@ -2830,15 +2830,11 @@ RETURNING status, project`,
 		var qLimit *int
 		if q.Has("limit") {
 			v, err := strconv.Atoi(q.Get("limit"))
-			if err != nil || v < 0 {
+			if err != nil {
 				writeError(w, http.StatusBadRequest, "invalid limit")
 				return
 			}
 			qLimit = &v
-		}
-		if req.Limit != nil && *req.Limit < 0 {
-			writeError(w, http.StatusBadRequest, "invalid limit")
-			return
 		}
 		if qLimit != nil && req.Limit != nil && *qLimit != *req.Limit {
 			writeError(w, http.StatusBadRequest, "conflicting limit parameter")
@@ -2850,6 +2846,10 @@ RETURNING status, project`,
 			limit = req.Limit
 		} else {
 			limit = qLimit
+		}
+		if limit != nil && (*limit < 1 || *limit > 1000) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid limit %d, must be between 1 and 1000", *limit))
+			return
 		}
 
 		var query string

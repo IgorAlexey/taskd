@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -371,5 +372,96 @@ func TestBulkKickResetsPrimitives(t *testing.T) {
 	}
 	if len(fetched2.Primitives) > 0 && string(fetched2.Primitives) != "null" {
 		t.Fatalf("expected primitives to be null after limit kick, got %s", string(fetched2.Primitives))
+	}
+}
+
+func TestBulkKickValidationBounds(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	longProj := strings.Repeat("a", 65)
+	resp, err := http.Post(srv.URL+"/tasks/kick?project="+longProj, "application/json", nil)
+	if err != nil {
+		t.Fatalf("POST /tasks/kick long project failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", resp.StatusCode)
+	}
+	var errBody struct {
+		Error string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&errBody); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if errBody.Error != "invalid project: exceeds 64 characters" {
+		t.Fatalf("got error %q, want %q", errBody.Error, "invalid project: exceeds 64 characters")
+	}
+
+	for _, tc := range []struct {
+		url  string
+		body string
+		want string
+	}{
+		{
+			url:  srv.URL + "/tasks/kick",
+			body: `{"limit": -1}`,
+			want: "invalid limit -1, must be between 1 and 1000",
+		},
+		{
+			url:  srv.URL + "/tasks/kick?limit=-1",
+			body: "",
+			want: "invalid limit -1, must be between 1 and 1000",
+		},
+		{
+			url:  srv.URL + "/tasks/kick",
+			body: `{"limit": 0}`,
+			want: "invalid limit 0, must be between 1 and 1000",
+		},
+		{
+			url:  srv.URL + "/tasks/kick?limit=0",
+			body: "",
+			want: "invalid limit 0, must be between 1 and 1000",
+		},
+		{
+			url:  srv.URL + "/tasks/kick",
+			body: `{"limit": 1001}`,
+			want: "invalid limit 1001, must be between 1 and 1000",
+		},
+		{
+			url:  srv.URL + "/tasks/kick?limit=1001",
+			body: "",
+			want: "invalid limit 1001, must be between 1 and 1000",
+		},
+	} {
+		var reqBody *bytes.Reader
+		if tc.body != "" {
+			reqBody = bytes.NewReader([]byte(tc.body))
+		} else {
+			reqBody = bytes.NewReader(nil)
+		}
+		res, err := http.Post(tc.url, "application/json", reqBody)
+		if err != nil {
+			t.Fatalf("POST %s failed: %v", tc.url, err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusBadRequest {
+			t.Fatalf("expected status 400 for %s %s, got %d", tc.url, tc.body, res.StatusCode)
+		}
+		var b struct {
+			Error string `json:"error"`
+		}
+		if err := json.NewDecoder(res.Body).Decode(&b); err != nil {
+			t.Fatalf("failed to decode response for %s %s: %v", tc.url, tc.body, err)
+		}
+		if b.Error != tc.want {
+			t.Fatalf("url=%s body=%s: got error %q, want %q", tc.url, tc.body, b.Error, tc.want)
+		}
 	}
 }
