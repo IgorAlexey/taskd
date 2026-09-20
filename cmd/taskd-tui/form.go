@@ -197,31 +197,19 @@ func wrapRows(rows []string, width int) []string {
 	return out
 }
 
-// box draws an overlay. head are lines that may be cut; keep are rows,
-// each already wrapped to boxWidth-4, drawn after them and meant to
-// survive, most important first. When the frame is short, head goes
-// first, then keep rows from the last backwards; the first keep row is
+// box draws an overlay. head are lines that may be cut; keep are the
+// lines of one row, already wrapped to boxWidth-4, drawn after them and
+// meant to survive: when the frame is short, head goes first and keep is
 // trimmed to its opening lines rather than removed.
-func box(head []string, keep [][]string, boxWidth, height int, align lipgloss.Position, th theme) string {
+func box(head, keep []string, boxWidth, height int, align lipgloss.Position, th theme) string {
 	if boxWidth < 5 {
 		return ""
 	}
 	room := max(1, height-2)
-	need := 0
-	for _, r := range keep {
-		need += len(r)
+	if len(head)+len(keep) > room {
+		head = head[:max(0, room-len(keep))]
 	}
-	if len(head)+need > room {
-		head = head[:max(0, room-need)]
-		for need > room && len(keep) > 1 {
-			need -= len(keep[len(keep)-1])
-			keep = keep[:len(keep)-1]
-		}
-	}
-	lines := append([]string{}, head...)
-	for _, r := range keep {
-		lines = append(lines, r...)
-	}
+	lines := append(append([]string{}, head...), keep...)
 	if len(lines) > room {
 		lines = lines[:room]
 	}
@@ -434,7 +422,7 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // box and counted, then dropped one at a time by rank until they fit;
 // the textarea, when drawn, takes what is left. It sets the stored
 // textarea size, so Update and View agree on the layout.
-func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, boxWidth int) {
+func (f *formModel) fit(width, height int, th theme) (head []string, boxWidth int) {
 	if width <= 0 {
 		width = 80
 	}
@@ -494,7 +482,7 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 	for _, w := range wrapped {
 		head = append(head, w...)
 	}
-	return head, nil, boxWidth
+	return head, boxWidth
 }
 
 // refit lays the form out again for the terminal it was last fitted
@@ -511,8 +499,8 @@ func (f formModel) refit() formModel {
 // View renders the form for the terminal it was last fitted to; the
 // copy is refitted so the drawing and the stored layout are the same.
 func (f formModel) View() string {
-	head, keep, boxWidth := f.fit(f.width, f.height, f.th)
-	return box(head, keep, boxWidth, f.height, lipgloss.Left, f.th)
+	head, boxWidth := f.fit(f.width, f.height, f.th)
+	return box(head, nil, boxWidth, f.height, lipgloss.Left, f.th)
 }
 
 type confirmModel struct {
@@ -528,7 +516,7 @@ func (c confirmModel) View(width, height int, th theme) string {
 	actions := th.accent.Render("[y] "+btn) + "   " + th.dim.Render("[n] cancel")
 	boxWidth, inner := boxSize(width, 20, 54)
 	head := wrapRows([]string{c.text, ""}, inner)
-	return box(head, [][]string{wrapRows([]string{actions}, inner)}, boxWidth, height, lipgloss.Center, th)
+	return box(head, wrapRows([]string{actions}, inner), boxWidth, height, lipgloss.Center, th)
 }
 
 func padRightVisual(s string, w int) string {
@@ -587,5 +575,5 @@ func helpView(width, height int, th theme) string {
 	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...)) + 4
 	boxWidth, inner := boxSize(width, 20, natural)
 	head := wrapRows(rows[:len(rows)-1], inner)
-	return box(head, [][]string{wrapRows(rows[len(rows)-1:], inner)}, boxWidth, height, lipgloss.Left, th)
+	return box(head, wrapRows(rows[len(rows)-1:], inner), boxWidth, height, lipgloss.Left, th)
 }
