@@ -1724,6 +1724,8 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 				m.sortDesc = false
 				m.rebuild()
 				return m, nil
+			case "refresh":
+				return m.actionRefresh()
 			}
 		}
 	}

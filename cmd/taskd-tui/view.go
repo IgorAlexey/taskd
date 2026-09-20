@@ -1016,73 +1016,99 @@ func (m model) emptyState() string {
 	}
 	return "No tasks match filter."
 }
-func (m model) footerItems() [][2]string {
-	var items [][2]string
+
+type footerAction struct {
+	key    string
+	label  string
+	action string
+}
+
+func (m model) footerActions() []footerAction {
+	var actions []footerAction
 	t, hasTask := m.selected()
 
 	if m.mode == modeDetail || m.mode == modeZoom {
-		items = append(items,
-			[2]string{"j/k", "scroll"},
-			[2]string{"Tab", "back"},
-			[2]string{"z", "zoom"},
+		actions = append(actions,
+			footerAction{"j/k", "scroll", ""},
+			footerAction{"Tab", "back", "back"},
+			footerAction{"z", "zoom", "zoom"},
 		)
 	}
 
 	if hasTask {
 		switch t.Status {
 		case "pending":
-			items = append(items, [2]string{"c", "claim"})
+			actions = append(actions, footerAction{"c", "claim", "claim"})
 		case "leased":
-			items = append(items,
-				[2]string{"t", "touch"},
-				[2]string{"u", "release"},
-				[2]string{"b", "bury"},
+			actions = append(actions,
+				footerAction{"t", "touch", "touch"},
+				footerAction{"u", "release", "release"},
+				footerAction{"b", "bury", "bury"},
 			)
 		case "buried":
-			items = append(items, [2]string{"K", "kick"})
+			actions = append(actions, footerAction{"K", "kick", "kick"})
 		}
 	}
 
 	if m.mode == modeDetail || m.mode == modeZoom {
 		if hasTask {
-			items = append(items,
-				[2]string{"e", "edit"},
-				[2]string{"a", "note"},
-				[2]string{"x", "complete"},
-				[2]string{"D", "delete"},
+			actions = append(actions,
+				footerAction{"e", "edit", "edit"},
+				footerAction{"a", "note", "note"},
+				footerAction{"x", "complete", "complete"},
+				footerAction{"D", "delete", "delete"},
 			)
 		}
-		items = append(items, [2]string{"y/Y", "copy"})
-		return items
+		actions = append(actions, footerAction{"y/Y", "copy", "copy"})
+		return actions
 	}
-	items = append(items, [2]string{"s", "sort"})
+	actions = append(actions, footerAction{"s", "sort", "sort"})
 	if len(m.projects) > 0 {
-		items = append(items, [2]string{"p", "project"})
+		actions = append(actions, footerAction{"p", "project", "project"})
 	}
 	if len(m.workers) > 0 {
-		items = append(items, [2]string{"w", "worker"})
+		actions = append(actions, footerAction{"w", "worker", "worker"})
 	}
-	items = append(items,
-		[2]string{"n", "new"},
-		[2]string{"0-5", "filter"},
-		[2]string{"j/k", "move"},
-		[2]string{"e", "edit"},
-		[2]string{"a", "note"},
-		[2]string{"D", "delete"},
-		[2]string{"y/Y", "copy"},
-		[2]string{"/", "search"},
-		[2]string{"+/-", "pri"},
-		[2]string{"x", "complete"},
-		[2]string{"z", "zoom"},
+	actions = append(actions,
+		footerAction{"n", "new", "create"},
+		footerAction{"0-5", "filter", ""},
+		footerAction{"j/k", "move", ""},
+		footerAction{"e", "edit", "edit"},
+		footerAction{"a", "note", "note"},
+		footerAction{"D", "delete", "delete"},
+		footerAction{"y/Y", "copy", "copy"},
+		footerAction{"/", "search", "search"},
+		footerAction{"+/-", "pri", "pri"},
+		footerAction{"x", "complete", "complete"},
+		footerAction{"z", "zoom", "zoom"},
+		footerAction{"r", "refresh", "refresh"},
 	)
+	return actions
+}
+
+func (m model) pinnedActions() []footerAction {
+	return []footerAction{
+		{"q", "quit", "quit"},
+		{"?", "help", "help"},
+	}
+}
+
+func (m model) footerItems() [][2]string {
+	actions := m.footerActions()
+	items := make([][2]string, len(actions))
+	for i, a := range actions {
+		items[i] = [2]string{a.key, a.label}
+	}
 	return items
 }
 
 func (m model) footerPinned() [][2]string {
-	return [][2]string{
-		{"q", "quit"},
-		{"?", "help"},
+	actions := m.pinnedActions()
+	items := make([][2]string, len(actions))
+	for i, a := range actions {
+		items[i] = [2]string{a.key, a.label}
 	}
+	return items
 }
 
 func (m model) footRight() string {
@@ -1100,56 +1126,23 @@ func (m model) footRight() string {
 	return m.theme.dim.Render(posStr)
 }
 
-func appendFooterTarget(targets []footerTarget, key string, start, width int) []footerTarget {
-	switch key {
-	case "/":
-		return append(targets, footerTarget{action: "search", start: start, end: start + width})
-	case "c":
-		return append(targets, footerTarget{action: "claim", start: start, end: start + width})
-	case "t":
-		return append(targets, footerTarget{action: "touch", start: start, end: start + width})
-	case "u":
-		return append(targets, footerTarget{action: "release", start: start, end: start + width})
-	case "b":
-		return append(targets, footerTarget{action: "bury", start: start, end: start + width})
-	case "K":
-		return append(targets, footerTarget{action: "kick", start: start, end: start + width})
-	case "s":
-		return append(targets, footerTarget{action: "sort", start: start, end: start + width})
-	case "p":
-		return append(targets, footerTarget{action: "project", start: start, end: start + width})
-	case "w":
-		return append(targets, footerTarget{action: "worker", start: start, end: start + width})
-	case "n":
-		return append(targets, footerTarget{action: "create", start: start, end: start + width})
-	case "e":
-		return append(targets, footerTarget{action: "edit", start: start, end: start + width})
-	case "a":
-		return append(targets, footerTarget{action: "note", start: start, end: start + width})
-	case "+/-":
+func appendFooterTarget(targets []footerTarget, a footerAction, start, width int) []footerTarget {
+	switch a.action {
+	case "":
+		return targets
+	case "pri":
 		return append(targets,
 			footerTarget{action: "pri_raise", start: start, end: start + 2},
 			footerTarget{action: "pri_lower", start: start + 2, end: start + width},
 		)
-	case "D":
-		return append(targets, footerTarget{action: "delete", start: start, end: start + width})
-	case "x":
-		return append(targets, footerTarget{action: "complete", start: start, end: start + width})
-	case "y/Y":
+	case "copy":
 		return append(targets,
 			footerTarget{action: "copy_id", start: start, end: start + 2},
 			footerTarget{action: "copy_body", start: start + 2, end: start + width},
 		)
-	case "z":
-		return append(targets, footerTarget{action: "zoom", start: start, end: start + width})
-	case "q":
-		return append(targets, footerTarget{action: "quit", start: start, end: start + width})
-	case "?":
-		return append(targets, footerTarget{action: "help", start: start, end: start + width})
-	case "Tab":
-		return append(targets, footerTarget{action: "back", start: start, end: start + width})
+	default:
+		return append(targets, footerTarget{action: a.action, start: start, end: start + width})
 	}
-	return targets
 }
 
 func (m model) footLeft(frw int) (string, []footerTarget) {
@@ -1210,57 +1203,62 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 		return sb.String(), targets
 	}
 
-	items := m.footerItems()
-	pinned := m.footerPinned()
-	allCount := len(items) + len(pinned)
+	actions := m.footerActions()
+	pinned := m.pinnedActions()
+	allCount := len(actions) + len(pinned)
 	if allCount == 0 {
 		return sb.String(), targets
 	}
 
-	itemWidth := func(it [2]string) int {
-		return ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1])
+	actionWidth := func(a footerAction) int {
+		return ansi.StringWidth(a.key) + 1 + ansi.StringWidth(a.label)
 	}
 
 	tailW := 0
-	for i, it := range pinned {
+	for i, a := range pinned {
 		if i > 0 {
 			tailW += 2
 		}
-		tailW += itemWidth(it)
+		tailW += actionWidth(a)
 	}
 
-	itemsW := 0
-	for i, it := range items {
-		if i > 0 {
-			itemsW += 2
-		}
-		itemsW += itemWidth(it)
+	sumTokens := 0
+	for _, a := range actions {
+		sumTokens += actionWidth(a)
+	}
+	for _, a := range pinned {
+		sumTokens += actionWidth(a)
 	}
 
-	totalW := itemsW
-	if len(items) > 0 && len(pinned) > 0 {
-		totalW += 2
-	}
-	totalW += tailW
+	totalW2 := sumTokens + 2*(allCount-1)
+	totalW1 := sumTokens + 1*(allCount-1)
 
-	emitItem := func(it [2]string) {
+	sep := "  "
+	sepW := 2
+	allFit := totalW2 <= availW || totalW1 <= availW
+	if allFit && totalW2 > availW {
+		sep = " "
+		sepW = 1
+	}
+
+	emitItem := func(a footerAction) {
 		if sb.Len() > 0 {
-			sb.WriteString("  ")
+			sb.WriteString(sep)
 		}
-		sb.WriteString(m.theme.accent.Render(it[0]))
+		sb.WriteString(m.theme.accent.Render(a.key))
 		sb.WriteString(" ")
-		sb.WriteString(m.theme.dim.Render(it[1]))
-		wTok := itemWidth(it)
-		targets = appendFooterTarget(targets, it[0], x, wTok)
-		x += wTok + 2
+		sb.WriteString(m.theme.dim.Render(a.label))
+		wTok := actionWidth(a)
+		targets = appendFooterTarget(targets, a, x, wTok)
+		x += wTok + sepW
 	}
 
-	if totalW <= availW {
-		for _, it := range items {
-			emitItem(it)
+	if allFit {
+		for _, a := range actions {
+			emitItem(a)
 		}
-		for _, it := range pinned {
-			emitItem(it)
+		for _, a := range pinned {
+			emitItem(a)
 		}
 		return sb.String(), targets
 	}
@@ -1274,8 +1272,8 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 
 	used := 0
 	frontCount := 0
-	for _, it := range items {
-		wTok := itemWidth(it)
+	for _, a := range actions {
+		wTok := actionWidth(a)
 		add := wTok
 		if frontCount > 0 {
 			add += 2
@@ -1290,23 +1288,23 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 
 	if frontCount == 0 {
 		if len(pinned) > 0 && tailW <= availW {
-			for _, it := range pinned {
-				emitItem(it)
+			for _, a := range pinned {
+				emitItem(a)
 			}
 		}
 		return sb.String(), targets
 	}
 
-	for _, it := range items[:frontCount] {
-		emitItem(it)
+	for _, a := range actions[:frontCount] {
+		emitItem(a)
 	}
 
 	sb.WriteString("  ")
 	sb.WriteString(m.theme.dim.Render(ell))
 	x += ellW + 2
 
-	for _, it := range pinned {
-		emitItem(it)
+	for _, a := range pinned {
+		emitItem(a)
 	}
 
 	return sb.String(), targets

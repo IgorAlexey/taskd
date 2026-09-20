@@ -418,3 +418,41 @@ func TestFooterErrorDismissAndTimeout(t *testing.T) {
 		}
 	})
 }
+func TestFooterRefreshClick(t *testing.T) {
+	m := createTestModelWithTask("pending", 160, 24)
+	items := m.footerItems()
+	found := false
+	for _, it := range items {
+		if it[0] == "r" && it[1] == "refresh" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected {'r', 'refresh'} in footerItems, got %+v", items)
+	}
+
+	targets := m.footerTargets()
+	var refreshTarget *footerTarget
+	for i := range targets {
+		if targets[i].action == "refresh" {
+			refreshTarget = &targets[i]
+			break
+		}
+	}
+	if refreshTarget == nil {
+		t.Fatal("expected refresh target in footer targets")
+	}
+
+	res, cmd := m.handleFooterClick(refreshTarget.start)
+	if cmd == nil {
+		t.Fatal("expected poll command returned from clicking refresh target, got nil")
+	}
+	updated, ok := res.(model)
+	if !ok {
+		t.Fatalf("expected model type from handleFooterClick, got %T", res)
+	}
+	if !updated.manualRefresh {
+		t.Fatal("expected manualRefresh to be true after clicking refresh target")
+	}
+}
