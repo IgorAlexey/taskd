@@ -54,9 +54,11 @@ Once running, view and manage tasks in your browser via `GET /ui` at
 
 `done`, `touch`, `release`, and `bury` require a live lease held by the
 calling worker; `claim`, `close`, `kick`, and `PATCH /tasks/{id}` require
-a task in the matching state. A refused call answers `404 Not Found` with
-`task not found`, or `409 Conflict` with one of these `{"error": ...}`
-messages:
+a task in the matching state. `close` and `kick` hold no lease, so they
+take no input: an absent body, `{}`, `null`, and `{"worker":...}` all
+work, and the worker id is ignored rather than recorded. A refused call
+answers `404 Not Found` with `task not found`, or `409 Conflict` with
+one of these `{"error": ...}` messages:
 
 - `lease has expired`: the lease was yours and ran out.
 - `task not leased by worker`: the lease belongs to another worker, live

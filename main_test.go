@@ -5271,14 +5271,117 @@ func TestCloseTask(t *testing.T) {
 	code, body = post(t, srv.URL+"/tasks/"+untouched+"/close", map[string]any{
 		"worker": "w1",
 	})
+	if code != http.StatusNoContent {
+		t.Fatalf("close with worker body expected 204, got %d: %s", code, body)
+	}
+	if status, _ := getTask(t, srv.URL, untouched); status != "done" {
+		t.Fatalf("close with worker body: status %q != %q", status, "done")
+	}
+	assertUnattributed(t, db, srv.URL, untouched)
+}
+
+func TestCloseAndKickAcceptOptionalWorkerBody(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 60))
+	defer srv.Close()
+
+	buried := func(t *testing.T, project string) string {
+		t.Helper()
+		id := createTask(t, srv.URL, project)
+		claimTask(t, srv.URL, project, "w1")
+		code, body := post(t, srv.URL+"/tasks/"+id+"/bury", map[string]any{
+			"worker": "w1",
+		})
+		if code != http.StatusNoContent {
+			t.Fatalf("bury expected 204, got %d: %s", code, body)
+		}
+		return id
+	}
+
+	for _, tc := range []struct {
+		name string
+		body any
+	}{
+		{"empty-object", map[string]any{}},
+		{"worker", map[string]any{"worker": "w1"}},
+		{"blank-worker", map[string]any{"worker": ""}},
+		{"whitespace", " "},
+		{"null", "null"},
+		{"no-body", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			id := createTask(t, srv.URL, "c-"+tc.name)
+			code, body := post(t, srv.URL+"/tasks/"+id+"/close", tc.body)
+			if code != http.StatusNoContent {
+				t.Fatalf("close expected 204, got %d: %s", code, body)
+			}
+			if status, _ := getTask(t, srv.URL, id); status != "done" {
+				t.Fatalf("close: status %q != %q", status, "done")
+			}
+			assertUnattributed(t, db, srv.URL, id)
+
+			id = buried(t, "k-"+tc.name)
+			code, body = post(t, srv.URL+"/tasks/"+id+"/kick", tc.body)
+			if code != http.StatusNoContent {
+				t.Fatalf("kick expected 204, got %d: %s", code, body)
+			}
+			if status, _ := getTask(t, srv.URL, id); status != "pending" {
+				t.Fatalf("kick: status %q != %q", status, "pending")
+			}
+		})
+	}
+
+	unknown := createTask(t, srv.URL, "c-unknown")
+	code, body := post(t, srv.URL+"/tasks/"+unknown+"/close", map[string]any{
+		"reason": "cleanup",
+	})
 	if code != http.StatusBadRequest {
-		t.Fatalf("close with body expected 400, got %d: %s", code, body)
+		t.Fatalf("close unknown field expected 400, got %d: %s", code, body)
 	}
-	if !strings.Contains(string(body), "unexpected request body") {
-		t.Fatalf("close with body: body %s", body)
+	if !strings.Contains(string(body), "reason") {
+		t.Fatalf("close unknown field: body %s", body)
 	}
-	if status, _ := getTask(t, srv.URL, untouched); status != "pending" {
-		t.Fatalf("close with body: status %q != %q", status, "pending")
+	if status, _ := getTask(t, srv.URL, unknown); status != "pending" {
+		t.Fatalf("close unknown field: status %q != %q", status, "pending")
+	}
+
+	unknownKick := buried(t, "k-unknown")
+	code, body = post(t, srv.URL+"/tasks/"+unknownKick+"/kick", map[string]any{
+		"reason": "cleanup",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("kick unknown field expected 400, got %d: %s", code, body)
+	}
+	if !strings.Contains(string(body), "reason") {
+		t.Fatalf("kick unknown field: body %s", body)
+	}
+	if status, _ := getTask(t, srv.URL, unknownKick); status != "buried" {
+		t.Fatalf("kick unknown field: status %q != %q", status, "buried")
+	}
+
+	malformed := createTask(t, srv.URL, "c-malformed")
+	code, body = post(t, srv.URL+"/tasks/"+malformed+"/close", "{")
+	if code != http.StatusBadRequest {
+		t.Fatalf("close malformed body expected 400, got %d: %s", code, body)
+	}
+	if status, _ := getTask(t, srv.URL, malformed); status != "pending" {
+		t.Fatalf("close malformed body: status %q != %q", status, "pending")
+	}
+
+	number := createTask(t, srv.URL, "c-number")
+	code, body = post(t, srv.URL+"/tasks/"+number+"/close", "0")
+	if code != http.StatusBadRequest {
+		t.Fatalf("close number body expected 400, got %d: %s", code, body)
+	}
+	if strings.Contains(string(body), "struct {") {
+		t.Fatalf("close number body leaks a struct literal: %s", body)
+	}
+	if status, _ := getTask(t, srv.URL, number); status != "pending" {
+		t.Fatalf("close number body: status %q != %q", status, "pending")
 	}
 }
 

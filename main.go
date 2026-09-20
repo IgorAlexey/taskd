@@ -508,10 +508,17 @@ func handleMethods(mux *http.ServeMux, pattern string, methods map[string]route)
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
+	return decodeBody(w, r, dst, false)
+}
+
+func decodeBody(w http.ResponseWriter, r *http.Request, dst any, optional bool) bool {
 	var maxErr *http.MaxBytesError
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(dst); err != nil {
+		if optional && errors.Is(err, io.EOF) {
+			return true
+		}
 		if errors.As(err, &maxErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 			return false
@@ -652,14 +659,21 @@ func checkWorker(w http.ResponseWriter, raw string) (string, bool) {
 	return worker, true
 }
 
+type workerBody struct {
+	Worker string `json:"worker"`
+}
+
 func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
-	var req struct {
-		Worker string `json:"worker"`
-	}
+	var req workerBody
 	if !decodeJSON(w, r, &req) {
 		return "", false
 	}
 	return checkWorker(w, req.Worker)
+}
+
+func decodeOptionalWorker(w http.ResponseWriter, r *http.Request) bool {
+	var req workerBody
+	return decodeBody(w, r, &req, true)
 }
 
 func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) (leaseEnvelope, bool) {
@@ -1187,10 +1201,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		w.WriteHeader(http.StatusNoContent)
 	}
 	closeIDHandler := func(w http.ResponseWriter, r *http.Request) {
-		var buf [1]byte
-		n, err := r.Body.Read(buf[:])
-		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
-			writeError(w, http.StatusBadRequest, "unexpected request body")
+		if !decodeOptionalWorker(w, r) {
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
@@ -1270,10 +1281,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		w.WriteHeader(http.StatusNoContent)
 	}
 	kickIDHandler := func(w http.ResponseWriter, r *http.Request) {
-		var buf [1]byte
-		n, err := r.Body.Read(buf[:])
-		if n > 0 || (err != nil && !errors.Is(err, io.EOF)) {
-			writeError(w, http.StatusBadRequest, "unexpected request body")
+		if !decodeOptionalWorker(w, r) {
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
