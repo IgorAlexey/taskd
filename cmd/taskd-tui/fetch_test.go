@@ -31,7 +31,7 @@ func TestFetchProjectQuery(t *testing.T) {
 	u := newUI(srv.URL, "", false)
 
 	// Default: no project filter queries limit=500 and returns all tasks
-	tasks, err := u.fetch()
+	tasks, err := u.fetch("")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -43,8 +43,7 @@ func TestFetchProjectQuery(t *testing.T) {
 	}
 
 	// Active project: queries limit=500 and project=proj-b
-	u.project = "proj-b"
-	tasks, err = u.fetch()
+	tasks, err = u.fetch("proj-b")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -56,9 +55,24 @@ func TestFetchProjectQuery(t *testing.T) {
 		t.Fatalf("status counts corrupted: pending=%d leased=%d done=%d", u.pending, u.leased, u.done)
 	}
 
+	// The argument scopes the query, not the field: a refresh that started
+	// before the operator cycled must keep fetching the project it began
+	// with, so its answer can be recognised as stale and dropped.
+	u.project = "proj-a"
+	tasks, err = u.fetch("proj-b")
+	if err != nil {
+		t.Fatalf("fetch failed: %v", err)
+	}
+	if lastRawQuery != "limit=500&project=proj-b" {
+		t.Fatalf("expected query scoped to the argument, got %q", lastRawQuery)
+	}
+	if len(tasks) != 2 {
+		t.Fatalf("expected 2 tasks for proj-b, got %d", len(tasks))
+	}
+
 	// Active status filter in UI must NOT be passed to server to preserve counts
-	u.filter = "pending"
-	tasks, err = u.fetch()
+	u.project, u.filter = "proj-b", "pending"
+	tasks, err = u.fetch("proj-b")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}

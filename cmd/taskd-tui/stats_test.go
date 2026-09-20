@@ -35,7 +35,7 @@ func TestFetchStatsDirect(t *testing.T) {
 	defer srv.Close()
 
 	u := newUI(srv.URL, "", false)
-	st, err := u.fetchStats()
+	st, err := u.fetchStats("")
 	if err != nil {
 		t.Fatalf("fetchStats failed: %v", err)
 	}
@@ -43,8 +43,7 @@ func TestFetchStatsDirect(t *testing.T) {
 		t.Fatalf("unscoped stats expected 888/33/44, got %d/%d/%d", st.Pending, st.Leased, st.Done)
 	}
 
-	u.project = "p1"
-	stP1, err := u.fetchStats()
+	stP1, err := u.fetchStats("p1")
 	if err != nil {
 		t.Fatalf("fetchStats with project failed: %v", err)
 	}
@@ -110,7 +109,7 @@ func TestStatsBacklogExceedsPagination(t *testing.T) {
 		<-ch
 	}
 
-	u.refresh()
+	u.refresh("")
 
 	for range 50 {
 		var pending, leased, doneCount int
@@ -197,7 +196,7 @@ func TestStatsFallbackOnServerError(t *testing.T) {
 		<-ch
 	}
 
-	u.refresh()
+	u.refresh("")
 
 	for range 50 {
 		var pending, leased, doneCount int

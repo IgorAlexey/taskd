@@ -7,7 +7,7 @@ import (
 
 func TestEmptyStateMessage(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch()
+	ts, err := u.fetch("")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,6 +24,7 @@ func TestEmptyStateMessage(t *testing.T) {
 		{"both filters", "pending", "proj-x", ts, []string{"No tasks match filter", "'0'", "'p'"}},
 	} {
 		u.filter, u.project = tc.filter, tc.project
+		u.loaded = true
 		u.render(tc.in)
 		if len(u.shown) != 0 {
 			t.Fatalf("%s: expected nothing shown, got %d", tc.name, len(u.shown))

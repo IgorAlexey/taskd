@@ -19,6 +19,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -114,17 +115,20 @@ func (u *ui) copySelectedBody() {
 }
 
 type ui struct {
-	url                   string
-	origin                string
-	app                   *tview.Application
-	table                 *tview.Table
-	body                  *tview.TextView
-	status                *tview.TextView
-	flex                  *tview.Flex
-	pages                 *tview.Pages
-	form                  *tview.Form
-	modal                 *tview.Modal
-	filter                string
+	url    string
+	origin string
+	app    *tview.Application
+	table  *tview.Table
+	body   *tview.TextView
+	status *tview.TextView
+	flex   *tview.Flex
+	pages  *tview.Pages
+	form   *tview.Form
+	modal  *tview.Modal
+	filter string
+	// project is the active filter. The event goroutine is its only
+	// writer and takes projectMu; readers on other goroutines use proj().
+	projectMu             sync.Mutex
 	project               string
 	searching             bool
 	query                 string
@@ -143,17 +147,35 @@ type ui struct {
 	shownID               string
 	shownBody             string
 	refreshing            atomic.Bool
-	zoomed                bool
+	// loaded reports whether an answer for the live filter has landed.
+	// Adopting a filter clears it; any answer sets it, including a failed
+	// one, so a filter nobody fetches cannot wedge the table.
+	loaded bool
+	zoomed bool
 }
 
-func (u *ui) fetch() ([]task, error) {
+func (u *ui) proj() string {
+	u.projectMu.Lock()
+	defer u.projectMu.Unlock()
+	return u.project
+}
+
+func (u *ui) setProj(project string) {
+	u.projectMu.Lock()
+	defer u.projectMu.Unlock()
+	u.project = project
+	u.loaded = false
+}
+
+// fetch scopes the queue to project.
+func (u *ui) fetch(project string) ([]task, error) {
 	reqURL, err := url.Parse(u.url + "/tasks?limit=500")
 	if err != nil {
 		return nil, err
 	}
-	if u.project != "" {
+	if project != "" {
 		q := reqURL.Query()
-		q.Set("project", u.project)
+		q.Set("project", project)
 		reqURL.RawQuery = q.Encode()
 	}
 	resp, err := client.Get(reqURL.String())
@@ -206,14 +228,14 @@ type stats struct {
 	Done    int `json:"done"`
 }
 
-func (u *ui) fetchStats() (stats, error) {
+func (u *ui) fetchStats(project string) (stats, error) {
 	reqURL, err := url.Parse(u.url + "/stats")
 	if err != nil {
 		return stats{}, err
 	}
-	if u.project != "" {
+	if project != "" {
 		q := reqURL.Query()
-		q.Set("project", u.project)
+		q.Set("project", project)
 		reqURL.RawQuery = q.Encode()
 	}
 	resp, err := client.Get(reqURL.String())
@@ -345,6 +367,8 @@ func matchTask(t task, qLower string) bool {
 
 func (u *ui) emptyState() string {
 	switch {
+	case !u.loaded:
+		return "Loading " + cmp.Or(u.project, "tasks") + "..."
 	case u.query != "":
 		return "No tasks match query. Press 'Esc' to clear."
 	case u.filter != "" && u.project != "":
@@ -600,28 +624,59 @@ func (u *ui) showBody() {
 	}
 }
 
-func (u *ui) refresh() {
-	if !u.refreshing.CompareAndSwap(false, true) {
-		return
-	}
-	defer u.refreshing.Store(false)
-	ts, err := u.fetch()
-	ps, perr := u.fetchProjects()
-	st, serr := u.fetchStats()
-	u.app.QueueUpdateDraw(func() {
-		if err != nil {
-			u.setMsg(err.Error())
+// refresh paints the queue for project. A refresh already in flight absorbs
+// the request rather than dropping it, so a keypress landing on a poll is
+// never lost, and an answer for a filter the operator has already left is
+// thrown away instead of clobbering the new one.
+func (u *ui) refresh(project string) {
+	for {
+		if !u.refreshing.CompareAndSwap(false, true) {
 			return
 		}
-		if perr != nil {
+		u.refreshOnce(project)
+		// Read after the release above: a keypress whose CAS failed
+		// published its project first, so it cannot be missed here.
+		current := u.proj()
+		if current == project {
+			return
+		}
+		project = current
+	}
+}
+
+// refreshOnce fetches one round for project and paints it if the operator
+// has not moved on.
+func (u *ui) refreshOnce(project string) {
+	defer u.refreshing.Store(false)
+	ts, err := u.fetch(project)
+	ps, perr := u.fetchProjects()
+	st, serr := u.fetchStats(project)
+	u.app.QueueUpdateDraw(func() {
+		// Connectivity is not project-scoped, and neither is the project
+		// list, so both land before the answer itself is judged.
+		switch {
+		case err != nil:
+			u.setMsg(err.Error())
+		case perr != nil:
 			u.setMsg(perr.Error())
-		} else {
+		}
+		if perr == nil {
 			u.projects = ps
+		}
+		if u.project != project {
+			return
+		}
+		u.loaded = true
+		if err != nil {
+			// The pane still reads "Loading ..." from the switch; the
+			// answer was "no", so repaint it.
+			u.showBody()
+			return
 		}
 		if serr == nil {
 			u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
 			u.hasServerStats = true
-			u.statsProject = u.project
+			u.statsProject = project
 		} else {
 			u.hasServerStats = false
 		}
@@ -630,12 +685,13 @@ func (u *ui) refresh() {
 }
 
 func (u *ui) act(method, path string, body any, success string, callbacks ...func(err error)) {
+	project := u.project
 	go func() {
 		err := u.call(method, path, body)
 		msg := success
-		ts, fetchErr := u.fetch()
+		ts, fetchErr := u.fetch(project)
 		ps, projErr := u.fetchProjects()
-		st, statsErr := u.fetchStats()
+		st, statsErr := u.fetchStats(project)
 		u.app.QueueUpdateDraw(func() {
 			for _, cb := range callbacks {
 				cb(err)
@@ -653,10 +709,14 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			if projErr == nil {
 				u.projects = ps
 			}
+			if project != u.project {
+				return
+			}
+			u.loaded = true
 			if statsErr == nil {
 				u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
 				u.hasServerStats = true
-				u.statsProject = u.project
+				u.statsProject = project
 			} else {
 				u.hasServerStats = false
 			}
@@ -1072,7 +1132,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		u.filter = "live"
 		u.render(u.all)
 	case 'r', 'R':
-		go u.refresh()
+		go u.refresh(u.project)
 	case 'p':
 		next := ""
 		for i, p := range u.projects {
@@ -1086,8 +1146,9 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		if u.project == "" && len(u.projects) > 0 {
 			next = u.projects[0]
 		}
-		u.project = next
+		u.setProj(next)
 		u.render(u.all)
+		go u.refresh(next)
 	case '+', '=', '-':
 		if ok {
 			d := map[rune]int{'+': -1, '=': -1, '-': 1}[ev.Rune()]
@@ -1437,7 +1498,7 @@ func main() {
 	defer stop()
 	go func() {
 		for ; ; time.Sleep(time.Second) {
-			u.refresh()
+			u.refresh(u.proj())
 		}
 	}()
 	if err := u.app.SetRoot(u.pages, true).Run(); err != nil {
