@@ -255,13 +255,14 @@ Keyboard shortcuts:
   PgUp/PgDn           move page down / up
   0-5                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)
   s                   cycle sort (lower case 's': priority, status, project, worker, lease)
-  p                   cycle project filter
+  p, P                cycle project filter forward / backward
   w, W                cycle worker filter forward / backward
   /                   search / filter by query
   Tab                 switch focus to detail pane
   z                   toggle detail zoom
   n                   create new task
   e                   edit selected task
+  a                   add note
   +/-                 raise / lower task priority
   c                   claim selected pending task
   u                   release selected leased task
