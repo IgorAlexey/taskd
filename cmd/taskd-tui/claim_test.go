@@ -21,7 +21,7 @@ type testHarness struct {
 func newTestHarness(t *testing.T) *testHarness {
 	t.Helper()
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("")
+	ts, err := u.fetch("", "")
 	if err != nil {
 		t.Fatal(err)
 	}

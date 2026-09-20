@@ -11,7 +11,7 @@ import (
 func setupTestApp(t *testing.T) (*ui, func(func()), func() string, func()) {
 	t.Helper()
 	u, _, _ := stub(t)
-	ts, err := u.fetch("")
+	ts, err := u.fetch("", "")
 	if err != nil {
 		t.Fatal(err)
 	}

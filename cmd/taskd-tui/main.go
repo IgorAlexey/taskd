@@ -126,10 +126,12 @@ type ui struct {
 	form   *tview.Form
 	modal  *tview.Modal
 	filter string
-	// project is the active filter. The event goroutine is its only
-	// writer and takes projectMu; readers on other goroutines use proj().
+	// project and workerFilter are the active scope. The event goroutine
+	// is their only writer and takes projectMu; readers on other
+	// goroutines use proj() or scope().
 	projectMu             sync.Mutex
 	project               string
+	workerFilter          string
 	searching             bool
 	query                 string
 	icons                 bool
@@ -162,6 +164,12 @@ func (u *ui) proj() string {
 	return u.project
 }
 
+func (u *ui) scope() (string, string) {
+	u.projectMu.Lock()
+	defer u.projectMu.Unlock()
+	return u.project, u.workerFilter
+}
+
 func (u *ui) setProj(project string) {
 	u.projectMu.Lock()
 	defer u.projectMu.Unlock()
@@ -169,32 +177,44 @@ func (u *ui) setProj(project string) {
 	u.loaded = false
 }
 
-// fetch scopes the queue to project.
-func (u *ui) fetch(project string) ([]task, error) {
-	reqURL, err := url.Parse(u.url + "/tasks?limit=500")
+func (u *ui) setWorker(worker string) {
+	u.projectMu.Lock()
+	defer u.projectMu.Unlock()
+	u.workerFilter = worker
+	u.loaded = false
+}
+
+func (u *ui) getJSON(path string, out any) error {
+	resp, err := client.Get(u.url + path)
 	if err != nil {
-		return nil, err
-	}
-	if project != "" {
-		q := reqURL.Query()
-		q.Set("project", project)
-		reqURL.RawQuery = q.Encode()
-	}
-	resp, err := client.Get(reqURL.String())
-	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
+	label, _, _ := strings.Cut(path, "?")
 	if resp.StatusCode != http.StatusOK {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		body := strings.TrimSpace(string(b))
 		if body != "" {
-			return nil, fmt.Errorf("GET /tasks: %s: %s", resp.Status, body)
+			return fmt.Errorf("GET %s: %s: %s", label, resp.Status, body)
 		}
-		return nil, fmt.Errorf("GET /tasks: %s", resp.Status)
+		return fmt.Errorf("GET %s: %s", label, resp.Status)
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+// fetch scopes the queue to project and worker. The daemon owns the worker
+// filter so the 500-row window holds that worker's tasks, not a slice of
+// everyone's.
+func (u *ui) fetch(project, worker string) ([]task, error) {
+	q := url.Values{"limit": {"500"}}
+	if project != "" {
+		q.Set("project", project)
+	}
+	if worker != "" {
+		q.Set("worker", worker)
 	}
 	var ts []task
-	if err := json.NewDecoder(resp.Body).Decode(&ts); err != nil {
+	if err := u.getJSON("/tasks?"+q.Encode(), &ts); err != nil {
 		return nil, err
 	}
 	for i := range ts {
@@ -204,24 +224,19 @@ func (u *ui) fetch(project string) ([]task, error) {
 }
 
 func (u *ui) fetchProjects() ([]string, error) {
-	resp, err := client.Get(u.url + "/projects")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		body := strings.TrimSpace(string(b))
-		if body != "" {
-			return nil, fmt.Errorf("GET /projects: %s: %s", resp.Status, body)
-		}
-		return nil, fmt.Errorf("GET /projects: %s", resp.Status)
-	}
 	var projects []string
-	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
+	if err := u.getJSON("/projects", &projects); err != nil {
 		return nil, err
 	}
 	return projects, nil
+}
+
+func (u *ui) fetchWorkers() ([]string, error) {
+	var workers []string
+	if err := u.getJSON("/workers", &workers); err != nil {
+		return nil, err
+	}
+	return workers, nil
 }
 
 type stats struct {
@@ -231,30 +246,12 @@ type stats struct {
 }
 
 func (u *ui) fetchStats(project string) (stats, error) {
-	reqURL, err := url.Parse(u.url + "/stats")
-	if err != nil {
-		return stats{}, err
-	}
+	path := "/stats"
 	if project != "" {
-		q := reqURL.Query()
-		q.Set("project", project)
-		reqURL.RawQuery = q.Encode()
-	}
-	resp, err := client.Get(reqURL.String())
-	if err != nil {
-		return stats{}, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		body := strings.TrimSpace(string(b))
-		if body != "" {
-			return stats{}, fmt.Errorf("GET /stats: %s: %s", resp.Status, body)
-		}
-		return stats{}, fmt.Errorf("GET /stats: %s", resp.Status)
+		path += "?" + url.Values{"project": {project}}.Encode()
 	}
 	var st stats
-	if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+	if err := u.getJSON(path, &st); err != nil {
 		return stats{}, err
 	}
 	return st, nil
@@ -378,6 +375,10 @@ func (u *ui) emptyState() string {
 		return "Loading " + cmp.Or(u.project, "tasks") + "..."
 	case u.query != "":
 		return "No tasks match query. Press 'Esc' to clear."
+	case u.workerFilter != "" && u.filter != "":
+		return "No " + u.filter + " tasks for worker " + u.workerFilter + ". Press '0' to clear filter, 'w' to cycle worker."
+	case u.workerFilter != "":
+		return "No tasks for worker " + u.workerFilter + ". Press 'w' to cycle worker."
 	case u.filter != "" && u.project != "":
 		return "No tasks match filter. Press '0' to clear filter, 'p' to cycle project."
 	case u.filter != "":
@@ -544,20 +545,24 @@ func (u *ui) renderStatus() {
 		return
 	}
 	proj := truncWidth(cmp.Or(u.project, "all"), 20)
+	var wk string
+	if u.workerFilter != "" {
+		wk = "  worker " + truncWidth(u.workerFilter, 20)
+	}
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	var prefix string
 	if u.disconnected.Load() {
 		if u.origin != "" {
-			prefix = fmt.Sprintf(" %s  [disconnected]  project %s", u.origin, proj)
+			prefix = fmt.Sprintf(" %s  [disconnected]  project %s%s", u.origin, proj, wk)
 		} else {
-			prefix = fmt.Sprintf(" [disconnected]  project %s", proj)
+			prefix = fmt.Sprintf(" [disconnected]  project %s%s", proj, wk)
 		}
 	} else if u.origin != "" {
-		prefix = fmt.Sprintf(" %s  %s  project %s  pending %d  leased %d  done %d",
-			u.origin, cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done)
+		prefix = fmt.Sprintf(" %s  %s  project %s%s  pending %d  leased %d  done %d",
+			u.origin, cmp.Or(u.filter, "all"), proj, wk, u.pending, u.leased, u.done)
 	} else {
-		prefix = fmt.Sprintf(" %s  project %s  pending %d  leased %d  done %d",
-			cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done)
+		prefix = fmt.Sprintf(" %s  project %s%s  pending %d  leased %d  done %d",
+			cmp.Or(u.filter, "all"), proj, wk, u.pending, u.leased, u.done)
 	}
 	avail := cols - uniseg.StringWidth(idx)
 	var line1 string
@@ -655,31 +660,32 @@ func (u *ui) showBody() {
 // never lost, and an answer for a filter the operator has already left is
 // thrown away instead of clobbering the new one.
 func (u *ui) refresh(project string) {
+	_, worker := u.scope()
 	for {
 		if !u.refreshing.CompareAndSwap(false, true) {
 			return
 		}
-		u.refreshOnce(project)
+		u.refreshOnce(project, worker)
 		// Read after the release above: a keypress whose CAS failed
-		// published its project first, so it cannot be missed here.
-		current := u.proj()
-		if current == project {
+		// published its scope first, so it cannot be missed here.
+		curProject, curWorker := u.scope()
+		if curProject == project && curWorker == worker {
 			return
 		}
-		project = current
+		project, worker = curProject, curWorker
 	}
 }
 
 // refreshOnce fetches one round for project and paints it if the operator
 // has not moved on.
-func (u *ui) refreshOnce(project string) {
+func (u *ui) refreshOnce(project, worker string) {
 	defer u.refreshing.Store(false)
-	ts, err := u.fetch(project)
+	ts, err := u.fetch(project, worker)
 	if err != nil {
 		u.disconnected.Store(true)
 		u.app.QueueUpdateDraw(func() {
 			u.setMsg(err.Error())
-			if u.project != project {
+			if u.project != project || u.workerFilter != worker {
 				return
 			}
 			u.loaded = true
@@ -697,11 +703,11 @@ func (u *ui) refreshOnce(project string) {
 		} else {
 			u.projects = ps
 		}
-		if u.project != project {
+		if u.project != project || u.workerFilter != worker {
 			return
 		}
 		u.loaded = true
-		if serr == nil {
+		if serr == nil && worker == "" {
 			u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
 			u.hasServerStats = true
 			u.statsProject = project
@@ -713,11 +719,11 @@ func (u *ui) refreshOnce(project string) {
 }
 
 func (u *ui) act(method, path string, body any, success string, callbacks ...func(err error)) {
-	project := u.project
+	project, worker := u.project, u.workerFilter
 	go func() {
 		err := u.call(method, path, body)
 		msg := success
-		ts, fetchErr := u.fetch(project)
+		ts, fetchErr := u.fetch(project, worker)
 		var ps []string
 		var projErr error
 		var st stats
@@ -742,7 +748,7 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			}
 			if fetchErr != nil {
 				u.disconnected.Store(true)
-				if project == u.project {
+				if project == u.project && worker == u.workerFilter {
 					u.loaded = true
 					u.showBody()
 					u.renderStatus()
@@ -753,11 +759,11 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			if projErr == nil {
 				u.projects = ps
 			}
-			if project != u.project {
+			if project != u.project || worker != u.workerFilter {
 				return
 			}
 			u.loaded = true
-			if statsErr == nil {
+			if statsErr == nil && worker == "" {
 				u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
 				u.hasServerStats = true
 				u.statsProject = project
@@ -1101,7 +1107,7 @@ func (u *ui) showHelp() {
 		"[Ctrl+D/U] half page\n" +
 		"[0-4] filter status\n" +
 		"[/] keyword filter\n" +
-		"[p] cycle project\n" +
+		"[p] cycle project  [w] cycle worker\n" +
 		"[n] new task [e] edit task\n" +
 		"[c] claim task\n" +
 		"[u] release task\n" +
@@ -1273,6 +1279,8 @@ func (u *ui) actionKeys(ev *tcell.EventKey) bool {
 		u.setProj(next)
 		u.render(u.all)
 		go u.refresh(next)
+	case 'w':
+		go u.cycleWorker()
 	case '+', '=', '-':
 		if ok {
 			d := map[rune]int{'+': -1, '=': -1, '-': 1}[ev.Rune()]
@@ -1352,6 +1360,47 @@ func (u *ui) actionKeys(ev *tcell.EventKey) bool {
 		return false
 	}
 	return true
+}
+
+// nextWorker advances the cycle and reports whether the active worker has
+// dropped out of the daemon's list, which is a change the operator has to
+// be told about rather than discover as a silently wider table.
+func nextWorker(workers []string, current string) (string, bool) {
+	if current == "" {
+		if len(workers) == 0 {
+			return "", false
+		}
+		return workers[0], false
+	}
+	for i, w := range workers {
+		if w == current {
+			if i+1 < len(workers) {
+				return workers[i+1], false
+			}
+			return "", false
+		}
+	}
+	return "", true
+}
+
+func (u *ui) cycleWorker() {
+	ws, err := u.fetchWorkers()
+	u.app.QueueUpdateDraw(func() {
+		if err != nil {
+			u.setMsg(err.Error())
+			return
+		}
+		next, gone := nextWorker(ws, u.workerFilter)
+		switch {
+		case gone:
+			u.setMsg("worker " + u.workerFilter + " is no longer active")
+		case len(ws) == 0:
+			u.setMsg("no active workers")
+		}
+		u.setWorker(next)
+		u.render(nil)
+		go u.refresh(u.project)
+	})
 }
 
 func (u *ui) restoreFocus(prev tview.Primitive) {
@@ -1489,6 +1538,7 @@ Keyboard shortcuts:
   3              Filter done tasks
   4, l           Filter live tasks (pending and leased)
   p              Cycle project filter
+  w              Cycle worker filter
   + / =          Raise task priority (lower number)
   -              Lower task priority (higher number)
   n              Create new task
