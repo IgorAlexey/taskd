@@ -80,3 +80,30 @@ func TestHealthAllowsQueryParams(t *testing.T) {
 		t.Fatalf("expected status ok, got %q", res["status"])
 	}
 }
+
+func TestHealthReadPoolPing(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	handler := newHandler(db, 30)
+
+	db.ro.Close()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500 when read pool is closed, got %d", rec.Code)
+	}
+
+	var res map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &res); err != nil {
+		t.Fatalf("invalid json response: %v", err)
+	}
+	if res["error"] != "database ping failed" {
+		t.Fatalf("expected error 'database ping failed', got %q", res["error"])
+	}
+}

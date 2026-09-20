@@ -2748,6 +2748,10 @@ RETURNING status, project`,
 			writeError(w, http.StatusInternalServerError, "database ping failed")
 			return
 		}
+		if err := db.ro.PingContext(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, "database ping failed")
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte("{\"status\":\"ok\"}\n"))
 	}
