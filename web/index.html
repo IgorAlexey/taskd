@@ -2085,6 +2085,9 @@
         asset_path: asset,
         body: body
       };
+      if (typeof currentTask.version === 'number') {
+        payload.if_version = currentTask.version;
+      }
       try {
         await fetchJSON('/tasks/' + encodeURIComponent(currentTask.id), {
           method: 'PATCH',

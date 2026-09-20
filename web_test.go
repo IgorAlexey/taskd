@@ -254,3 +254,34 @@ func TestWebUITaskSubmitErrorMapping(t *testing.T) {
 		}
 	}
 }
+func TestWebUISaveTaskEditVersionConflict(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/task_edit_cas.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("cas harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("cas harness failed: %v", err)
+	}
+
+	var got struct {
+		SentVersion  int    `json:"sentVersion"`
+		BannerHidden bool   `json:"bannerHidden"`
+		BannerText   string `json:"bannerText"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.SentVersion != 3 {
+		t.Errorf("expected PATCH payload if_version = 3, got %d", got.SentVersion)
+	}
+	if got.BannerHidden || got.BannerText != "version conflict" {
+		t.Errorf("expected visible 409 error banner with 'version conflict', got hidden=%v text=%q",
+			got.BannerHidden, got.BannerText)
+	}
+}
