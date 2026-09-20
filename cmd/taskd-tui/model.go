@@ -676,6 +676,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Text == "?":
 				return m.actionHelp()
+			case msg.Text == "X":
+				return m.actionPurge()
 			default:
 				if m, cmd, ok := m.handleAction(msg); ok {
 					return m, cmd
@@ -686,6 +688,9 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case modeTable:
+			if msg.Text == "X" {
+				return m.actionPurge()
+			}
 			if m, cmd, ok := m.handleAction(msg); ok {
 				return m, cmd
 			}
@@ -1743,6 +1748,26 @@ func (m model) actionPriRaise() (model, tea.Cmd) {
 
 func (m model) actionPriLower() (model, tea.Cmd) {
 	return m.actionPriAdjust(1)
+}
+
+func (m model) actionPurge() (model, tea.Cmd) {
+	text := "Purge all completed tasks?"
+	path := "/tasks/purge"
+	success := "purged completed tasks"
+	if m.project != "" {
+		text = fmt.Sprintf("Purge completed tasks in project %q?", m.project)
+		path = "/tasks/purge?project=" + url.QueryEscape(m.project)
+		success = fmt.Sprintf("purged completed tasks in %s", m.project)
+	}
+	m.confirm = confirmModel{
+		text:    text,
+		button:  "purge",
+		method:  "POST",
+		path:    path,
+		success: success,
+	}
+	m.mode = modeConfirm
+	return m, nil
 }
 
 func (m model) actionDelete() (model, tea.Cmd) {

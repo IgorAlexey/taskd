@@ -290,6 +290,7 @@ Keyboard shortcuts:
   K                   kick selected buried task
   D                   delete selected task
   x                   complete selected task
+  X                   purge completed tasks
   y/Y                 copy task ID / body to clipboard
   ctrl-s              submit form
   r                   force refresh

@@ -1047,6 +1047,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[y/Y]", "copy id/body"},
 		{"[r]", "refresh"},
 		{"[q]", "quit"},
+		{"[X]", "purge done"},
 	}
 
 	var head []string
