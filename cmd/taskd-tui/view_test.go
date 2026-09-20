@@ -324,33 +324,35 @@ func TestGlyphModesUseTheirOwnTextGlyphs(t *testing.T) {
 
 func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 	modes := []mode{modeTable, modeSearch, modeDetail, modeZoom, modeForm, modeConfirm, modeHelp}
-	for h := 1; h <= 40; h++ {
-		for _, md := range modes {
-			m := newModel(config{}, nil)
-			m.glyph = asciiGlyphs
-			m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: h})
-			m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
-			m.mode = md
-			m.form = newCreateForm("p", 100)
-			m.form.errText = "project cannot be blank"
-			m.confirm = confirmModel{text: "Delete?", button: "delete"}
-			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-			if len(lines) != h {
-				t.Fatalf("height %d mode %d rendered %d lines", h, md, len(lines))
-			}
-			if md == modeTable && !strings.Contains(lines[h-1], "q quit") {
-				t.Fatalf("height %d lost the footer: %q", h, lines[h-1])
-			}
-			// Border, three fields, one body row, the error and the
-			// button need eight rows; from there both must be on screen.
-			if md == modeForm && h >= 8 {
-				all := strings.Join(lines, "\n")
-				if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "project cannot be blank") {
-					t.Fatalf("height %d form hides the button or the error:\n%s", h, all)
+	for _, w := range []int{30, 50, 80, 100} {
+		for h := 1; h <= 40; h++ {
+			for _, md := range modes {
+				m := newModel(config{}, nil)
+				m.glyph = asciiGlyphs
+				m, _ = send(t, m, tea.WindowSizeMsg{Width: w, Height: h})
+				m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
+				m.mode = md
+				m.form = newCreateForm("p", 100)
+				m.form.errText = "project cannot be blank"
+				m.confirm = confirmModel{text: "Delete?", button: "delete"}
+				lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+				if len(lines) != h {
+					t.Fatalf("%dx%d mode %d rendered %d lines", w, h, md, len(lines))
 				}
-			}
-			if md == modeHelp && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "Esc to close") {
-				t.Fatalf("height %d help hides the closing hint", h)
+				if md == modeTable && !strings.HasPrefix(lines[h-1], "j/k move") {
+					t.Fatalf("%dx%d lost the footer: %q", w, h, lines[h-1])
+				}
+				// Border, three fields, one body row, the error and the
+				// button need eight rows; from there both must be on screen.
+				if md == modeForm && h >= 8 {
+					all := strings.Join(lines, "\n")
+					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "project cannot be blank") {
+						t.Fatalf("%dx%d form hides the button or the error:\n%s", w, h, all)
+					}
+				}
+				if md == modeHelp && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "Press ?") {
+					t.Fatalf("%dx%d help hides the closing hint", w, h)
+				}
 			}
 		}
 	}

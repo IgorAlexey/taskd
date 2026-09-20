@@ -67,6 +67,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		if m.mode == modeForm {
+			m.form.resize(msg.Width)
+		}
 		vw := m.width - 2
 		if vw < 1 {
 			vw = 1
