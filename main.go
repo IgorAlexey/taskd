@@ -144,14 +144,19 @@ func (s *store) Close() error {
 		s.cancel()
 		s.wg.Wait()
 	}
-	var err error
+	var errs []error
 	if s.ro != s.rw {
-		err = s.ro.Close()
+		if err := s.ro.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	if rwErr := s.rw.Close(); err == nil {
-		err = rwErr
+	if err := checkpointWAL(context.Background(), s.rw); err != nil {
+		errs = append(errs, err)
 	}
-	return err
+	if err := s.rw.Close(); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }
 
 func (s *store) sweep() (int64, error) {
