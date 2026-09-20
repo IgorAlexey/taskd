@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"slices"
@@ -202,5 +204,53 @@ func TestWebUINotesTimelineAndForm(t *testing.T) {
 	}
 	if !strings.Contains(ui, "renderTaskDetails(currentTask, true)") {
 		t.Error("expected re-render of task details without full page reload")
+	}
+}
+func TestWebUITaskSubmitErrorMapping(t *testing.T) {
+	db, err := openDB(t.TempDir()+"/test.db", 300)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	cases := []struct {
+		payload   string
+		wantCode  int
+		wantError string
+		wantField string
+	}{
+		{`{"project":"bad/proj","body":"test"}`, http.StatusBadRequest, "invalid project", "project"},
+		{`{"body":"test"}`, http.StatusBadRequest, "missing project", "project"},
+		{`{"project":"p","body":"test","priority":-1}`, http.StatusBadRequest, "invalid priority", "priority"},
+		{`{"project":"p","body":"test","id":"bad id!"}`, http.StatusBadRequest, "invalid id", "id"},
+		{`{"project":"p"}`, http.StatusBadRequest, "missing asset_path or body", "body"},
+		{`{"project":"p","body":"   "}`, http.StatusBadRequest, "invalid body", "body"},
+	}
+
+	for _, tc := range cases {
+		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(tc.payload))
+		if err != nil {
+			t.Fatalf("POST /tasks failed: %v", err)
+		}
+		if resp.StatusCode != tc.wantCode {
+			resp.Body.Close()
+			t.Fatalf("POST %s status = %d, want %d", tc.payload, resp.StatusCode, tc.wantCode)
+		}
+		var apiErr struct {
+			Error string `json:"error"`
+			Field string `json:"field"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+			resp.Body.Close()
+			t.Fatalf("decode response failed: %v", err)
+		}
+		resp.Body.Close()
+		if apiErr.Error != tc.wantError || apiErr.Field != tc.wantField {
+			t.Errorf("POST %s got error=%q field=%q, want error=%q field=%q",
+				tc.payload, apiErr.Error, apiErr.Field, tc.wantError, tc.wantField)
+		}
 	}
 }

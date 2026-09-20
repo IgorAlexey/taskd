@@ -734,12 +734,16 @@ const maxBodyBytes = 1 << 20
 
 type apiError struct {
 	Error string `json:"error"`
+	Field string `json:"field,omitempty"`
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
 	writeAPIError(w, code, apiError{Error: msg})
 }
 
+func writeFieldError(w http.ResponseWriter, code int, msg, field string) {
+	writeAPIError(w, code, apiError{Error: msg, Field: field})
+}
 func writeAPIError(w http.ResponseWriter, code int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -1462,25 +1466,25 @@ FROM tasks`
 		req.AssetPath = strings.TrimSpace(req.AssetPath)
 		req.Project = strings.TrimSpace(req.Project)
 		if req.Body != "" && strings.TrimSpace(req.Body) == "" {
-			writeError(w, http.StatusBadRequest, "invalid body")
+			writeFieldError(w, http.StatusBadRequest, "invalid body", "body")
 			return
 		}
 		if req.AssetPath == "" && req.Body == "" {
-			writeError(w, http.StatusBadRequest, "missing asset_path or body")
+			writeFieldError(w, http.StatusBadRequest, "missing asset_path or body", "body")
 			return
 		}
 		if req.Project == "" {
-			writeError(w, http.StatusBadRequest, "missing project")
+			writeFieldError(w, http.StatusBadRequest, "missing project", "project")
 			return
 		}
 		if !validProject(req.Project) {
-			writeError(w, http.StatusBadRequest, "invalid project")
+			writeFieldError(w, http.StatusBadRequest, "invalid project", "project")
 			return
 		}
 		priority := defaultPriority
 		if req.Priority != nil {
 			if *req.Priority < 0 {
-				writeError(w, http.StatusBadRequest, "invalid priority")
+				writeFieldError(w, http.StatusBadRequest, "invalid priority", "priority")
 				return
 			}
 			priority = *req.Priority
@@ -1493,14 +1497,14 @@ FROM tasks`
 			}
 			req.ID = hex.EncodeToString(b[:])
 		} else if !validTaskID(req.ID) {
-			writeError(w, http.StatusBadRequest, "invalid id")
+			writeFieldError(w, http.StatusBadRequest, "invalid id", "id")
 			return
 		}
 		_, err := db.rw.Exec("INSERT INTO tasks (id, asset_path, body, priority, project, created_at) VALUES (?, ?, ?, ?, ?, unixepoch())", req.ID, req.AssetPath, req.Body, priority, req.Project)
 		if err != nil {
 			var se *sqlite.Error
 			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
-				writeError(w, http.StatusConflict, "duplicate id")
+				writeFieldError(w, http.StatusConflict, "duplicate id", "id")
 				return
 			}
 			internalError(w, err)

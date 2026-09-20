@@ -1144,6 +1144,10 @@
         const txt = await res.text();
         const err = new Error(parseErrorMessage(res, txt));
         err.status = res.status;
+        try {
+          const j = JSON.parse(txt);
+          if (j && typeof j.field === 'string') err.field = j.field;
+        } catch (_) {}
         throw err;
       }
       if (res.status === 204) return withHeaders ? { data: null, headers: res.headers } : null;
@@ -2165,18 +2169,22 @@
         list.innerHTML = '';
         for (const err of errors) {
           const li = document.createElement('li');
-          const a = document.createElement('a');
-          a.href = '#' + err.fieldId;
-          a.textContent = err.message;
-          a.onclick = function(e) {
-            e.preventDefault();
-            const target = document.getElementById(err.fieldId);
-            if (target) target.focus();
-          };
-          li.appendChild(a);
+          if (err.fieldId) {
+            const a = document.createElement('a');
+            a.href = '#' + err.fieldId;
+            a.textContent = err.message;
+            a.onclick = function(e) {
+              e.preventDefault();
+              const target = document.getElementById(err.fieldId);
+              if (target) target.focus();
+            };
+            li.appendChild(a);
+          } else {
+            li.textContent = err.message;
+          }
           list.appendChild(li);
 
-          const targetIds = err.fieldIds || [err.fieldId];
+          const targetIds = err.fieldIds || (err.fieldId ? [err.fieldId] : []);
           for (const id of targetIds) {
             const input = document.getElementById(id);
             if (input) input.setAttribute('aria-invalid', 'true');
@@ -2236,7 +2244,6 @@
       }
       return null;
     }
-
     async function submitTask(e) {
       if (e && e.preventDefault) e.preventDefault();
       clearFormErrors();
@@ -2311,9 +2318,7 @@
       } catch (err) {
         clearFormSuccess();
         if (err.transport) return;
-        // 409 is only ever a duplicate custom id here; every other refusal
-        // lands on the body, the one field that always carries content.
-        const fieldId = err.status === 409 ? 'form-id' : 'form-body';
+        const fieldId = err.field ? ('form-' + err.field) : (err.status === 409 ? 'form-id' : null);
         showFormErrors([{ fieldId: fieldId, message: err.message || 'Failed to submit task' }]);
       } finally {
         if (submitBtn) submitBtn.disabled = false;
