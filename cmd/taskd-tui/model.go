@@ -508,7 +508,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case clearMsgMsg:
 		if msg.id == m.msgID {
-			m.msg = ""
+			m.clearMsg()
 		}
 		return m, nil
 
@@ -694,7 +694,13 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case modeDetail, modeZoom:
 			switch {
-			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEscape:
+			case msg.Code == tea.KeyEscape:
+				if m.msgErr {
+					m.clearMsg()
+					return m, nil
+				}
+				return m.actionBack()
+			case msg.Code == tea.KeyTab:
 				return m.actionBack()
 			case msg.Text == "z":
 				return m.actionToggleZoom()
@@ -823,8 +829,8 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.query = ""
 					return m, m.commitQuery()
 				}
-				if m.msg != "" {
-					m.msg = ""
+				if m.msgErr {
+					m.clearMsg()
 					return m, nil
 				}
 				if m.filter != "" {
@@ -1386,8 +1392,14 @@ func (m model) selected() (task, bool) {
 	return m.tasks[idx], true
 }
 
+func (m *model) clearMsg() {
+	m.msg = ""
+	m.msgErr = false
+}
+
 func (m *model) setMsg(s string) tea.Cmd {
 	m.msg = s
+	m.msgErr = false
 	m.msgID++
 	id := m.msgID
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
@@ -1403,9 +1415,13 @@ func (m *model) requireWorker() (tea.Cmd, bool) {
 }
 
 func (m *model) setError(s string) tea.Cmd {
-	m.msg = "error: " + s
+	m.msg = s
+	m.msgErr = true
 	m.msgID++
-	return nil
+	id := m.msgID
+	return tea.Tick(6*time.Second, func(time.Time) tea.Msg {
+		return clearMsgMsg{id: id}
+	})
 }
 
 func (m *model) confirmTask(action, past, method, path string, t task, body any) {
@@ -1678,6 +1694,9 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 				return m.actionQuit()
 			case "help":
 				return m.actionHelp()
+			case "dismiss":
+				m.clearMsg()
+				return m, nil
 			case "back":
 				return m.actionBack()
 			case "project":

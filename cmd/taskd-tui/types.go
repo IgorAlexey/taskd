@@ -188,6 +188,7 @@ type model struct {
 	connected bool
 	lastErr   string
 	msg       string
+	msgErr    bool
 	msgID     int
 
 	detail   viewport.Model // scrolls the detail pane body

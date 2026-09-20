@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -269,4 +270,151 @@ func TestFooterSearch(t *testing.T) {
 	if res.(model).mode != modeSearch {
 		t.Fatalf("expected modeSearch after clicking search footer target, got %v", res.(model).mode)
 	}
+}
+
+func TestFooterErrorDismissAndTimeout(t *testing.T) {
+	t.Run("ErrorDisplaysDismissHint", func(t *testing.T) {
+		m := createTestModelWithTask("pending", 80, 24)
+		cmd := m.setError("network timeout")
+		if cmd == nil {
+			t.Fatal("expected non-nil timer command from setError")
+		}
+
+		view := ansi.Strip(m.View().Content)
+		lines := strings.Split(view, "\n")
+		footerLine := lines[len(lines)-1]
+
+		if !strings.Contains(footerLine, "network timeout") {
+			t.Fatalf("expected footer to contain error text, got: %q", footerLine)
+		}
+		if !strings.Contains(footerLine, "[Esc dismiss]") {
+			t.Fatalf("expected footer to contain '[Esc dismiss]', got: %q", footerLine)
+		}
+
+		up, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		m = up.(model)
+
+		viewAfter := ansi.Strip(m.View().Content)
+		linesAfter := strings.Split(viewAfter, "\n")
+		footerAfter := linesAfter[len(linesAfter)-1]
+
+		if strings.Contains(footerAfter, "network timeout") {
+			t.Fatalf("expected error text cleared after Esc, got: %q", footerAfter)
+		}
+		if !strings.Contains(footerAfter, "q quit") {
+			t.Fatalf("expected action shortcuts restored after dismiss, got: %q", footerAfter)
+		}
+	})
+
+	t.Run("ErrorTimeoutRestoresShortcuts", func(t *testing.T) {
+		m := createTestModelWithTask("pending", 80, 24)
+		cmd := m.setError("temporary failure")
+		if cmd == nil {
+			t.Fatal("expected non-nil timer command from setError")
+		}
+
+		msgID := m.msgID
+		up, _ := m.Update(clearMsgMsg{id: msgID})
+		m = up.(model)
+
+		viewAfter := ansi.Strip(m.View().Content)
+		linesAfter := strings.Split(viewAfter, "\n")
+		footerAfter := linesAfter[len(linesAfter)-1]
+
+		if strings.Contains(footerAfter, "temporary failure") {
+			t.Fatalf("expected error text cleared on timeout message, got: %q", footerAfter)
+		}
+		if !strings.Contains(footerAfter, "q quit") {
+			t.Fatalf("expected action shortcuts restored after timeout, got: %q", footerAfter)
+		}
+	})
+
+	t.Run("ErrorDismissClick", func(t *testing.T) {
+		m := createTestModelWithTask("pending", 80, 24)
+		m.setError("action failed")
+
+		targets := m.footerTargets()
+		var dismissTarget *footerTarget
+		for i := range targets {
+			if targets[i].action == "dismiss" {
+				dismissTarget = &targets[i]
+				break
+			}
+		}
+		if dismissTarget == nil {
+			t.Fatal("expected dismiss target in footer targets")
+		}
+
+		res, cmd := m.handleFooterClick(dismissTarget.start)
+		if cmd != nil {
+			t.Fatalf("expected nil command from clicking dismiss target, got %v", cmd)
+		}
+		if res.(model).msg != "" {
+			t.Fatalf("expected msg cleared after clicking dismiss, got %q", res.(model).msg)
+		}
+	})
+
+	t.Run("ErrorNarrowTerminalTruncatesSafely", func(t *testing.T) {
+		m := createTestModelWithTask("pending", 20, 24)
+		m.setError("very long error message that cannot fit")
+
+		view := ansi.Strip(m.View().Content)
+		lines := strings.Split(view, "\n")
+		footerLine := lines[len(lines)-1]
+		if ansi.StringWidth(footerLine) > 20 {
+			t.Fatalf("footer line width %d exceeds terminal width 20: %q", ansi.StringWidth(footerLine), footerLine)
+		}
+	})
+
+	t.Run("RegularMessageDoesNotInterceptEscapeInDetail", func(t *testing.T) {
+		m := createTestModelWithTask("pending", 80, 24)
+		m.mode = modeDetail
+		m.setMsg("copied to clipboard")
+
+		up, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		m = up.(model)
+
+		if m.mode != modeTable {
+			t.Fatalf("expected Escape to exit detail mode even when regular msg is present, got %v", m.mode)
+		}
+
+		m.mode = modeDetail
+		m.setError("action failed")
+
+		up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		m = up.(model)
+
+		if m.mode != modeDetail {
+			t.Fatalf("expected Escape to dismiss error without leaving detail mode, got %v", m.mode)
+		}
+		if m.msg != "" || m.msgErr {
+			t.Fatalf("expected error msg cleared after Escape, got msg=%q, msgErr=%v", m.msg, m.msgErr)
+		}
+	})
+
+	t.Run("RegularMessageDoesNotInterceptEscapeInTable", func(t *testing.T) {
+		m := createTestModelWithTask("pending", 80, 24)
+		m.filter = "done"
+		m.setMsg("copied to clipboard")
+
+		up, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		m = up.(model)
+
+		if m.filter != "" {
+			t.Fatalf("expected Escape to clear filter even when regular msg is present, got %q", m.filter)
+		}
+
+		m.filter = "done"
+		m.setError("action failed")
+
+		up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+		m = up.(model)
+
+		if m.filter != "done" {
+			t.Fatalf("expected Escape to dismiss error first while keeping filter, got %q", m.filter)
+		}
+		if m.msg != "" || m.msgErr {
+			t.Fatalf("expected error cleared after Escape, got msg=%q, msgErr=%v", m.msg, m.msgErr)
+		}
+	})
 }

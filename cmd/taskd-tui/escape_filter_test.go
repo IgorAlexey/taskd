@@ -16,7 +16,7 @@ func TestEscapeClearsStatusFilterOnEmptyMatch(t *testing.T) {
 	m.projects = []string{"alpha"}
 	m.tasks = []task{{ID: "t1", Project: "alpha", Status: "pending", Body: "task"}}
 	m.filter = "done"
-	m.msg = "notice"
+	m.setError("notice")
 	m.rebuild()
 	if len(m.shown) != 0 {
 		t.Fatalf("expected empty shown initially, got %d", len(m.shown))

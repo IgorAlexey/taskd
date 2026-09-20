@@ -1055,8 +1055,24 @@ func appendFooterTarget(targets []footerTarget, key string, start, width int) []
 func (m model) footLeft(frw int) (string, []footerTarget) {
 	w := m.width
 	if m.msg != "" {
-		if strings.HasPrefix(m.msg, "error: ") {
-			return m.theme.err.Render(strings.TrimPrefix(m.msg, "error: ")), nil
+		if m.msgErr {
+			errText := m.msg
+			hint := "[Esc dismiss]"
+			availW := max(0, w-frw-1)
+			if availW <= 0 {
+				return "", nil
+			}
+			hintW := ansi.StringWidth(hint)
+			var rendered string
+			if ansi.StringWidth(errText)+1+hintW <= availW {
+				rendered = m.theme.err.Render(errText) + " " + m.theme.dim.Render(hint)
+			} else if availW > hintW+2 {
+				rendered = m.theme.err.Render(trunc(errText, availW-hintW-1, m.glyph.ellipsis)) + " " + m.theme.dim.Render(hint)
+			} else {
+				rendered = m.theme.err.Render(trunc(errText, availW, m.glyph.ellipsis))
+			}
+			targets := []footerTarget{{action: "dismiss", start: 0, end: ansi.StringWidth(rendered)}}
+			return rendered, targets
 		}
 		return m.theme.accent.Render(m.msg), nil
 	}
