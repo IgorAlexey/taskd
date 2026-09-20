@@ -124,37 +124,14 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			var cmd tea.Cmd
 			m.form, cmd = m.form.Update(msg)
-			if m.form.cancelled {
-				m.mode = modeTable
-				m.formSeq = 0
-				return m, cmd
-			}
-			if m.form.done {
-				if m.formSeq != 0 {
-					return m, cmd
-				}
-				method, path, body, success, errText := m.form.submit()
-				if errText != "" {
-					m.form.errText = errText
-					m.form = m.form.refit()
-					return m, cmd
-				}
-				if m.form.editing && len(body) == 0 {
-					m.mode = modeTable
-					return m, cmd
-				}
-				m.formSeq++
-				fcmd := formActCmd(m.client, m.formSeq, method, path, body, success)
-				if cmd != nil {
-					return m, tea.Batch(cmd, fcmd)
-				}
-				return m, fcmd
-			}
-			return m, cmd
+			return m.handleFormResult(cmd)
 		case tea.MouseWheelMsg, tea.MouseClickMsg:
+			if m.formSeq != 0 {
+				return m, nil
+			}
 			var cmd tea.Cmd
 			m.form, cmd = m.form.Update(msg)
-			return m, cmd
+			return m.handleFormResult(cmd)
 		}
 		return m, nil
 
@@ -1339,4 +1316,34 @@ func (m model) actionBack() (model, tea.Cmd) {
 
 func isCtrlC(msg tea.KeyPressMsg) bool {
 	return msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c'
+}
+
+func (m model) handleFormResult(cmd tea.Cmd) (model, tea.Cmd) {
+	if m.form.cancelled {
+		m.mode = modeTable
+		m.formSeq = 0
+		return m, cmd
+	}
+	if m.form.done {
+		if m.formSeq != 0 {
+			return m, cmd
+		}
+		method, path, body, success, errText := m.form.submit()
+		if errText != "" {
+			m.form.errText = errText
+			m.form = m.form.refit()
+			return m, cmd
+		}
+		if m.form.editing && len(body) == 0 {
+			m.mode = modeTable
+			return m, cmd
+		}
+		m.formSeq++
+		fcmd := formActCmd(m.client, m.formSeq, method, path, body, success)
+		if cmd != nil {
+			return m, tea.Batch(cmd, fcmd)
+		}
+		return m, fcmd
+	}
+	return m, cmd
 }

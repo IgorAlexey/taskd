@@ -176,7 +176,7 @@ func (f formModel) rows(th theme) []formRow {
 		rows = append(rows, formRow{text: th.err.Render(f.errText), rank: rankError, field: -1})
 	}
 	rows = append(rows,
-		formRow{text: save, rank: saveRank, field: -1},
+		formRow{text: save, rank: saveRank, field: 4},
 		formRow{rank: rankHint, field: -1},
 		formRow{text: th.dim.Render("Tab next  ctrl-s save  Esc cancel"), rank: rankHint, field: -1},
 	)
@@ -370,6 +370,9 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		}
 		return f.refit(), cmd
 
+	case tea.MouseClickMsg:
+		return f.handleClick(msg)
+
 	default:
 		var cmds []tea.Cmd
 		var cmd tea.Cmd
@@ -460,7 +463,7 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // box and counted, then dropped one at a time by rank until they fit;
 // the textarea, when drawn, takes what is left. It sets the stored
 // textarea size, so Update and View agree on the layout.
-func (f *formModel) fit(width, height int, th theme) (head []string, boxWidth int) {
+func (f *formModel) fitRows(width, height int, th theme) (rows []formRow, wrapped [][]string, head []string, boxWidth int) {
 	if width <= 0 {
 		width = 80
 	}
@@ -471,12 +474,12 @@ func (f *formModel) fit(width, height int, th theme) (head []string, boxWidth in
 	boxWidth, inner := boxSize(width, 20, 90)
 	f.resize(inner)
 
-	rows := f.rows(th)
-	wrapped := make([][]string, len(rows))
-	total := 2 // border
+	rows = f.rows(th)
+	wrapped = make([][]string, len(rows))
+	total := 2
 	for i, r := range rows {
 		if r.field == 3 {
-			wrapped[i] = []string{""} // one row stands in for the textarea
+			wrapped[i] = []string{""}
 		} else {
 			wrapped[i] = wrapRows([]string{r.text}, inner)
 		}
@@ -506,8 +509,6 @@ func (f *formModel) fit(width, height int, th theme) (head []string, boxWidth in
 	if body >= 0 {
 		bodyH := max(1, min(12, height-total+1))
 		f.body.SetHeight(bodyH)
-		// The textarea can render its placeholder taller than its
-		// height; hold it to the rows that were budgeted.
 		lines := wrapRows([]string{f.body.View()}, inner)
 		if len(lines) > bodyH {
 			lines = lines[:bodyH]
@@ -515,11 +516,72 @@ func (f *formModel) fit(width, height int, th theme) (head []string, boxWidth in
 		wrapped[body] = lines
 	}
 
-	// Only the rank-0 row can be left over height: box trims it to its
-	// opening lines.
 	for _, w := range wrapped {
 		head = append(head, w...)
 	}
+	return rows, wrapped, head, boxWidth
+}
+
+func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
+	if msg.Button != tea.MouseLeft || f.discarding {
+		return f, nil
+	}
+	w, h := f.width, f.height
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 24
+	}
+	rows, wrapped, head, boxWidth := f.fitRows(w, h, f.th)
+	room := max(1, h-2)
+	lines := head
+	if len(lines) > room {
+		lines = lines[:room]
+	}
+	boxH := len(lines) + 2
+	top := max(0, (h-boxH)/2)
+	left := max(0, (w-boxWidth)/2)
+	if msg.X < left || msg.X >= left+boxWidth {
+		return f, nil
+	}
+	boxStyle := lipgloss.NewStyle().BorderStyle(lipgloss.RoundedBorder()).Padding(0, 1)
+	contentTop := top + boxStyle.GetBorderTopSize() + boxStyle.GetPaddingTop()
+	if msg.Y < contentTop || msg.Y >= contentTop+len(lines) {
+		return f, nil
+	}
+	lineIdx := msg.Y - contentTop
+	cur := 0
+	for i, r := range rows {
+		rowLines := len(wrapped[i])
+		if lineIdx >= cur && lineIdx < cur+rowLines {
+			switch r.field {
+			case 0, 1, 2, 3:
+				cmd := f.setFocus(r.field)
+				return f.refit(), cmd
+			case 4:
+				contentLeft := left + boxStyle.GetBorderLeftSize() + boxStyle.GetPaddingLeft()
+				btnWidth := ansi.StringWidth(r.text)
+				if msg.X >= contentLeft && msg.X < contentLeft+btnWidth {
+					f.setFocus(4)
+					f.done = true
+					return f, nil
+				}
+			default:
+				if r.rank == rankBodyLabel {
+					cmd := f.setFocus(3)
+					return f.refit(), cmd
+				}
+			}
+			return f, nil
+		}
+		cur += rowLines
+	}
+	return f, nil
+}
+
+func (f *formModel) fit(width, height int, th theme) (head []string, boxWidth int) {
+	_, _, head, boxWidth = f.fitRows(width, height, th)
 	return head, boxWidth
 }
 
