@@ -103,7 +103,98 @@ func (m *model) rescope() tea.Cmd {
 	return m.startPoll()
 }
 
+func (m model) isModal() bool {
+	return m.mode == modeForm || m.mode == modeConfirm || m.mode == modeHelp
+}
+
+func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch m.mode {
+	case modeForm:
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+				if m.form.dirty() && !m.form.discarding {
+					m.form.discarding = true
+					return m, nil
+				}
+				if !m.form.dirty() {
+					m.mode = modeTable
+					return m, nil
+				}
+				return m, tea.Quit
+			}
+			var cmd tea.Cmd
+			m.form, cmd = m.form.Update(msg)
+			if m.form.cancelled {
+				m.mode = modeTable
+				return m, cmd
+			}
+			if m.form.done {
+				method, path, body, success, errText := m.form.submit()
+				if errText == "" {
+					m.mode = modeTable
+					return m, tea.Batch(cmd, actCmd(m.client, method, path, body, success))
+				}
+			}
+			return m, cmd
+		case tea.MouseWheelMsg, tea.MouseClickMsg:
+			var cmd tea.Cmd
+			m.form, cmd = m.form.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+
+	case modeConfirm:
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+				return m, tea.Quit
+			}
+			switch {
+			case msg.Text == "y" || msg.Text == "Y":
+				m.mode = modeTable
+				return m, actCmd(m.client, m.confirm.method, m.confirm.path, m.confirm.body, m.confirm.success)
+			case msg.Code == tea.KeyEnter || msg.Code == tea.KeyEscape ||
+				msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
+				m.mode = modeTable
+				return m, nil
+			}
+		}
+		return m, nil
+
+	case modeHelp:
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+				return m, tea.Quit
+			}
+			if msg.Code == tea.KeyEscape || msg.Text == "?" || msg.Text == "q" || msg.Code == tea.KeyEnter {
+				m.mode = m.help.prev
+				if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+					m.mode = modeTable
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.help, cmd = m.help.Update(msg)
+			return m, cmd
+		case tea.MouseWheelMsg, tea.MouseClickMsg:
+			var cmd tea.Cmd
+			m.help, cmd = m.help.Update(msg)
+			return m, cmd
+		}
+		return m, nil
+	}
+	return m, nil
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if m.isModal() {
+		switch msg.(type) {
+		case tea.KeyPressMsg, tea.MouseWheelMsg, tea.MouseClickMsg:
+			return m.updateModal(msg)
+		}
+	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -246,11 +337,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
-		if m.mode == modeHelp {
-			var cmd tea.Cmd
-			m.help, cmd = m.help.Update(msg)
-			return m, cmd
-		}
 		panes := m.panes()
 		targetDetail := false
 		if m.mode == modeZoom || panes.inDetail(msg.Y) {
@@ -277,7 +363,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft && (m.mode == modeTable || m.mode == modeDetail || m.mode == modeZoom) {
+		if msg.Button == tea.MouseLeft {
 			if msg.Y == headerRows {
 				bounds := m.row1Bounds()
 				for _, tab := range bounds.tabs {
@@ -320,59 +406,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
-			if m.mode == modeForm {
-				if m.form.dirty() && !m.form.discarding {
-					m.form.discarding = true
-					return m, nil
-				}
-				if !m.form.dirty() {
-					m.mode = modeTable
-					return m, nil
-				}
-			}
 			return m, tea.Quit
 		}
 		switch m.mode {
-		case modeForm:
-			var cmd tea.Cmd
-			m.form, cmd = m.form.Update(msg)
-			if m.form.cancelled {
-				m.mode = modeTable
-				return m, cmd
-			}
-			if m.form.done {
-				method, path, body, success, errText := m.form.submit()
-				if errText == "" {
-					m.mode = modeTable
-					return m, tea.Batch(cmd, actCmd(m.client, method, path, body, success))
-				}
-			}
-			return m, cmd
-
-		case modeConfirm:
-			switch {
-			case msg.Text == "y" || msg.Text == "Y":
-				m.mode = modeTable
-				return m, actCmd(m.client, m.confirm.method, m.confirm.path, m.confirm.body, m.confirm.success)
-			case msg.Code == tea.KeyEnter || msg.Code == tea.KeyEscape ||
-				msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
-				m.mode = modeTable
-				return m, nil
-			}
-			return m, nil
-
-		case modeHelp:
-			if msg.Code == tea.KeyEscape || msg.Text == "?" || msg.Text == "q" || msg.Code == tea.KeyEnter {
-				m.mode = m.help.prev
-				if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
-					m.mode = modeTable
-				}
-				return m, nil
-			}
-			var cmd tea.Cmd
-			m.help, cmd = m.help.Update(msg)
-			return m, cmd
-
 		case modeSearch:
 			switch {
 			case msg.Code == tea.KeyEscape:
