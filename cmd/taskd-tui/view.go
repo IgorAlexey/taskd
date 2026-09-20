@@ -459,7 +459,14 @@ func (m model) View() tea.View {
 		}
 		if wID > 0 {
 			colH.WriteString(" ")
-			colH.WriteString(padRight("id", wID))
+			idHead := "id"
+			if m.sortCol == sortID {
+				idHead += ind
+			}
+			if ansi.StringWidth(idHead) > wID {
+				idHead = ansi.Truncate(idHead, wID, "")
+			}
+			colH.WriteString(padRight(idHead, wID))
 		}
 		if hasScrollbar {
 			colH.WriteString(" ")

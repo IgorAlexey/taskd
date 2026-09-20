@@ -1064,6 +1064,8 @@ func (m *model) rebuildShown() {
 			c = cmp.Compare(ti.LeaseExpires, tj.LeaseExpires)
 		case sortClaims:
 			c = cmp.Compare(tj.ClaimCount, ti.ClaimCount)
+		case sortID:
+			c = cmp.Compare(ti.ID, tj.ID)
 		default:
 			c = cmp.Compare(ti.Priority, tj.Priority)
 			if c == 0 {
@@ -1238,6 +1240,17 @@ func (m *model) handleColHeadClick(x int) {
 		}
 		if x >= currX && x < currX+leaseWidth {
 			m.setSortCol(sortLease)
+			return
+		}
+		currX += leaseWidth
+	} else if cols.left > 0 {
+		currX += 1 + cols.left
+	}
+
+	if cols.id > 0 {
+		currX += 1
+		if x >= currX && x < currX+cols.id {
+			m.setSortCol(sortID)
 			return
 		}
 	}

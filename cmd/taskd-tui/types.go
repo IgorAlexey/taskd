@@ -81,6 +81,7 @@ const (
 	sortWorker
 	sortLease
 	sortClaims
+	sortID
 	sortColCount
 )
 

@@ -58,7 +58,7 @@ func usagef(format string, a ...any) *usageError {
 }
 
 const maxProjectLen = 64
-const validSortColumns = "priority, status, project, worker, lease, claims"
+const validSortColumns = "priority, status, project, worker, lease, claims, id"
 
 func validProjectChars(p string) bool {
 	for i := 0; i < len(p); i++ {
@@ -295,7 +295,7 @@ Options:
   -ascii              use ASCII characters instead of Nerd Font icons
   -light              use light mode theme
   -refresh <dur>      polling interval, min 250ms (default: 1s)
-  -s, -sort <col>     initial sort column: priority, status, project, worker, lease, claims
+  -s, -sort <col>     initial sort column: priority, status, project, worker, lease, claims, id
   -v, -version        print version and exit
   -h, --help          show this help message
 
@@ -308,7 +308,7 @@ Environment variables:
   TASKD_ASCII         set to 1 or true to enable ASCII mode
   TASKD_LIGHT         set to 1 or true to enable light mode theme
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)
-  TASKD_SORT          initial sort column: priority, status, project, worker, lease, claims
+  TASKD_SORT          initial sort column: priority, status, project, worker, lease, claims, id
 
 Keyboard shortcuts:
   j/k, Up/Down        move selection
@@ -372,6 +372,8 @@ func parseSortColumn(val string) (sortColumn, bool) {
 		return sortLease, true
 	case "claims":
 		return sortClaims, true
+	case "id":
+		return sortID, true
 	default:
 		return 0, false
 	}
