@@ -2320,7 +2320,19 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		json.NewEncoder(w).Encode(projects)
 	}
 	workersHandler := func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.ro.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?)) ORDER BY worker ASC", time.Now().Unix())
+		q := requestQuery(r)
+		project, ok := validateProjectFilter(w, q)
+		if !ok {
+			return
+		}
+		query := "SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))"
+		args := []any{time.Now().Unix()}
+		if project != "" && project != "*" {
+			query += " AND project = ?"
+			args = append(args, project)
+		}
+		query += " ORDER BY worker ASC"
+		rows, err := db.ro.Query(query, args...)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -2742,7 +2754,7 @@ RETURNING status, project`,
 		http.MethodGet: {handler: projectsHandler},
 	})
 	handleMethods(mux, "/workers", map[string]route{
-		http.MethodGet: {handler: workersHandler},
+		http.MethodGet: {handler: workersHandler, params: []string{"project"}},
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
