@@ -282,6 +282,8 @@ func (m model) View() tea.View {
 		return center(m.confirm.View(w, h, m.theme))
 	case modeHelp:
 		return center(m.help.View(h, m.theme))
+	case modeNote:
+		return center(m.note.View(w, h, m.theme))
 	}
 
 	tRows, dRows := m.layout()
@@ -851,6 +853,7 @@ func (m model) footerItems() [][2]string {
 	if m.mode == modeDetail || m.mode == modeZoom {
 		return [][2]string{
 			{"j/k", "scroll"},
+			{"a", "note"},
 			{"Tab", "back"},
 			{"z", "zoom"},
 			{"y/Y", "copy"},
@@ -936,6 +939,8 @@ func appendFooterTarget(targets []footerTarget, key string, start, width int) []
 		return append(targets, footerTarget{action: "create", start: start, end: start + width})
 	case "e":
 		return append(targets, footerTarget{action: "edit", start: start, end: start + width})
+	case "a":
+		return append(targets, footerTarget{action: "note", start: start, end: start + width})
 	case "+/-":
 		return append(targets,
 			footerTarget{action: "pri_raise", start: start, end: start + 2},

@@ -8,6 +8,13 @@ import (
 )
 
 // task mirrors the daemon's JSON representation of a queue entry.
+type taskNote struct {
+	ID        int64  `json:"id"`
+	CreatedAt int64  `json:"created_at"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+}
+
 type task struct {
 	ID           string          `json:"id"`
 	Project      string          `json:"project"`
@@ -20,6 +27,7 @@ type task struct {
 	CreatedAt    int64           `json:"created_at"`
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
+	Notes        []taskNote      `json:"notes"`
 }
 
 // stats mirrors GET /stats. LeaseSeconds and DB are additive fields the
@@ -58,6 +66,7 @@ const (
 	modeForm                // n/e: create or edit form overlay
 	modeConfirm             // D/x: yes/no overlay
 	modeHelp                // ?: key reference overlay
+	modeNote
 )
 
 type sortColumn int
@@ -118,6 +127,16 @@ type (
 	// so a term only reaches the daemon when the operator stops typing.
 	searchMsg struct{ seq uint64 }
 
+	noteFetchMsg struct {
+		id  string
+		seq uint64
+	}
+	taskNotesMsg struct {
+		id    string
+		notes []taskNote
+		err   error
+	}
+
 	// clearMsgMsg expires the footer message with matching id.
 	clearMsgMsg struct{ id int }
 )
@@ -167,9 +186,12 @@ type model struct {
 	detail   viewport.Model // scrolls the detail pane body
 	detailID string         // task the viewport content was built for
 
-	form    formModel
-	confirm confirmModel
-	help    helpModel
+	form       formModel
+	confirm    confirmModel
+	help       helpModel
+	note       noteModel
+	notesCache map[string][]taskNote
+	noteSeq    uint64
 }
 type tabDef struct {
 	key    string

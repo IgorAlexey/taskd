@@ -266,6 +266,39 @@ func (c *client) getWorkers() ([]string, error) {
 	return workers, nil
 }
 
+func (c *client) getNotes(id string) ([]taskNote, error) {
+	relPath := "/tasks/" + url.PathEscape(id)
+	u := c.base + relPath
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, parseError(resp, http.MethodGet, relPath)
+	}
+	var res struct {
+		Notes []taskNote `json:"notes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return nil, err
+	}
+	return res.Notes, nil
+}
+
+func taskNotesCmd(c *client, id string) tea.Cmd {
+	if c == nil || id == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		notes, err := c.getNotes(id)
+		return taskNotesMsg{id: id, notes: notes, err: err}
+	}
+}
 func (c *client) do(method, path string, body any) error {
 	var bodyReader io.Reader
 	if body != nil {

@@ -1,15 +1,15 @@
 package main
 
 import (
-	"strconv"
-	"strings"
-
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
+	"os"
+	"strconv"
+	"strings"
 )
 
 type formModel struct {
@@ -790,6 +790,91 @@ func (c confirmModel) View(width, height int, th theme) string {
 		Render(lipgloss.JoinVertical(lipgloss.Left, centeredLines...))
 }
 
+type noteModel struct {
+	taskID  string
+	author  string
+	input   textinput.Model
+	prev    mode
+	errText string
+	width   int
+	height  int
+	th      theme
+	done    bool
+	cancel  bool
+}
+
+func newNoteModel(taskID, author string, prev mode, width, height int, th theme) (noteModel, tea.Cmd) {
+	if author == "" {
+		author = os.Getenv("USER")
+	}
+	if author == "" {
+		author = "operator"
+	}
+	ti := textinput.New()
+	ti.Prompt = ""
+	ti.Placeholder = "type a note and press enter..."
+	_, inner := boxSize(width, 20, 60)
+	ti.SetWidth(max(1, inner-2))
+	cmd := ti.Focus()
+	return noteModel{
+		taskID: taskID,
+		author: author,
+		input:  ti,
+		prev:   prev,
+		width:  width,
+		height: height,
+		th:     th,
+	}, cmd
+}
+
+func (n *noteModel) resize(width, height int) {
+	n.width = width
+	n.height = height
+	_, inner := boxSize(width, 20, 60)
+	n.input.SetWidth(max(1, inner-2))
+}
+
+func (n noteModel) Update(msg tea.Msg) (noteModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		if isCtrlC(msg) || msg.Code == tea.KeyEscape {
+			n.cancel = true
+			return n, nil
+		}
+		if msg.Code == tea.KeyEnter || (msg.Mod&tea.ModCtrl != 0 && (msg.Code == 's' || msg.Code == tea.KeyEnter)) {
+			val := strings.TrimSpace(n.input.Value())
+			if val == "" {
+				n.errText = "note text cannot be empty"
+				return n, nil
+			}
+			n.done = true
+			return n, nil
+		}
+	}
+	var cmd tea.Cmd
+	n.input, cmd = n.input.Update(msg)
+	return n, cmd
+}
+
+func (n noteModel) View(width, height int, th theme) string {
+	boxWidth, inner := boxSize(width, 20, 60)
+	if boxWidth < 5 {
+		return ""
+	}
+	title := th.bold.Render("Add Note")
+	if len(n.taskID) > 0 {
+		title += " " + th.dim.Render("("+shortID(n.taskID)+")")
+	}
+	head := []string{title, ""}
+	if n.errText != "" {
+		head = append(head, th.err.Render(n.errText), "")
+	}
+	inputLine := n.input.View()
+	head = append(head, inputLine, "")
+	keep := []string{th.accent.Render("[enter] save") + "   " + th.dim.Render("[esc] cancel")}
+	return box(wrapRows(head, inner), wrapRows(keep, inner), boxWidth, height, lipgloss.Left, th)
+}
+
 func (c confirmModel) buttonBounds(width, height int) []confirmTarget {
 	return c.layout(width, height).targets
 }
@@ -828,6 +913,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[z]", "zoom"},
 		{"[n]", "new"},
 		{"[e]", "edit"},
+		{"[a]", "note"},
 		{"[ctrl-s]", "save form"},
 		{"[?]", "help"},
 	}

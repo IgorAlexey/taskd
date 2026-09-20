@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
+	"net/url"
 	"path"
 	"slices"
 	"strconv"
@@ -23,19 +24,20 @@ func newModel(cfg config, c *client) model {
 	}
 	vp := viewport.New()
 	m := model{
-		cfg:     cfg,
-		client:  c,
-		theme:   newTheme(true),
-		glyph:   glyph,
-		width:   80,
-		height:  24,
-		project: cfg.project,
-		mode:    modeTable,
-		sortCol: cfg.sortCol,
-		pages:   1,
-		now:     time.Now(),
-		detail:  vp,
-		query:   cfg.query,
+		cfg:        cfg,
+		client:     c,
+		theme:      newTheme(true),
+		glyph:      glyph,
+		width:      80,
+		height:     24,
+		project:    cfg.project,
+		mode:       modeTable,
+		sortCol:    cfg.sortCol,
+		pages:      1,
+		now:        time.Now(),
+		detail:     vp,
+		query:      cfg.query,
+		notesCache: make(map[string][]taskNote),
 	}
 	m.detail.SetWidth(m.detailViewportWidth())
 	m.detail.SetHeight(m.detailViewportHeight())
@@ -57,7 +59,10 @@ func (m model) listFilter() listFilter {
 	return listFilter{project: m.project, worker: m.worker, status: m.filter, query: m.query}
 }
 
-const searchDebounce = 150 * time.Millisecond
+const (
+	searchDebounce = 150 * time.Millisecond
+	noteDebounce   = 150 * time.Millisecond
+)
 
 // typeQuery arms the debounce: the next keystroke would throw an answer
 // away, so the term only goes down the wire once the typing pauses.
@@ -103,7 +108,7 @@ func (m *model) rescope() tea.Cmd {
 }
 
 func (m model) isModal() bool {
-	return m.mode == modeForm || m.mode == modeConfirm || m.mode == modeHelp
+	return m.mode == modeForm || m.mode == modeConfirm || m.mode == modeHelp || m.mode == modeNote
 }
 
 func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -177,11 +182,70 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+
+	case modeNote:
+		if m.formSeq != 0 {
+			switch msg := msg.(type) {
+			case tea.KeyPressMsg:
+				if isCtrlC(msg) || msg.Code == tea.KeyEscape {
+					m.formSeq = 0
+					m.mode = m.note.prev
+					if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+						m.mode = modeTable
+					}
+					return m, nil
+				}
+			}
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.note, cmd = m.note.Update(msg)
+		if m.note.cancel {
+			m.mode = m.note.prev
+			if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+				m.mode = modeTable
+			}
+			return m, nil
+		}
+		if m.note.done {
+			m.note.done = false
+			m.formSeq++
+			seq := m.formSeq
+			val := strings.TrimSpace(m.note.input.Value())
+			taskID := m.note.taskID
+			id7 := shortID(taskID)
+			body := map[string]string{
+				"author": m.note.author,
+				"text":   val,
+			}
+			path := "/tasks/" + url.PathEscape(taskID) + "/notes"
+			return m, formActCmd(m.client, seq, "POST", path, body, "added note to "+id7)
+		}
+		return m, cmd
 	}
 	return m, nil
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	prevID := ""
+	if t, ok := m.selected(); ok {
+		prevID = t.ID
+	}
+	resM, cmd := m.update(msg)
+	if mod, ok := resM.(model); ok {
+		newID := ""
+		if t, ok := mod.selected(); ok {
+			newID = t.ID
+		}
+		if newID != "" && newID != prevID {
+			cmd = tea.Batch(cmd, mod.queueFetchNotes())
+		}
+		return mod, cmd
+	}
+	return resM, cmd
+}
+
+func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.isModal() {
 		switch msg.(type) {
 		case tea.KeyPressMsg, tea.MouseWheelMsg, tea.MouseClickMsg:
@@ -200,6 +264,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			yOffset := m.help.vp.YOffset()
 			m.help = newHelpModel(msg.Width, msg.Height, m.help.prev, m.theme)
 			m.help.vp.SetYOffset(yOffset)
+		}
+		if m.mode == modeNote {
+			m.note.resize(msg.Width, msg.Height)
 		}
 		m.detail.SetWidth(m.detailViewportWidth())
 		m.detail.SetHeight(m.detailViewportHeight())
@@ -273,6 +340,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.clamp()
 			m.syncDetail()
+			cmd = tea.Batch(cmd, m.fetchNotes())
 		}
 		if msg.err != nil {
 			m.connected = false
@@ -290,7 +358,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.workers = msg.workers
 		}
 		return m, cmd
-
 	case actMsg:
 		var cmd tea.Cmd
 		if msg.err != nil {
@@ -300,7 +367,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		poll := m.startPoll()
 		return m, tea.Batch(cmd, poll)
-
+	case noteFetchMsg:
+		if msg.seq != m.noteSeq {
+			return m, nil
+		}
+		return m, taskNotesCmd(m.client, msg.id)
+	case taskNotesMsg:
+		if msg.err != nil {
+			return m, m.setError(msg.err.Error())
+		}
+		if m.notesCache == nil {
+			m.notesCache = make(map[string][]taskNote)
+		}
+		m.notesCache[msg.id] = msg.notes
+		if t, ok := m.selected(); ok && t.ID == msg.id {
+			t.Notes = msg.notes
+			yOff := m.detail.YOffset()
+			m.detail.SetContent(m.renderBody(t))
+			m.detail.SetYOffset(yOff)
+		}
+		return m, nil
 	case formActMsg:
 		if msg.seq != m.formSeq || m.formSeq == 0 {
 			return m, nil
@@ -314,6 +400,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.mode = modeTable
 		}
+		if m.mode == modeNote {
+			if msg.err != nil {
+				m.note.errText = msg.err.Error()
+				return m, nil
+			}
+			m.mode = m.note.prev
+			if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+				m.mode = modeTable
+			}
+		}
 		var cmd tea.Cmd
 		if msg.err != nil {
 			cmd = m.setError(msg.err.Error())
@@ -321,6 +417,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.setMsg(msg.msg)
 		}
 		poll := m.startPoll()
+		fetch := m.fetchNotes()
+		if fetch != nil {
+			return m, tea.Batch(cmd, fetch, poll)
+		}
 		return m, tea.Batch(cmd, poll)
 
 	case statsMsg:
@@ -463,6 +563,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.mode == modeDetail {
 					m.mode = modeTable
 				}
+				return m, nil
 			} else if panes.inDetail(msg.Y) {
 				if m.mode == modeTable {
 					m.mode = modeDetail
@@ -708,6 +809,9 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		return m, cmd, true
 	case "e":
 		m, cmd := m.actionEdit()
+		return m, cmd, true
+	case "a":
+		m, cmd := m.actionAddNote()
 		return m, cmd, true
 	case "+", "=":
 		m, cmd := m.actionPriRaise()
@@ -1215,6 +1319,9 @@ func (m *model) syncDetail() {
 		m.detail.SetContent("")
 		return
 	}
+	if cached, has := m.notesCache[t.ID]; has {
+		t.Notes = cached
+	}
 	newContent := m.renderBody(t)
 	if t.ID != m.detailID || newContent != m.detail.GetContent() {
 		m.detailID = t.ID
@@ -1237,12 +1344,69 @@ func (m model) renderBody(t task) string {
 			rest = "result: " + prim
 		}
 	}
+	if len(t.Notes) > 0 {
+		var notesSec strings.Builder
+		if rest != "" {
+			notesSec.WriteString("\n\n--- notes ---\n")
+		} else {
+			notesSec.WriteString("--- notes ---\n")
+		}
+		for i, n := range t.Notes {
+			if i > 0 {
+				notesSec.WriteString("\n")
+			}
+			if n.CreatedAt > 0 {
+				ts := time.Unix(n.CreatedAt, 0).Format("2006-01-02 15:04:05")
+				notesSec.WriteString(fmt.Sprintf("%s commented on %s:\n%s\n", n.Author, ts, n.Text))
+			} else if n.Author != "" {
+				notesSec.WriteString(fmt.Sprintf("%s:\n%s\n", n.Author, n.Text))
+			} else {
+				notesSec.WriteString(fmt.Sprintf("%s\n", n.Text))
+			}
+		}
+		rest += notesSec.String()
+	}
 	rest = highlightCode(rest, m.theme)
 	w := m.detail.Width()
 	if w <= 0 {
 		w = m.detailViewportWidth()
 	}
 	return lipgloss.NewStyle().Width(w).Render(rest)
+}
+
+func (m model) actionAddNote() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	var cmd tea.Cmd
+	m.note, cmd = newNoteModel(t.ID, m.cfg.worker, m.mode, m.width, m.height, m.theme)
+	m.mode = modeNote
+	return m, cmd
+}
+
+func (m *model) queueFetchNotes() tea.Cmd {
+	t, ok := m.selected()
+	if !ok || m.client == nil {
+		return nil
+	}
+	if _, cached := m.notesCache[t.ID]; cached {
+		return nil
+	}
+	m.noteSeq++
+	seq := m.noteSeq
+	id := t.ID
+	return tea.Tick(noteDebounce, func(time.Time) tea.Msg {
+		return noteFetchMsg{id: id, seq: seq}
+	})
+}
+
+func (m *model) fetchNotes() tea.Cmd {
+	t, ok := m.selected()
+	if !ok || m.client == nil {
+		return nil
+	}
+	return taskNotesCmd(m.client, t.ID)
 }
 
 func shortID(id string) string {
@@ -1322,6 +1486,8 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 				return m.actionCreate()
 			case "edit":
 				return m.actionEdit()
+			case "note":
+				return m.actionAddNote()
 			case "pri_raise":
 				return m.actionPriRaise()
 			case "pri_lower":
