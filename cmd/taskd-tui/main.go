@@ -529,7 +529,7 @@ func (u *ui) renderStatus() {
 	} else {
 		line1 = truncWidth(prefix, cols)
 	}
-	line2 := " [j/k] [0-4] filt [p] proj [n] new [e] edit [+/-] pri [D] del [z] zoom [q] quit"
+	line2 := " [j/k] [0-4] filt [n] new [e] edit [+/-] pri [D] del [z] zoom [?] help [q] quit"
 	if u.searching {
 		line2 = truncWidth("/"+u.query, cols)
 	} else if u.msg != "" {
@@ -933,19 +933,20 @@ func (u *ui) showHelp() {
 	m.SetText(tview.Escape("Keyboard Shortcuts\n\n" +
 		"[j/k] move\n" +
 		"[g/G] top/bottom\n" +
+		"[Ctrl+D/U] half page\n" +
 		"[0-4] filter status\n" +
+		"[/] keyword filter\n" +
 		"[p] cycle project\n" +
-		"[n] new task\n" +
-		"[e] edit task\n" +
-		"[D] delete task\n" +
-		"[+/-] priority\n" +
+		"[n] new task [e] edit task\n" +
 		"[c] claim task\n" +
 		"[u] release task\n" +
 		"[t] touch lease\n" +
+		"[x] complete task\n" +
+		"[D] delete task\n" +
+		"[+/-] priority\n" +
 		"[z] zoom task body\n" +
-		"[y] copy ID\n" +
-		"[Y] copy body\n" +
-		"[r] refresh\n" +
+		"[y] copy ID  [Y] copy body\n" +
+		"[r] refresh  [?] help\n" +
 		"[Tab] toggle pane focus\n" +
 		"[q] quit"))
 	m.AddButtons([]string{"Close"})
@@ -1284,6 +1285,7 @@ Environment variables:
 Keyboard shortcuts:
   j, Down        Move selection down
   k, Up          Move selection up
+  Ctrl+D, Ctrl+U Scroll half a page down or up
   g              Jump to first task
   G              Jump to last task
   Tab, Backtab   Switch focus between task table and task body
@@ -1300,12 +1302,14 @@ Keyboard shortcuts:
   e              Edit selected task
   c              Claim selected pending task
   u              Release selected leased task back to pending
+  t              Touch lease on selected leased task
   D              Delete selected task
   x              Complete selected task
   z              Zoom task body to full screen
   y              Copy task ID to clipboard
   Y              Copy task body to clipboard
   r, R           Refresh task queue
+  ?              Show this keyboard shortcut help
   q              Quit
 `)
 }
@@ -1345,9 +1349,8 @@ func parseFlags(args []string) (config, error) {
 
 	var cfg config
 	fs := flag.NewFlagSet("taskd-tui", flag.ContinueOnError)
-	fs.Usage = func() {
-		printUsage(fs.Output())
-	}
+	fs.SetOutput(io.Discard)
+	fs.Usage = func() {}
 	fs.StringVar(&cfg.url, "url", defaultURL, "taskd daemon address")
 	fs.StringVar(&cfg.project, "project", defaultProject, "filter tasks by project")
 	fs.BoolVar(&cfg.icons, "icons", defaultIcons, "use Nerd Font glyphs for status and priority")
@@ -1359,7 +1362,6 @@ func parseFlags(args []string) (config, error) {
 	}
 	normalizedURL, err := normalizeURL(cfg.url)
 	if err != nil {
-		fmt.Fprintf(fs.Output(), "%s: %v\n", fs.Name(), err)
 		return cfg, err
 	}
 	cfg.url = normalizedURL
@@ -1424,6 +1426,7 @@ func main() {
 	cfg, err := parseFlags(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			printUsage(os.Stdout)
 			os.Exit(0)
 		}
 		fmt.Fprintf(os.Stderr, "taskd-tui: %v\n", err)
