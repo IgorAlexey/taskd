@@ -920,7 +920,7 @@ func (c confirmModel) View(width, height int, th theme) string {
 type noteModel struct {
 	taskID  string
 	author  string
-	input   textinput.Model
+	input   textarea.Model
 	prev    mode
 	errText string
 	width   int
@@ -937,13 +937,13 @@ func newNoteModel(taskID, author string, prev mode, width, height int, th theme)
 	if author == "" {
 		author = "operator"
 	}
-	ti := textinput.New()
+	ti := textarea.New()
 	ti.Prompt = ""
-	ti.Placeholder = "type a note and press enter..."
-	_, inner := boxSize(width, 20, 60)
-	ti.SetWidth(max(1, inner-2))
+	ti.Placeholder = "type a note..."
+	ti.ShowLineNumbers = false
+	ti.CharLimit = 65536
 	cmd := ti.Focus()
-	return noteModel{
+	n := noteModel{
 		taskID: taskID,
 		author: author,
 		input:  ti,
@@ -951,14 +951,30 @@ func newNoteModel(taskID, author string, prev mode, width, height int, th theme)
 		width:  width,
 		height: height,
 		th:     th,
-	}, cmd
+	}
+	n.resize(width, height)
+	return n, cmd
 }
 
 func (n *noteModel) resize(width, height int) {
 	n.width = width
 	n.height = height
-	_, inner := boxSize(width, 20, 60)
-	n.input.SetWidth(max(1, inner-2))
+	boxWidth, inner := boxSize(width, 20, 60)
+	if boxWidth < 5 || height < 3 {
+		return
+	}
+	saveToken := "[ctrl+s] save"
+	cancelToken := "[esc] cancel"
+	singleLine := (ansi.StringWidth(saveToken) + buttonGap + ansi.StringWidth(cancelToken)) <= inner
+	keepRows := 1
+	if !singleLine {
+		keepRows = 2
+	}
+	room := max(1, height-2*modalBorderW)
+	headRoom := max(0, room-keepRows)
+	inputH := max(1, min(6, headRoom-2))
+	n.input.SetWidth(max(1, inner))
+	n.input.SetHeight(inputH)
 }
 
 type noteLayout struct {
@@ -978,7 +994,7 @@ func (n noteModel) layout(width, height int, th theme) noteLayout {
 	if len(n.taskID) > 0 {
 		title += " " + th.dim.Render("("+shortID(n.taskID)+")")
 	}
-	saveToken := "[enter] save"
+	saveToken := "[ctrl+s] save"
 	cancelToken := "[esc] cancel"
 	saveW := ansi.StringWidth(saveToken)
 	cancelW := ansi.StringWidth(cancelToken)
@@ -1005,7 +1021,6 @@ func (n noteModel) layout(width, height int, th theme) noteLayout {
 	inputH := len(wrapRows([]string{n.input.View()}, inner))
 	titleH := len(wrapRows([]string{title}, inner))
 	mandatory := titleH + inputH
-
 	var head []string
 	if headRoom >= mandatory {
 		head = []string{title}
@@ -1114,7 +1129,7 @@ func (n noteModel) Update(msg tea.Msg) (noteModel, tea.Cmd) {
 			n.cancel = true
 			return n, nil
 		}
-		if msg.Code == tea.KeyEnter || (msg.Mod&tea.ModCtrl != 0 && (msg.Code == 's' || msg.Code == tea.KeyEnter)) {
+		if (msg.Code == 's' || msg.Code == tea.KeyEnter) && msg.Mod&tea.ModCtrl != 0 {
 			val := strings.TrimSpace(n.input.Value())
 			if val == "" {
 				n.errText = "note text cannot be empty"

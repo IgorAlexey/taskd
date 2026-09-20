@@ -194,7 +194,7 @@ func TestNotes(t *testing.T) {
 			t.Fatalf("expected input value %q, got %q", noteText, gotVal)
 		}
 
-		up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		up, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 		m = up.(model)
 
 		if m.mode != modeNote {
@@ -251,7 +251,7 @@ func TestNotes(t *testing.T) {
 		m = up.(model)
 		m.note.input.SetValue("failing note")
 
-		up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		up, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 		m = up.(model)
 		if cmd == nil {
 			t.Fatal("expected cmd from enter")
@@ -363,7 +363,7 @@ func TestNoteFormSeqResetOnError(t *testing.T) {
 	}
 	m.note.input.SetValue("initial note")
 
-	up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	up, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	m = up.(model)
 	if cmd == nil {
 		t.Fatal("expected cmd from enter")
@@ -421,7 +421,7 @@ func TestNoteAddedRefreshesDetail(t *testing.T) {
 	m = up.(model)
 	m.note.input.SetValue("newly submitted note")
 
-	up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	up, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
 	m = up.(model)
 	if cmd == nil {
 		t.Fatal("expected non-nil cmd from enter")
