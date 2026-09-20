@@ -2085,7 +2085,16 @@
       if (!authorEl || !textEl) return;
       const author = authorEl.value.trim();
       const text = textEl.value.trim();
-      if (!author || !text) return;
+      if (!author) {
+        showError('Author is required');
+        if (typeof authorEl.focus === 'function') authorEl.focus();
+        return;
+      }
+      if (!text) {
+        showError('Note text is required');
+        if (typeof textEl.focus === 'function') textEl.focus();
+        return;
+      }
 
       currentNoteAuthor = author;
       await withButton('add-note-btn', async () => {
