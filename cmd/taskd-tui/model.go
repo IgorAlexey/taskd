@@ -34,6 +34,7 @@ func newModel(cfg config, c *client) model {
 		width:      80,
 		height:     24,
 		project:    cfg.project,
+		filter:     cfg.status,
 		mode:       modeTable,
 		sortCol:    cfg.sortCol,
 		pages:      1,

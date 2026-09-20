@@ -31,6 +31,7 @@ func TestTUIFlagErrors(t *testing.T) {
 		{"invalid ascii bool", []string{"-ascii=maybe"}, "taskd-tui: invalid boolean value \"maybe\" for -ascii\ntry 'taskd-tui -h' for usage\n"},
 		{"empty url", []string{"-url", " "}, "taskd-tui: url cannot be empty\ntry 'taskd-tui -h' for usage\n"},
 		{"invalid url scheme", []string{"-url", "ftp://localhost"}, "taskd-tui: invalid url scheme \"ftp\": must be http or https\ntry 'taskd-tui -h' for usage\n"},
+		{"invalid status", []string{"-status", "bad"}, "taskd-tui: invalid status \"bad\" for -status\ntry 'taskd-tui -h' for usage\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -358,6 +359,173 @@ func TestQueryFlagAndEnv(t *testing.T) {
 		}
 		if !strings.Contains(usage[idxEnv:], "TASKD_QUERY") {
 			t.Fatalf("usage missing TASKD_QUERY under Environment variables:\n%s", usage)
+		}
+	})
+}
+
+func TestStatusFlagAndEnv(t *testing.T) {
+	t.Setenv("TASKD_PROJECT", "")
+	t.Setenv("TASKD_STATUS", "")
+
+	t.Run("status flag pending", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-status", "pending"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.status != "pending" {
+			t.Fatalf("cfg.status = %q, want pending", cfg.status)
+		}
+		m := newModel(cfg, nil)
+		if m.filter != "pending" {
+			t.Fatalf("m.filter = %q, want pending", m.filter)
+		}
+	})
+
+	t.Run("status flag leased", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"--status=leased"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.status != "leased" {
+			t.Fatalf("cfg.status = %q, want leased", cfg.status)
+		}
+		m := newModel(cfg, nil)
+		if m.filter != "leased" {
+			t.Fatalf("m.filter = %q, want leased", m.filter)
+		}
+	})
+
+	t.Run("status flag all", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-status", "all"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.status != "" {
+			t.Fatalf("cfg.status = %q, want empty", cfg.status)
+		}
+		m := newModel(cfg, nil)
+		if m.filter != "" {
+			t.Fatalf("m.filter = %q, want empty", m.filter)
+		}
+	})
+
+	t.Run("env variable leased", func(t *testing.T) {
+		t.Setenv("TASKD_STATUS", "leased")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.status != "leased" {
+			t.Fatalf("cfg.status = %q, want leased", cfg.status)
+		}
+		m := newModel(cfg, nil)
+		if m.filter != "leased" {
+			t.Fatalf("m.filter = %q, want leased", m.filter)
+		}
+	})
+
+	t.Run("flag overrides env", func(t *testing.T) {
+		t.Setenv("TASKD_STATUS", "leased")
+		cfg, err := parseFlags([]string{"-status", "pending"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.status != "pending" {
+			t.Fatalf("cfg.status = %q, want pending", cfg.status)
+		}
+		m := newModel(cfg, nil)
+		if m.filter != "pending" {
+			t.Fatalf("m.filter = %q, want pending", m.filter)
+		}
+	})
+
+	t.Run("invalid flag status exits 2", func(t *testing.T) {
+		_, err := parseFlags([]string{"-status", "unknown_status"})
+		if err == nil {
+			t.Fatal("expected error for invalid status, got nil")
+		}
+		var stderr bytes.Buffer
+		code := reportError(&stderr, err)
+		if code != 2 {
+			t.Fatalf("exit code = %d, want 2", code)
+		}
+		if !strings.Contains(stderr.String(), "unknown_status") {
+			t.Fatalf("expected error message to mention unknown_status, got %q", stderr.String())
+		}
+	})
+
+	t.Run("invalid env status exits 2", func(t *testing.T) {
+		t.Setenv("TASKD_STATUS", "bogus")
+		_, err := parseFlags(nil)
+		if err == nil {
+			t.Fatal("expected error for invalid TASKD_STATUS, got nil")
+		}
+		var stderr bytes.Buffer
+		code := reportError(&stderr, err)
+		if code != 2 {
+			t.Fatalf("exit code = %d, want 2", code)
+		}
+		if !strings.Contains(stderr.String(), "bogus") {
+			t.Fatalf("expected error message to mention bogus, got %q", stderr.String())
+		}
+	})
+
+	t.Run("missing value", func(t *testing.T) {
+		_, err := parseFlags([]string{"-status"})
+		if err == nil {
+			t.Fatal("expected error for missing -status value, got nil")
+		}
+		var stderr bytes.Buffer
+		if code := reportError(&stderr, err); code != 2 {
+			t.Fatalf("exit code = %d, want 2", code)
+		}
+	})
+
+	t.Run("displays preselected status filter on startup", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-status", "pending"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m := newModel(cfg, nil)
+		m.width = 120
+		m.height = 24
+		m.mode = modeTable
+		m.hasStats = true
+		m.stats = stats{Pending: 2, Leased: 1, Total: 3}
+		m.tasks = []task{
+			{ID: "1", Status: "pending", Body: "pending task"},
+			{ID: "2", Status: "leased", Body: "leased task"},
+		}
+		m.rebuildShown()
+		rendered := ansi.Strip(m.View().Content)
+		if !strings.Contains(rendered, "1 pending") {
+			t.Fatalf("view missing '1 pending' tab indicator:\n%s", rendered)
+		}
+		if !strings.Contains(rendered, "pending task") {
+			t.Fatalf("view missing 'pending task':\n%s", rendered)
+		}
+		if strings.Contains(rendered, "leased task") {
+			t.Fatalf("view unexpectedly contains 'leased task':\n%s", rendered)
+		}
+		lf := m.listFilter()
+		if lf.status != "pending" {
+			t.Fatalf("listFilter().status = %q, want pending", lf.status)
+		}
+	})
+
+	t.Run("documented in usage", func(t *testing.T) {
+		var buf bytes.Buffer
+		printUsage(&buf)
+		usage := buf.String()
+		if !strings.Contains(usage, "-status") {
+			t.Fatalf("usage missing -status under Options:\n%s", usage)
+		}
+		idxEnv := strings.Index(usage, "Environment variables:")
+		if idxEnv == -1 {
+			t.Fatal("usage missing Environment variables section")
+		}
+		if !strings.Contains(usage[idxEnv:], "TASKD_STATUS") {
+			t.Fatalf("usage missing TASKD_STATUS under Environment variables:\n%s", usage)
 		}
 	})
 }

@@ -109,6 +109,13 @@ func parseFlags(args []string) (config, error) {
 		}
 		cfg.sortCol = col
 	}
+	if rawStatus := os.Getenv("TASKD_STATUS"); rawStatus != "" {
+		st, ok := parseStatusFilter(rawStatus)
+		if !ok {
+			return cfg, usagef("invalid status %q for TASKD_STATUS", rawStatus)
+		}
+		cfg.status = st
+	}
 	cfg.project = defaultProject
 	cfg.worker = defaultWorker()
 	cfg.query = defaultQuery
@@ -210,6 +217,19 @@ func parseFlags(args []string) (config, error) {
 				return cfg, usagef("invalid sort column %q for %s", val, token)
 			}
 			cfg.sortCol = col
+		case "status":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			st, ok := parseStatusFilter(val)
+			if !ok {
+				return cfg, usagef("invalid status %q for %s", val, token)
+			}
+			cfg.status = st
 		default:
 			return cfg, usagef("unrecognized flag %s", token)
 		}
@@ -249,6 +269,7 @@ Options:
   -project <name>     filter tasks by project
   -worker <name>      worker identifier for claiming tasks
   -q, -query <query>  filter tasks by search query
+  -status <status>    filter tasks by status: all, pending, leased, done, buried, live
   -ascii              use ASCII characters instead of Nerd Font icons
   -refresh <dur>      polling interval, min 250ms (default: 1s)
   -s, -sort <col>     initial sort column: priority, status, project, worker, lease
@@ -260,6 +281,7 @@ Environment variables:
   TASKD_PROJECT       default project filter
   TASKD_WORKER        worker identifier for claiming tasks
   TASKD_QUERY         default search query filter
+  TASKD_STATUS        default status filter: all, pending, leased, done, buried, live
   TASKD_ASCII         set to 1 or true to enable ASCII mode
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)
   TASKD_SORT          initial sort column: priority, status, project, worker, lease
@@ -317,6 +339,25 @@ func parseSortColumn(val string) (sortColumn, bool) {
 		return sortLease, true
 	default:
 		return 0, false
+	}
+}
+
+func parseStatusFilter(val string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(val)) {
+	case "all":
+		return "", true
+	case "pending":
+		return "pending", true
+	case "leased":
+		return "leased", true
+	case "done":
+		return "done", true
+	case "buried":
+		return "buried", true
+	case "live":
+		return "live", true
+	default:
+		return "", false
 	}
 }
 
