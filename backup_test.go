@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"database/sql"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -65,5 +67,30 @@ func TestBackupVerifyError(t *testing.T) {
 
 	if _, err := os.Stat(backupDBPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected failed backup file not to exist, got err: %v", err)
+	}
+}
+
+func TestBackupStdout(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "source.db")
+	backupPath := filepath.Join(dir, "backup.db")
+
+	db, _, err := openDBInit(dbPath, 0)
+	if err != nil {
+		t.Fatalf("openDBInit failed: %v", err)
+	}
+	db.Close()
+
+	var buf bytes.Buffer
+	if err := run(&buf, []string{"-db", dbPath, "-backup", backupPath}); err != nil {
+		t.Fatalf("run failed: %v", err)
+	}
+
+	wantPrefix := fmt.Sprintf("wrote %s (", backupPath)
+	if !strings.HasPrefix(buf.String(), wantPrefix) {
+		t.Fatalf("expected buf to start with %q, got %q", wantPrefix, buf.String())
+	}
+	if !strings.Contains(buf.String(), "tasks)") {
+		t.Fatalf("expected buf to contain 'tasks)', got %q", buf.String())
 	}
 }
