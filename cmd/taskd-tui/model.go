@@ -31,21 +31,23 @@ func newModel(cfg config, c *client) model {
 		darkTheme = !*cfg.light
 	}
 	m := model{
-		cfg:        cfg,
-		client:     c,
-		theme:      newTheme(darkTheme),
-		glyph:      glyph,
-		width:      80,
-		height:     24,
-		project:    cfg.project,
-		filter:     cfg.status,
-		mode:       modeTable,
-		sortCol:    cfg.sortCol,
-		pages:      1,
-		now:        time.Now(),
-		detail:     vp,
-		query:      cfg.query,
-		notesCache: make(map[string][]taskNote),
+		cfg:         cfg,
+		client:      c,
+		theme:       newTheme(darkTheme),
+		glyph:       glyph,
+		width:       80,
+		height:      24,
+		project:     cfg.project,
+		filter:      cfg.status,
+		mode:        modeTable,
+		sortCol:     cfg.sortCol,
+		pages:       1,
+		now:         time.Now(),
+		detail:      vp,
+		query:       cfg.query,
+		priority:    cfg.priority,
+		hasPriority: cfg.hasPriority,
+		notesCache:  make(map[string][]taskNote),
 	}
 	m.detail.SetWidth(m.detailViewportWidth())
 	m.detail.SetHeight(m.detailViewportHeight())
@@ -67,7 +69,14 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) listFilter() listFilter {
-	return listFilter{project: m.project, worker: m.worker, status: m.filter, query: m.query}
+	return listFilter{
+		project:     m.project,
+		worker:      m.worker,
+		status:      m.filter,
+		query:       m.query,
+		priority:    m.priority,
+		hasPriority: m.hasPriority,
+	}
 }
 
 const (
@@ -1053,6 +1062,9 @@ func (m *model) rebuildShown() {
 			continue
 		}
 		if !statusMatches(t.Status, m.filter) {
+			continue
+		}
+		if m.hasPriority && t.Priority != m.priority {
 			continue
 		}
 		indices = append(indices, i)

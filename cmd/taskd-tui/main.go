@@ -124,6 +124,14 @@ func parseFlags(args []string) (config, error) {
 		}
 		cfg.status = st
 	}
+	if rawPri := strings.TrimSpace(os.Getenv("TASKD_PRIORITY")); rawPri != "" {
+		p, err := strconv.Atoi(rawPri)
+		if err != nil {
+			return cfg, usagef("invalid integer %q for TASKD_PRIORITY", rawPri)
+		}
+		cfg.priority = p
+		cfg.hasPriority = true
+	}
 	cfg.project = defaultProject
 	cfg.worker = defaultWorker()
 	cfg.query = defaultQuery
@@ -249,6 +257,20 @@ func parseFlags(args []string) (config, error) {
 				return cfg, usagef("invalid status %q for %s", val, token)
 			}
 			cfg.status = st
+		case "priority":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			p, err := strconv.Atoi(val)
+			if err != nil {
+				return cfg, usagef("invalid integer %q for %s", val, token)
+			}
+			cfg.priority = p
+			cfg.hasPriority = true
 		default:
 			return cfg, usagef("unrecognized flag %s", token)
 		}
@@ -292,6 +314,7 @@ Options:
   -w, -worker <name>  worker identifier for claiming tasks
   -q, -query <query>  filter tasks by search query
   -status <status>    filter tasks by status: all, pending, leased, done, buried, live
+  -priority <int>     filter tasks by priority
   -ascii              use ASCII characters instead of Nerd Font icons
   -light              use light mode theme
   -refresh <dur>      polling interval, min 250ms (default: 1s)
@@ -305,6 +328,7 @@ Environment variables:
   TASKD_WORKER        worker identifier for claiming tasks
   TASKD_QUERY         default search query filter
   TASKD_STATUS        default status filter: all, pending, leased, done, buried, live
+  TASKD_PRIORITY      default priority filter
   TASKD_ASCII         set to 1 or true to enable ASCII mode
   TASKD_LIGHT         set to 1 or true to enable light mode theme
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)

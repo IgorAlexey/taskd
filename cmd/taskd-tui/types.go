@@ -47,16 +47,18 @@ type stats struct {
 
 // config is the parsed command line.
 type config struct {
-	url     string
-	project string
-	worker  string
-	query   string
-	status  string
-	icons   bool
-	refresh time.Duration
-	version bool
-	sortCol sortColumn
-	light   *bool
+	url         string
+	project     string
+	worker      string
+	query       string
+	status      string
+	priority    int
+	hasPriority bool
+	icons       bool
+	refresh     time.Duration
+	version     bool
+	sortCol     sortColumn
+	light       *bool
 }
 
 // mode is the single source of truth for which keymap and overlay are
@@ -167,6 +169,8 @@ type model struct {
 	project       string // "" means all projects
 	worker        string
 	query         string // / substring filter, case-insensitive
+	priority      int
+	hasPriority   bool
 	mode          mode
 	sortCol       sortColumn
 	sortDesc      bool

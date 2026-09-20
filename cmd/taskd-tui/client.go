@@ -62,10 +62,12 @@ type listScope struct {
 // one comparable value, so a reply for a question the operator has moved on
 // from can be dropped on arrival.
 type listFilter struct {
-	project string
-	worker  string
-	status  string
-	query   string
+	project     string
+	worker      string
+	status      string
+	query       string
+	priority    int
+	hasPriority bool
 }
 
 // listResult is one answer. total is the daemon's count for the question
@@ -104,6 +106,9 @@ func (c *client) list(sc listScope, etag string) (listResult, error) {
 	}
 	if sc.filter.query != "" {
 		q.Set("q", sc.filter.query)
+	}
+	if sc.filter.hasPriority {
+		q.Set("priority", strconv.Itoa(sc.filter.priority))
 	}
 	pages := max(sc.pages, 1)
 	budget := min(time.Duration(pages)*c.http.Timeout, maxWalkTime)
