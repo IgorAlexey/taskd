@@ -848,19 +848,27 @@ func (u *ui) showCreateForm() {
 		}
 		payload["body"] = btext
 		payload["asset_path"] = apath
+		send := func() {
+			u.act("POST", "/tasks", payload, "task created", func(err error) {
+				if err != nil {
+					f.SetTitle(fmt.Sprintf(" new task (%s) ", err.Error()))
+					return
+				}
+				close()
+			})
+		}
 		if len(u.projects) > 0 && !slices.Contains(u.projects, pname) {
 			text := fmt.Sprintf("Project %q is not in known projects (%s).\nCreate task anyway?",
 				tview.Escape(pname), tview.Escape(strings.Join(u.projects, ", ")))
 			u.confirmWithCancel("unknown-project", text, "Create", func() {
 				u.app.SetFocus(f)
 			}, func() {
-				close()
-				u.act("POST", "/tasks", payload, "task created")
+				u.app.SetFocus(f)
+				send()
 			})
 			return
 		}
-		close()
-		u.act("POST", "/tasks", payload, "task created")
+		send()
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
 	u.form = f
