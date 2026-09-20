@@ -28,17 +28,17 @@ func TestWebUIFetchTimeout(t *testing.T) {
 	}
 
 	var got struct {
-		BootRows         []string `json:"bootRows"`
-		BootCount        string   `json:"bootCount"`
-		BootStatus       string   `json:"bootStatus"`
-		BootDisplay      string   `json:"bootDisplay"`
-		WindowRequests   int      `json:"windowRequests"`
-		StaleRows        []string `json:"staleRows"`
-		OfflineStatus    string   `json:"offlineStatus"`
-		OfflineDisplay   string   `json:"offlineDisplay"`
-		RetryRequests    int      `json:"retryRequests"`
-		RecoveredRows    []string `json:"recoveredRows"`
-		RecoveredDisplay string   `json:"recoveredDisplay"`
+		BootRows        []string `json:"bootRows"`
+		BootCount       string   `json:"bootCount"`
+		BootStatus      string   `json:"bootStatus"`
+		BootDisplay     string   `json:"bootDisplay"`
+		WindowRequests  int      `json:"windowRequests"`
+		StaleRows       []string `json:"staleRows"`
+		OfflineStatus   string   `json:"offlineStatus"`
+		OfflineHidden   bool     `json:"offlineHidden"`
+		RetryRequests   int      `json:"retryRequests"`
+		RecoveredRows   []string `json:"recoveredRows"`
+		RecoveredHidden bool     `json:"recoveredHidden"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -50,8 +50,8 @@ func TestWebUIFetchTimeout(t *testing.T) {
 	if got.WindowRequests != 0 {
 		t.Errorf("requests issued during timeout window = %d, want 0", got.WindowRequests)
 	}
-	if !strings.Contains(got.OfflineStatus, "Offline") || got.OfflineDisplay != "inline-flex" {
-		t.Errorf("offline status = %q, display = %q, want visible offline indicator", got.OfflineStatus, got.OfflineDisplay)
+	if !strings.Contains(got.OfflineStatus, "Offline") || got.OfflineHidden {
+		t.Errorf("offline status = %q, hidden = %v, want visible offline indicator", got.OfflineStatus, got.OfflineHidden)
 	}
 	if got.RetryRequests == 0 {
 		t.Errorf("requests issued on poll tick after timeout window = 0, want > 0")
@@ -60,8 +60,8 @@ func TestWebUIFetchTimeout(t *testing.T) {
 	if !slices.Equal(got.RecoveredRows, wantRecovered) {
 		t.Errorf("recovered rows = %v, want %v", got.RecoveredRows, wantRecovered)
 	}
-	if got.RecoveredDisplay != "none" {
-		t.Errorf("recovered status display = %q, want none", got.RecoveredDisplay)
+	if !got.RecoveredHidden {
+		t.Errorf("recovered status hidden = %v, want true", got.RecoveredHidden)
 	}
 }
 

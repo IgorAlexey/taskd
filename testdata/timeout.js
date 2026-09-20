@@ -3,7 +3,7 @@ const fs = require('fs');
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const script = src.slice(src.indexOf('<script>') + 8, src.lastIndexOf('</script>'));
 
-const pill = { textContent: '', style: { display: 'none' } };
+const pill = { textContent: '', hidden: true };
 const countEl = { textContent: '' };
 const rows = [];
 const tbody = {
@@ -101,7 +101,7 @@ const api = new Function(
   await pending;
 
   out.offlineStatus = pill.textContent;
-  out.offlineDisplay = pill.style.display;
+  out.offlineHidden = pill.hidden;
 
   hang = false;
   now += 5000;
@@ -110,7 +110,7 @@ const api = new Function(
 
   out.retryRequests = fetches - beforeRetry;
   out.recoveredRows = getIds();
-  out.recoveredDisplay = pill.style.display;
+  out.recoveredHidden = pill.hidden;
 
   process.stdout.write(JSON.stringify(out, null, 2));
 })();

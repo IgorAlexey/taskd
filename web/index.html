@@ -254,6 +254,8 @@
   tbody tr:hover td {
     background: rgba(255,255,255,0.03);
   }
+  tbody tr[data-state="selected"] td,
+  tbody tr[data-state="selected"] th,
   tbody tr[aria-selected="true"] td,
   tbody tr[aria-selected="true"] th {
     background: rgba(88,166,255,0.1);
@@ -293,10 +295,10 @@
     font-weight: 600;
     text-transform: uppercase;
   }
-  .badge-pending { background: rgba(210,153,34,0.15); color: var(--pending); border: 1px solid var(--pending); }
-  .badge-leased { background: rgba(31,111,235,0.15); color: var(--leased); border: 1px solid var(--leased); }
-  .badge-done { background: rgba(35,134,54,0.15); color: var(--done); border: 1px solid var(--done); }
-  .badge-buried { background: rgba(163,113,247,0.15); color: var(--buried); border: 1px solid var(--buried); }
+  .badge[data-status="pending"] { background: rgba(210,153,34,0.15); color: var(--pending); border: 1px solid var(--pending); }
+  .badge[data-status="leased"] { background: rgba(31,111,235,0.15); color: var(--leased); border: 1px solid var(--leased); }
+  .badge[data-status="done"] { background: rgba(35,134,54,0.15); color: var(--done); border: 1px solid var(--done); }
+  .badge[data-status="buried"] { background: rgba(163,113,247,0.15); color: var(--buried); border: 1px solid var(--buried); }
   .mono { font-family: var(--mono); font-size: 12px; }
   .sidebar-section {
     padding: 14px;
@@ -437,8 +439,11 @@
     max-height: 70vh;
     overflow-y: auto;
   }
+  [hidden] {
+    display: none !important;
+  }
   #error-banner {
-    display: none;
+    display: flex;
     align-items: center;
     justify-content: space-between;
     background: rgba(248,81,73,0.15);
@@ -474,7 +479,7 @@
     color: #ff7b72;
   }
   #connection-status {
-    display: none;
+    display: inline-flex;
     align-items: center;
     gap: 6px;
     background: rgba(248,81,73,0.15);
@@ -493,7 +498,7 @@
     background: var(--danger);
   }
   .error-summary {
-    display: none;
+    display: block;
     background: rgba(248,81,73,0.1);
     border: 2px solid var(--danger);
     border-radius: 6px;
@@ -529,7 +534,7 @@
     color: #ff7b72;
   }
   .success-summary {
-    display: none;
+    display: block;
     background: rgba(35,134,54,0.1);
     border: 2px solid var(--done);
     border-radius: 6px;
@@ -548,7 +553,7 @@
     word-break: break-all;
   }
   .field-error {
-    display: none;
+    display: block;
     color: var(--danger);
     font-size: 12px;
     font-weight: 500;
@@ -563,7 +568,7 @@
 </head>
 <body class="stack">
   <a class="skip-link" href="#queue">Skip to task queue</a>
-  <div id="error-banner" role="alert">
+  <div id="error-banner" role="alert" hidden>
     <span id="error-banner-text"></span>
     <button type="button" class="error-banner-dismiss" onclick="showError(null)" aria-label="Dismiss error">&times;</button>
   </div>
@@ -575,7 +580,7 @@
   <header>
     <h1>taskd</h1>
     <div class="controls">
-      <span id="connection-status" role="status" aria-live="polite"></span>
+      <span id="connection-status" role="status" aria-live="polite" hidden></span>
       <label for="auto-refresh" class="text-sm text-muted">
         <input type="checkbox" id="auto-refresh" checked> Auto-refresh
       </label>
@@ -680,38 +685,38 @@
         <h2 class="panel-header" id="submit-heading">Submit Task</h2>
         <div class="sidebar-section">
           <form id="submit-task-form" class="stack stack-sm" onsubmit="submitTask(event)" novalidate>
-            <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1">
+            <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1" hidden>
               <div class="error-summary-title">There is a problem</div>
               <ul class="error-summary-list" id="form-error-summary-list"></ul>
             </div>
-            <div id="form-success-summary" class="success-summary" role="status">
+            <div id="form-success-summary" class="success-summary" role="status" hidden>
               <div class="success-summary-title">Success</div>
               <div class="success-summary-body" id="form-success-summary-body"></div>
             </div>
             <div class="field">
               <label for="form-project">Project *</label>
-              <span class="field-error" id="form-project-error"></span>
+              <span class="field-error" id="form-project-error" hidden></span>
               <input type="text" id="form-project" list="form-project-list" required aria-required="true" placeholder="e.g. default" aria-invalid="false" aria-describedby="form-project-error">
               <datalist id="form-project-list"></datalist>
             </div>
             <div class="field">
               <label for="form-priority">Priority (1 is top, blank for default)</label>
-              <span class="field-error" id="form-priority-error"></span>
+              <span class="field-error" id="form-priority-error" hidden></span>
               <input type="number" id="form-priority" value="" aria-invalid="false" aria-describedby="form-priority-error">
             </div>
             <div class="field">
               <label for="form-body">Body</label>
-              <span class="field-error" id="form-body-error"></span>
+              <span class="field-error" id="form-body-error" hidden></span>
               <textarea id="form-body" placeholder="Task description or prompt..." aria-invalid="false" aria-describedby="form-body-error"></textarea>
             </div>
             <div class="field">
               <label for="form-asset">Asset Path (optional)</label>
-              <span class="field-error" id="form-asset-error"></span>
+              <span class="field-error" id="form-asset-error" hidden></span>
               <input type="text" id="form-asset" placeholder="/path/to/asset" aria-invalid="false" aria-describedby="form-asset-error">
             </div>
             <div class="field">
               <label for="form-id">Custom ID (optional)</label>
-              <span class="field-error" id="form-id-error"></span>
+              <span class="field-error" id="form-id-error" hidden></span>
               <input type="text" id="form-id" placeholder="auto-generated if empty" aria-invalid="false" aria-describedby="form-id-error">
             </div>
             <button type="submit" id="submit-task-btn" class="primary w-full">Submit Task</button>
@@ -922,7 +927,7 @@
       const b = document.getElementById('error-banner');
       if (!b) return;
       if (!msg) {
-        b.style.display = 'none';
+        b.hidden = true;
         const t = document.getElementById('error-banner-text');
         if (t) t.textContent = '';
         return;
@@ -933,14 +938,14 @@
       } else {
         b.textContent = msg;
       }
-      b.style.display = 'flex';
+      b.hidden = false;
     }
 
     function renderConnection() {
       const el = document.getElementById('connection-status');
       if (!el) return;
       if (!offline) {
-        el.style.display = 'none';
+        el.hidden = true;
         el.textContent = '';
         return;
       }
@@ -952,7 +957,7 @@
           ? 'Offline \u2014 reconnecting in ' + left + 's'
           : 'Offline \u2014 reconnecting\u2026';
       }
-      el.style.display = 'inline-flex';
+      el.hidden = false;
     }
 
     function setOffline(msg) {
@@ -1218,7 +1223,6 @@
         shortId: tid.length > 10 ? tid.slice(0, 8) + '…' : tid,
         project: t.project || '',
         status: t.status || '',
-        badgeClass: 'badge badge-' + (t.status || 'unknown'),
         priority: String(t.priority ?? ''),
         claimCount: String(t.claim_count ?? 0),
         worker: t.worker || '',
@@ -1231,10 +1235,11 @@
       tr.dataset.taskId = f.id;
       tr.setAttribute('tabindex', '-1');
       tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+      if (isSelected) tr.setAttribute('data-state', 'selected');
       tr.innerHTML = `
         <th scope="row" class="mono"><button type="button" class="row-select" title="${escapeHTML(f.id)}">${escapeHTML(f.shortId)}</button></th>
         <td data-field="project">${escapeHTML(f.project)}</td>
-        <td data-field="status"><span class="${escapeHTML(f.badgeClass)}">${escapeHTML(f.status)}</span></td>
+        <td data-field="status"><span class="badge" data-status="${escapeHTML(f.status)}">${escapeHTML(f.status)}</span></td>
         <td data-field="priority">${escapeHTML(f.priority)}</td>
         <td data-field="claim_count">${escapeHTML(f.claimCount)}</td>
         <td data-field="worker" class="mono">${escapeHTML(f.worker)}</td>
@@ -1253,6 +1258,11 @@
       if (tr.getAttribute('aria-selected') !== selStr) {
         tr.setAttribute('aria-selected', selStr);
       }
+      if (isSelected) {
+        if (tr.getAttribute('data-state') !== 'selected') tr.setAttribute('data-state', 'selected');
+      } else {
+        if (tr.hasAttribute('data-state')) tr.removeAttribute('data-state');
+      }
       if (!tr.hasAttribute('tabindex')) {
         tr.setAttribute('tabindex', '-1');
       }
@@ -1263,7 +1273,7 @@
       setText(tr.querySelector('[data-field="summary"]'), f.summary);
       const badge = tr.querySelector('[data-field="status"] .badge');
       if (badge) {
-        if (badge.className !== f.badgeClass) badge.className = f.badgeClass;
+        if (badge.getAttribute('data-status') !== f.status) badge.setAttribute('data-status', f.status);
         setText(badge, f.status);
       }
     }
@@ -1395,7 +1405,10 @@
       const tbody = document.getElementById('task-table-body');
       if (tbody) {
         for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-          tr.setAttribute('aria-selected', tr.dataset.taskId === id ? 'true' : 'false');
+          const sel = tr.dataset.taskId === id;
+          tr.setAttribute('aria-selected', sel ? 'true' : 'false');
+          if (sel) tr.setAttribute('data-state', 'selected');
+          else tr.removeAttribute('data-state');
         }
       }
       return loadTaskDetails(id);
@@ -1609,7 +1622,7 @@
             <label for="edit-task-project" class="field-label">Project</label>
             <input type="text" id="edit-task-project" value="${escapeHTML(t.project || '')}">
           </div>
-          <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
+          <div class="field"><span class="field-label">Status</span><span class="badge" data-status="${escapeHTML(t.status || '')}">${escapeHTML(t.status || '')}</span></div>
           <div class="field">
             <label for="edit-task-priority" class="field-label">Priority</label>
             <input type="number" id="edit-task-priority" value="${escapeHTML(String(t.priority ?? ''))}">
@@ -1670,7 +1683,7 @@
           </div>
         </div>
         <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
-        <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
+        <div class="field"><span class="field-label">Status</span><span class="badge" data-status="${escapeHTML(t.status || '')}">${escapeHTML(t.status || '')}</span></div>
         <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
         <div class="field"><span class="field-label">Claim Count</span><span>${escapeHTML(String(t.claim_count ?? 0))}</span></div>
         ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
@@ -1816,6 +1829,7 @@
       if (tbody) {
         for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
           tr.setAttribute('aria-selected', 'false');
+          tr.removeAttribute('data-state');
         }
       }
       await Promise.all([loadStats(), loadTasks()]);
@@ -2059,7 +2073,7 @@
     function clearFormErrors() {
       const summary = document.getElementById('form-error-summary');
       if (summary) {
-        summary.style.display = 'none';
+        summary.hidden = true;
         const list = document.getElementById('form-error-summary-list');
         if (list) list.innerHTML = '';
       }
@@ -2068,7 +2082,7 @@
         form.querySelectorAll('[aria-invalid]').forEach(el => el.setAttribute('aria-invalid', 'false'));
         form.querySelectorAll('.field-error').forEach(el => {
           el.textContent = '';
-          el.style.display = 'none';
+          el.hidden = true;
         });
       }
     }
@@ -2076,7 +2090,7 @@
     function clearFormSuccess() {
       const summary = document.getElementById('form-success-summary');
       if (summary) {
-        summary.style.display = 'none';
+        summary.hidden = true;
         const body = document.getElementById('form-success-summary-body');
         if (body) body.textContent = '';
       }
@@ -2090,7 +2104,7 @@
       const body = document.getElementById('form-success-summary-body');
       if (summary && body) {
         body.textContent = 'Task ' + id + ' created';
-        summary.style.display = 'block';
+        summary.hidden = false;
       }
     }
 
@@ -2122,11 +2136,11 @@
             const errEl = document.getElementById(id + '-error');
             if (errEl) {
               errEl.textContent = 'Error: ' + err.message;
-              errEl.style.display = 'block';
+              errEl.hidden = false;
             }
           }
         }
-        summary.style.display = 'block';
+        summary.hidden = false;
         summary.focus();
       }
     }
