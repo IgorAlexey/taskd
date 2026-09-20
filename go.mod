@@ -1,4 +1,4 @@
-module taskd
+module github.com/IgorAlexey/taskd
 
 go 1.25.0
 

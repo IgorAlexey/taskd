@@ -29,7 +29,7 @@ import (
 	"syscall"
 	"time"
 
-	"taskd/internal/version"
+	"github.com/IgorAlexey/taskd/internal/version"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"

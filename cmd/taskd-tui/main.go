@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"taskd/internal/version"
+	"github.com/IgorAlexey/taskd/internal/version"
 
 	tea "charm.land/bubbletea/v2"
 )

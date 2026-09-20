@@ -22,3 +22,12 @@ Just simple SQL and UI that works.
 
 By default, taskd listens on 127.0.0.1:8080 with no authentication. To expose
 it on all interfaces, pass `-addr :8080` or an explicit host and port.
+
+## Install
+
+```sh
+go install github.com/IgorAlexey/taskd@latest
+go install github.com/IgorAlexey/taskd/cmd/taskd-tui@latest
+```
+
+Build from source with `go build ./...`.
