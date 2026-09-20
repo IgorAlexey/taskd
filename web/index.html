@@ -2123,6 +2123,9 @@
       if (isActivelyLeased(t) || t.status === 'done') {
         isEditingTask = false;
       }
+      const workerAttrs = !t.worker
+        ? ' disabled aria-disabled="true" title="No active worker on leased task" data-state="disabled"'
+        : ' data-state="ready"';
       if (isEditingTask) {
         pane.innerHTML = `
           <div class="field">
@@ -2282,10 +2285,10 @@
         <div class="task-actions">
           ${t.status !== 'done' ? `<button type="button" id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}>Edit Task</button>` : ''}
           ${t.status === 'leased' ? `
-            <button type="button" id="complete-task-btn" data-variant="primary">Complete Task</button>
-            <button type="button" id="touch-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Touch Lease</button>
-            <button type="button" id="release-task-btn">Release Task</button>
-            <button type="button" id="bury-task-btn" data-variant="warning"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Bury Task</button>
+            <button type="button" id="complete-task-btn" data-variant="primary"${workerAttrs}>Complete Task</button>
+            <button type="button" id="touch-task-btn"${workerAttrs}>Touch Lease</button>
+            <button type="button" id="release-task-btn"${workerAttrs}>Release Task</button>
+            <button type="button" id="bury-task-btn" data-variant="warning"${workerAttrs}>Bury Task</button>
           ` : ''}
           ${t.status === 'pending' ? `
             <button type="button" id="claim-task-btn" data-variant="primary">Claim Task</button>
@@ -2597,7 +2600,11 @@
     }
 
     async function completeTask(id, worker) {
-      if (!id || !worker) return;
+      if (!id) return;
+      if (!worker) {
+        showError('Cannot complete task: missing worker');
+        return;
+      }
       if (!confirm('Complete this task as done?')) return;
       await withButton('complete-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
@@ -2610,7 +2617,11 @@
     }
 
     async function releaseTask(id, worker) {
-      if (!id || !worker) return;
+      if (!id) return;
+      if (!worker) {
+        showError('Cannot release task: missing worker');
+        return;
+      }
       await withButton('release-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/release', {
           method: 'POST',
