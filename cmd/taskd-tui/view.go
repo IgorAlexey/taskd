@@ -81,6 +81,64 @@ func trunc(s string, w int, ellipsis string) string {
 	return ansi.Truncate(s, w, ellipsis)
 }
 
+type tableCols struct {
+	scope  int
+	title  int
+	claims int
+	worker int
+	lease  int
+	left   int
+	id     int
+}
+
+// budgetColumns pays the title first. Worker, lease bar, remaining and id
+// are all reprinted by the detail pane one keypress away, so each is shed,
+// widest and most redundant first, until the title clears minTitle; the
+// scope degrades to its header before the id, the last identifier on the
+// row, is given up.
+func budgetColumns(w, maxScope, maxWorker, maxClaims int, hasScrollbar bool) tableCols {
+	const minTitle = 24
+	c := tableCols{
+		scope:  min(max(maxScope, 5), 12),
+		claims: maxClaims,
+		worker: min(maxWorker, 14),
+		lease:  8,
+		left:   7,
+		id:     7,
+	}
+
+	fixed := 5
+	for _, cw := range []int{c.scope, c.claims, c.worker, c.lease, c.left, c.id} {
+		if cw > 0 {
+			fixed += 1 + cw
+		}
+	}
+	if hasScrollbar {
+		fixed++
+	}
+
+	for _, shed := range []*int{&c.claims, &c.worker, &c.lease, &c.left} {
+		if w-fixed >= minTitle {
+			break
+		}
+		if *shed > 0 {
+			fixed -= 1 + *shed
+			*shed = 0
+		}
+	}
+	if w-fixed < minTitle && c.scope > 5 {
+		fixed -= c.scope - 5
+		c.scope = 5
+	}
+	if w-fixed < minTitle && c.id > 0 {
+		fixed -= 1 + c.id
+		c.id = 0
+	}
+
+	c.title = max(w-fixed, 5)
+	return c
+}
+
 func padRight(s string, w int) string {
 	sw := ansi.StringWidth(s)
 	if sw < w {
@@ -297,68 +355,10 @@ func (m model) View() tea.View {
 				}
 			}
 		}
-		wScope := max(maxScope, 5)
-		if wScope > 12 {
-			wScope = 12
-		}
-		wWorker := maxWorker
-		if wWorker > 14 {
-			wWorker = 14
-		}
-		wClaims := maxClaims
-		wLease := 8
-		wLeft := 7
-		wID := 7
-
 		hasScrollbar := len(m.shown) > tRows
-		fixedWidth := 5
-		if wScope > 0 {
-			fixedWidth += wScope + 1
-		}
-		if wClaims > 0 {
-			fixedWidth += 1 + wClaims
-		}
-		if wWorker > 0 {
-			fixedWidth += 1 + wWorker
-		}
-		if wLease > 0 {
-			fixedWidth += 1 + wLease
-		}
-		if wLeft > 0 {
-			fixedWidth += 1 + wLeft
-		}
-		if wID > 0 {
-			fixedWidth += 1 + wID
-		}
-		if hasScrollbar {
-			fixedWidth += 1
-		}
-
-		const minTitle = 20
-		if w-fixedWidth < minTitle && wClaims > 0 {
-			fixedWidth -= 1 + wClaims
-			wClaims = 0
-		}
-		if w-fixedWidth < minTitle && wWorker > 0 {
-			fixedWidth -= 1 + wWorker
-			wWorker = 0
-		}
-		if w-fixedWidth < minTitle && wLease > 0 {
-			fixedWidth -= 1 + wLease
-			wLease = 0
-		}
-		if w-fixedWidth < minTitle && wLeft > 0 {
-			fixedWidth -= 1 + wLeft
-			wLeft = 0
-		}
-		if w-fixedWidth < minTitle && wScope > 5 {
-			fixedWidth -= wScope - 5
-			wScope = 5
-		}
-		wTitle := w - fixedWidth
-		if wTitle < 5 {
-			wTitle = 5
-		}
+		cols := budgetColumns(w, maxScope, maxWorker, maxClaims, hasScrollbar)
+		wScope, wClaims, wWorker := cols.scope, cols.claims, cols.worker
+		wLease, wLeft, wID, wTitle := cols.lease, cols.left, cols.id, cols.title
 
 		// 4. Column header (1 row, dim, lowercase)
 		var colH strings.Builder
