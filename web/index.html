@@ -1007,6 +1007,47 @@
       }
     }
 
+    function syncSelectOptions(select, items) {
+      if (!select || !Array.isArray(items)) return;
+      const current = select.value;
+      if (select.options.length === 0) {
+        const allOpt = document.createElement('option');
+        allOpt.value = '';
+        allOpt.textContent = '(all)';
+        select.appendChild(allOpt);
+      }
+      const existing = Array.from(select.options).slice(1).map(o => o.value);
+      const same = existing.length === items.length && existing.every((val, i) => val === items[i]);
+      if (same) return;
+
+      const map = new Map();
+      for (let i = 1; i < select.options.length; i++) {
+        map.set(select.options[i].value, select.options[i]);
+      }
+      const itemSet = new Set(items);
+      for (const [val, opt] of map) {
+        if (!itemSet.has(val)) {
+          opt.remove();
+          map.delete(val);
+        }
+      }
+      for (let i = 0; i < items.length; i++) {
+        const val = items[i];
+        let opt = map.get(val);
+        if (!opt) {
+          opt = document.createElement('option');
+          opt.value = val;
+          opt.textContent = val;
+          map.set(val, opt);
+        }
+        const targetIdx = i + 1;
+        if (select.options[targetIdx] !== opt) {
+          select.insertBefore(opt, select.options[targetIdx] || null);
+        }
+      }
+      setFilter(select, current);
+    }
+
     async function loadWorkers() {
       const select = document.getElementById('filter-worker');
       if (!select) return;
@@ -1014,17 +1055,9 @@
         const res = await fetchRaw('/workers');
         if (!res.ok) return;
         const workers = await res.json();
-        const current = select.value;
-        select.innerHTML = '<option value="">(all)</option>';
         if (Array.isArray(workers)) {
-          for (const w of workers) {
-            const opt = document.createElement('option');
-            opt.value = w;
-            opt.textContent = w;
-            select.appendChild(opt);
-          }
+          syncSelectOptions(select, workers);
         }
-        setFilter(select, current);
       } catch (err) {
         logFailure('Failed to sync filter workers:', err);
       }
@@ -1308,31 +1341,22 @@
       try {
         const projects = await fetchJSON('/projects');
         const select = document.getElementById('filter-project');
-        if (select) {
-          let current = select.value;
-          select.innerHTML = '<option value="">(all)</option>';
-          if (Array.isArray(projects)) {
-            for (const p of projects) {
-              const opt = document.createElement('option');
-              opt.value = p;
-              opt.textContent = p;
-              select.appendChild(opt);
-            }
-          }
+        if (select && Array.isArray(projects)) {
+          syncSelectOptions(select, projects);
           if (pendingProject) {
-            current = pendingProject;
+            const current = pendingProject;
             pendingProject = '';
             setFilter(select, current);
             syncURL(false);
             syncFilterProjectToForm();
-          } else {
-            setFilter(select, current);
           }
         }
         const datalist = document.getElementById('form-project-list');
-        if (datalist) {
-          datalist.innerHTML = '';
-          if (Array.isArray(projects)) {
+        if (datalist && Array.isArray(projects)) {
+          const existingProjects = Array.from(datalist.options).map(o => o.value);
+          const sameProjects = existingProjects.length === projects.length && existingProjects.every((p, i) => p === projects[i]);
+          if (!sameProjects) {
+            datalist.innerHTML = '';
             for (const p of projects) {
               const opt = document.createElement('option');
               opt.value = p;

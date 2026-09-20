@@ -482,7 +482,6 @@ func TestWebUIPurgeDone(t *testing.T) {
 		t.Fatal("expected #purge-cancel-btn to trigger closePurgeModal()")
 	}
 }
-
 func TestWebUIGlobalErrorBoundary(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -565,5 +564,43 @@ func TestWebUIRowDOMCreation(t *testing.T) {
 	}
 	if got.StatusText != "pending" || got.StatusAttr != "pending" {
 		t.Errorf("badge not configured: text=%q, attr=%q", got.StatusText, got.StatusAttr)
+	}
+}
+
+func TestWebUISelectPollReconciliation(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/select_reconcile.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("select reconcile harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("select reconcile harness failed: %v", err)
+	}
+
+	var got struct {
+		WorkerNodePreservedOnSame    bool `json:"workerNodePreservedOnSame"`
+		WorkerNodePreservedOnChange  bool `json:"workerNodePreservedOnChange"`
+		ProjectNodePreservedOnSame   bool `json:"projectNodePreservedOnSame"`
+		ProjectNodePreservedOnChange bool `json:"projectNodePreservedOnChange"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if !got.WorkerNodePreservedOnSame {
+		t.Error("worker option DOM node replaced when workers list unchanged")
+	}
+	if !got.WorkerNodePreservedOnChange {
+		t.Error("worker option DOM node not preserved when workers list updated")
+	}
+	if !got.ProjectNodePreservedOnSame {
+		t.Error("project option DOM node replaced when projects list unchanged")
+	}
+	if !got.ProjectNodePreservedOnChange {
+		t.Error("project option DOM node not preserved when projects list updated")
 	}
 }
