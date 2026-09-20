@@ -2503,6 +2503,7 @@ Environment variables:
   TASKD_DB            database path (default: taskd.db)
   TASKD_LEASE         lease duration in seconds (default: 300)
   TASKD_MAX_CLAIMS    bury a task after this many claims (default: 0)
+  TASKD_CORS_ORIGIN   allowed CORS origin
 
 HTTP Endpoints:
   GET    /health             daemon readiness and database ping
@@ -2601,7 +2602,7 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 	fs.IntVar(&cfg.lease, "lease", cfg.lease, "lease duration in seconds")
 	fs.IntVar(&cfg.maxClaims, "max-claims", cfg.maxClaims, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
-	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
+	fs.StringVar(&cfg.corsOrigin, "cors-origin", cfg.corsOrigin, "allowed CORS origin")
 	fs.BoolVar(&cfg.version, "v", false, "print version and exit")
 	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
 	return fs
@@ -2641,6 +2642,9 @@ func parseFlags(args []string) (config, error) {
 			return cfg, usagef("TASKD_MAX_CLAIMS cannot be negative: got %d", v)
 		}
 		cfg.maxClaims = v
+	}
+	if v := os.Getenv("TASKD_CORS_ORIGIN"); v != "" {
+		cfg.corsOrigin = v
 	}
 
 	fs := newFlagSet(&cfg)

@@ -13,7 +13,7 @@ func TestParseFlagsEnvDefaults(t *testing.T) {
 	t.Setenv("TASKD_DB", dbPath)
 	t.Setenv("TASKD_LEASE", "450")
 	t.Setenv("TASKD_MAX_CLAIMS", "7")
-
+	t.Setenv("TASKD_CORS_ORIGIN", "https://example.com")
 	cfg, err := parseFlags(nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -30,6 +30,9 @@ func TestParseFlagsEnvDefaults(t *testing.T) {
 	if cfg.maxClaims != 7 {
 		t.Fatalf("expected maxClaims 7, got %d", cfg.maxClaims)
 	}
+	if cfg.corsOrigin != "https://example.com" {
+		t.Fatalf("expected corsOrigin %q, got %q", "https://example.com", cfg.corsOrigin)
+	}
 }
 
 func TestParseFlagsFlagPrecedence(t *testing.T) {
@@ -39,12 +42,13 @@ func TestParseFlagsFlagPrecedence(t *testing.T) {
 	t.Setenv("TASKD_DB", dbPathEnv)
 	t.Setenv("TASKD_LEASE", "450")
 	t.Setenv("TASKD_MAX_CLAIMS", "7")
-
+	t.Setenv("TASKD_CORS_ORIGIN", "https://env.example.com")
 	args := []string{
 		"-addr", ":9992",
 		"-db", dbPathFlag,
 		"-lease", "600",
 		"-max-claims", "3",
+		"-cors-origin", "https://flag.example.com",
 	}
 
 	cfg, err := parseFlags(args)
@@ -62,6 +66,9 @@ func TestParseFlagsFlagPrecedence(t *testing.T) {
 	}
 	if cfg.maxClaims != 3 {
 		t.Fatalf("expected maxClaims 3, got %d", cfg.maxClaims)
+	}
+	if cfg.corsOrigin != "https://flag.example.com" {
+		t.Fatalf("expected corsOrigin %q, got %q", "https://flag.example.com", cfg.corsOrigin)
 	}
 }
 
@@ -106,6 +113,7 @@ func TestPrintUsageEnvironmentVariables(t *testing.T) {
 		"TASKD_DB",
 		"TASKD_LEASE",
 		"TASKD_MAX_CLAIMS",
+		"TASKD_CORS_ORIGIN",
 	}
 	for _, term := range required {
 		if !strings.Contains(out, term) {
