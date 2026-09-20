@@ -1025,6 +1025,8 @@ func (m *model) rebuildShown() {
 				return 1
 			}
 			c = cmp.Compare(ti.LeaseExpires, tj.LeaseExpires)
+		case sortClaims:
+			c = cmp.Compare(tj.ClaimCount, ti.ClaimCount)
 		default:
 			c = cmp.Compare(ti.Priority, tj.Priority)
 			if c == 0 {
@@ -1101,6 +1103,9 @@ func (m *model) updateCols() {
 	if m.sortCol == sortPriority {
 		maxPri = 2
 	}
+	if m.sortCol == sortClaims {
+		maxClaims = 2
+	}
 	for _, idx := range m.shown {
 		if idx >= 0 && idx < len(m.tasks) {
 			t := m.tasks[idx]
@@ -1119,7 +1124,7 @@ func (m *model) updateCols() {
 					maxWorker = ww
 				}
 			}
-			if t.ClaimCount > 1 {
+			if t.ClaimCount > 1 || m.sortCol == sortClaims {
 				if cw := ansi.StringWidth(m.glyph.refresh + " " + strconv.Itoa(t.ClaimCount)); cw > maxClaims {
 					maxClaims = cw
 				}
@@ -1164,7 +1169,13 @@ func (m *model) handleColHeadClick(x int) {
 
 	currX += cols.title
 	if cols.claims > 0 {
-		currX += 1 + cols.claims
+		currX += 1
+		if x >= currX && x < currX+cols.claims {
+			m.sortCol = sortClaims
+			m.rebuild()
+			return
+		}
+		currX += cols.claims
 	}
 
 	if cols.worker > 0 {

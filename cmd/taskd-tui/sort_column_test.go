@@ -117,6 +117,12 @@ func TestTUISortColumn(t *testing.T) {
 
 	up, _ = m.Update(tea.KeyPressMsg{Text: "s"})
 	m = up.(model)
+	if m.sortCol != sortClaims {
+		t.Fatalf("expected sortClaims after 's', got %v", m.sortCol)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "s"})
+	m = up.(model)
 	if m.sortCol != sortPriority {
 		t.Fatalf("expected sortPriority wrap after 's', got %v", m.sortCol)
 	}
@@ -156,6 +162,8 @@ func TestParseSortColumnFlag(t *testing.T) {
 		{"Worker", sortWorker, true},
 		{"lease", sortLease, true},
 		{"Lease", sortLease, true},
+		{"claims", sortClaims, true},
+		{"Claims", sortClaims, true},
 		{"invalid", 0, false},
 	}
 	for _, tc := range cases {
@@ -237,6 +245,8 @@ func TestSortEnvVar(t *testing.T) {
 		{"lease", sortLease},
 		{"Worker", sortWorker},
 		{"STATUS", sortStatus},
+		{"claims", sortClaims},
+		{"Claims", sortClaims},
 	} {
 		t.Setenv("TASKD_SORT", tc.env)
 		cfg, err := parseFlags(nil)
@@ -280,12 +290,86 @@ func TestSortReverse(t *testing.T) {
 		t.Fatalf("expected initial sortPriority, got %v", m.sortCol)
 	}
 
-	expected := []sortColumn{sortLease, sortWorker, sortProject, sortStatus, sortPriority}
+	expected := []sortColumn{sortClaims, sortLease, sortWorker, sortProject, sortStatus, sortPriority}
 	for _, want := range expected {
 		up, _ := m.Update(tea.KeyPressMsg{Text: "S"})
 		m = up.(model)
 		if m.sortCol != want {
 			t.Fatalf("expected sort column %v after 'S', got %v", want, m.sortCol)
 		}
+	}
+}
+
+func TestSortByClaims(t *testing.T) {
+	t.Setenv("TASKD_PROJECT", "")
+	t.Setenv("TASKD_WORKER", "")
+	cfg, err := parseFlags([]string{"-sort", "claims"})
+	if err != nil {
+		t.Fatalf("unexpected error parsing -sort claims: %v", err)
+	}
+	if cfg.sortCol != sortClaims {
+		t.Fatalf("expected sortClaims, got %v", cfg.sortCol)
+	}
+
+	t1 := task{ID: "t1", ClaimCount: 1}
+	t2 := task{ID: "t2", ClaimCount: 5}
+	t3 := task{ID: "t3", ClaimCount: 2}
+
+	m := newModel(cfg, nil)
+	m.width = 120
+	m.height = 24
+	m.tasks = []task{t1, t2, t3}
+	m.rebuildShown()
+
+	if len(m.shown) != 3 {
+		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
+	}
+	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
+		t.Fatalf("expected tasks sorted descending by claims [t2, t3, t1], got [%s, %s, %s]",
+			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
+	}
+
+	m.sortCol = sortPriority
+	m.rebuild()
+
+	colHeadY := headerRows + tabRows + 1
+	priHead := "p"
+	if m.sortCol == sortPriority {
+		priHead += "▼"
+	}
+	pw := max(m.cols.priority, ansi.StringWidth(priHead))
+	priEnd := 4 + pw
+	claimsX := priEnd + m.cols.title + 1
+	if m.cols.scope > 0 {
+		claimsX += m.cols.scope + 1
+	}
+
+	up, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: claimsX, Y: colHeadY})
+	m = up.(model)
+	if m.sortCol != sortClaims {
+		t.Fatalf("expected sortClaims after clicking claims header at X=%d, got %v", claimsX, m.sortCol)
+	}
+
+	m.sortCol = sortLease
+	up, _ = m.Update(tea.KeyPressMsg{Text: "s"})
+	m = up.(model)
+	if m.sortCol != sortClaims {
+		t.Fatalf("expected sortClaims after pressing s on sortLease, got %v", m.sortCol)
+	}
+
+	mZero := newModel(cfg, nil)
+	mZero.width = 120
+	mZero.height = 24
+	mZero.tasks = []task{{ID: "z1", ClaimCount: 0}, {ID: "z2", ClaimCount: 1}}
+	mZero.rebuildShown()
+	if mZero.cols.claims == 0 {
+		t.Fatalf("expected claims column visible when sorted by claims without retries")
+	}
+	viewZero := ansi.Strip(mZero.View().Content)
+	if !strings.Contains(viewZero, "c*") && !strings.Contains(viewZero, "c▼") {
+		t.Fatalf("expected claims header sort indicator in view, got:\n%s", viewZero)
+	}
+	if !strings.Contains(viewZero, " 0") || !strings.Contains(viewZero, " 1") {
+		t.Fatalf("expected claim counts 0 and 1 rendered under claims sort, got:\n%s", viewZero)
 	}
 }

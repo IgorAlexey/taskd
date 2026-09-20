@@ -79,6 +79,7 @@ const (
 	sortProject
 	sortWorker
 	sortLease
+	sortClaims
 	sortColCount
 )
 

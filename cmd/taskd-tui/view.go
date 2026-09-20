@@ -425,7 +425,14 @@ func (m model) View() tea.View {
 		colH.WriteString(padRight("title", wTitle))
 		if wClaims > 0 {
 			colH.WriteString(" ")
-			colH.WriteString(padRight("", wClaims))
+			claimsHead := "c"
+			if m.sortCol == sortClaims {
+				claimsHead += ind
+			}
+			if ansi.StringWidth(claimsHead) > wClaims {
+				claimsHead = ansi.Truncate(claimsHead, wClaims, "")
+			}
+			colH.WriteString(padRight(claimsHead, wClaims))
 		}
 		if wWorker > 0 {
 			colH.WriteString(" ")
@@ -559,9 +566,9 @@ func (m model) View() tea.View {
 				}
 
 				var claimsStyled string
-				if t.ClaimCount > 1 {
+				if t.ClaimCount > 1 || m.sortCol == sortClaims {
 					cStr := padRight(fmt.Sprintf("%s %d", m.glyph.refresh, t.ClaimCount), wClaims)
-					if isDone {
+					if isDone || t.ClaimCount <= 1 {
 						claimsStyled = m.theme.dim.Render(cStr)
 					} else {
 						claimsStyled = m.theme.err.Render(cStr)

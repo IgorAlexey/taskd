@@ -275,7 +275,7 @@ Options:
   -status <status>    filter tasks by status: all, pending, leased, done, buried, live
   -ascii              use ASCII characters instead of Nerd Font icons
   -refresh <dur>      polling interval, min 250ms (default: 1s)
-  -s, -sort <col>     initial sort column: priority, status, project, worker, lease
+  -s, -sort <col>     initial sort column: priority, status, project, worker, lease, claims
   -v, -version        print version and exit
   -h, --help          show this help message
 
@@ -287,7 +287,7 @@ Environment variables:
   TASKD_STATUS        default status filter: all, pending, leased, done, buried, live
   TASKD_ASCII         set to 1 or true to enable ASCII mode
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)
-  TASKD_SORT          initial sort column: priority, status, project, worker, lease
+  TASKD_SORT          initial sort column: priority, status, project, worker, lease, claims
 
 Keyboard shortcuts:
   j/k, Up/Down        move selection
@@ -341,6 +341,8 @@ func parseSortColumn(val string) (sortColumn, bool) {
 		return sortWorker, true
 	case "lease":
 		return sortLease, true
+	case "claims":
+		return sortClaims, true
 	default:
 		return 0, false
 	}
