@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -329,5 +330,62 @@ func TestCLIDatabaseOpenFailureOutput(t *testing.T) {
 	wantOut = "taskd: cannot open database " + notesPath + ": file is not a database (26)\n"
 	if stderr.String() != wantOut {
 		t.Fatalf("got stderr %q, want %q", stderr.String(), wantOut)
+	}
+}
+
+func TestParseFlagsLeaseBounds(t *testing.T) {
+	cases := []struct {
+		name    string
+		lease   string
+		wantErr string
+	}{
+		{
+			name:    "negative",
+			lease:   "-1",
+			wantErr: "-lease must be between 1 and 31536000 seconds: got -1",
+		},
+		{
+			name:    "zero",
+			lease:   "0",
+			wantErr: "-lease must be between 1 and 31536000 seconds: got 0",
+		},
+		{
+			name:    "exceeds ceiling",
+			lease:   "31536001",
+			wantErr: "-lease must be between 1 and 31536000 seconds: got 31536001",
+		},
+		{
+			name:    "max int64",
+			lease:   "9223372036854775807",
+			wantErr: "-lease must be between 1 and 31536000 seconds: got 9223372036854775807",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parseFlags([]string{"-lease", tc.lease})
+			if err == nil {
+				t.Fatalf("expected error for lease %s, got nil", tc.lease)
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("error %q does not contain %q", err.Error(), tc.wantErr)
+			}
+			var buf bytes.Buffer
+			if code := fatal(&buf, err); code != 2 {
+				t.Fatalf("fatal exit code = %d, want 2", code)
+			}
+			if !strings.Contains(buf.String(), "taskd: "+tc.wantErr) {
+				t.Fatalf("fatal output %q does not contain taskd: %s", buf.String(), tc.wantErr)
+			}
+		})
+	}
+	for _, valid := range []string{"1", "300", "31536000"} {
+		cfg, err := parseFlags([]string{"-lease", valid})
+		if err != nil {
+			t.Fatalf("unexpected error for valid lease %s: %v", valid, err)
+		}
+		want, _ := strconv.Atoi(valid)
+		if cfg.lease != want {
+			t.Fatalf("cfg.lease = %d, want %d", cfg.lease, want)
+		}
 	}
 }

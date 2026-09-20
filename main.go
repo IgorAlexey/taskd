@@ -2057,6 +2057,8 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 	return fs
 }
 
+const maxLeaseSeconds = 31536000
+
 func parseFlags(args []string) (config, error) {
 	var cfg config
 	fs := newFlagSet(&cfg)
@@ -2080,8 +2082,8 @@ func parseFlags(args []string) (config, error) {
 	if cfg.addr == "" {
 		return cfg, usagef("listen address cannot be empty")
 	}
-	if cfg.lease <= 0 {
-		return cfg, usagef("lease duration must be greater than 0: got %d", cfg.lease)
+	if cfg.lease <= 0 || cfg.lease > maxLeaseSeconds {
+		return cfg, usagef("-lease must be between 1 and %d seconds: got %d", maxLeaseSeconds, cfg.lease)
 	}
 	if cfg.maxClaims < 0 {
 		return cfg, usagef("max claims cannot be negative: got %d", cfg.maxClaims)
