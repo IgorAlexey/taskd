@@ -1099,6 +1099,17 @@
       b.hidden = false;
     }
 
+    window.addEventListener('error', (e) => {
+      const msg = (e && e.message) || (e && e.error && e.error.message) || 'An unexpected error occurred';
+      showError(msg);
+    });
+
+    window.addEventListener('unhandledrejection', (e) => {
+      const reason = e && e.reason;
+      const msg = (reason && reason.message) || (typeof reason === 'string' ? reason : null) || 'Unhandled promise rejection';
+      showError(msg);
+    });
+
     function renderConnection() {
       const el = document.getElementById('connection-status');
       if (!el) return;

@@ -482,3 +482,39 @@ func TestWebUIPurgeDone(t *testing.T) {
 		t.Fatal("expected #purge-cancel-btn to trigger closePurgeModal()")
 	}
 }
+
+func TestWebUIGlobalErrorBoundary(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/error_boundary.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("error boundary harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("error boundary harness failed: %v", err)
+	}
+
+	var got struct {
+		ErrorCaptured struct {
+			Hidden bool   `json:"hidden"`
+			Text   string `json:"text"`
+		} `json:"errorCaptured"`
+		RejectionCaptured struct {
+			Hidden bool   `json:"hidden"`
+			Text   string `json:"text"`
+		} `json:"rejectionCaptured"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.ErrorCaptured.Hidden || got.ErrorCaptured.Text != "test uncaught error" {
+		t.Errorf("error banner not shown on uncaught error: %+v", got.ErrorCaptured)
+	}
+	if got.RejectionCaptured.Hidden || got.RejectionCaptured.Text != "test unhandled rejection" {
+		t.Errorf("error banner not shown on unhandled rejection: %+v", got.RejectionCaptured)
+	}
+}
