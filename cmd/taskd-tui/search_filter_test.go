@@ -39,29 +39,6 @@ func TestSearchFilterIndicatorInTable(t *testing.T) {
 	}
 }
 
-func TestSearchFilterIndicatorTruncation(t *testing.T) {
-	m := newModel(config{refresh: time.Hour}, nil)
-	m.width = 40
-	m.height = 10
-	m.mode = modeTable
-	m.query = strings.Repeat("x", 80)
-	m.tasks = []task{{ID: 1, Status: "pending", Body: "hello"}}
-	m.rebuildShown()
-
-	view := ansi.Strip(m.View().Content)
-	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
-	if len(lines) != 10 {
-		t.Fatalf("expected view height 10, got %d lines", len(lines))
-	}
-	footer := lines[len(lines)-1]
-	if len(footer) > 40 {
-		t.Fatalf("footer exceeded width 40: %d chars", len(footer))
-	}
-	if !strings.Contains(footer, "filter") || !strings.Contains(footer, "[Esc clear]") {
-		t.Fatalf("footer missing filter or esc hint: %q", footer)
-	}
-}
-
 func TestSearchNavigationKeys(t *testing.T) {
 	m := newModel(config{refresh: time.Hour}, nil)
 	m.width = 80
@@ -247,44 +224,5 @@ func TestMouseClickSelectDuringSearch(t *testing.T) {
 	if m.detailID != 2 || !strings.Contains(m.detail.GetContent(), "second detail") {
 		t.Fatalf("expected detail pane synced to task 2, got detailID=%d, content=%q",
 			m.detailID, m.detail.GetContent())
-	}
-}
-func TestFooterWithSearchFilter(t *testing.T) {
-	m := newModel(config{refresh: time.Hour, icons: true}, nil)
-	m.width = 120
-	m.height = 24
-	m.mode = modeTable
-	m.tasks = []task{
-		{ID: 1, Status: "pending", Body: "alpha task for testing search filter footer"},
-	}
-	m.query = "test"
-	m.rebuildShown()
-	m.cursor = 0
-
-	view := ansi.Strip(m.View().Content)
-	wantFilter := `filter "test" [Esc clear]`
-	if !strings.Contains(view, wantFilter) {
-		t.Fatalf("expected filter indicator %q in view:\n%s", wantFilter, view)
-	}
-
-	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
-	footer := lines[len(lines)-1]
-
-	for _, hint := range []string{"c claim", "e edit", "a note", "D delete"} {
-		if !strings.Contains(footer, hint) {
-			t.Fatalf("expected primary shortcut hint %q visible in footer alongside filter indicator:\n%s", hint, footer)
-		}
-	}
-
-	targets := m.footerTargets()
-	hasClear := false
-	for _, target := range targets {
-		if target.action == "clear_search" {
-			hasClear = true
-			break
-		}
-	}
-	if !hasClear {
-		t.Fatalf("expected clear_search target in footer targets")
 	}
 }

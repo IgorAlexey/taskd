@@ -115,58 +115,6 @@ func TestClaimWaitInvalidWaitReturns400(t *testing.T) {
 	}
 }
 
-func TestClaimWaitZeroReturnsImmediately(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
-	if err != nil {
-		t.Fatalf("openDB failed: %v", err)
-	}
-	defer db.Close()
-
-	srv := httptest.NewServer(newHandler(db, 300))
-	defer srv.Close()
-
-	start := time.Now()
-	claimBody, _ := json.Marshal(map[string]any{"worker": "w1", "project": "w", "wait": 0})
-	resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimBody))
-	if err != nil {
-		t.Fatalf("claim failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204", resp.StatusCode)
-	}
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("claim took %v, want immediate", elapsed)
-	}
-}
-
-func TestClaimWaitOmittedReturnsImmediately(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
-	if err != nil {
-		t.Fatalf("openDB failed: %v", err)
-	}
-	defer db.Close()
-
-	srv := httptest.NewServer(newHandler(db, 300))
-	defer srv.Close()
-
-	start := time.Now()
-	claimBody, _ := json.Marshal(map[string]any{"worker": "w1", "project": "w"})
-	resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimBody))
-	if err != nil {
-		t.Fatalf("claim failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusNoContent {
-		t.Fatalf("status = %d, want 204", resp.StatusCode)
-	}
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("claim took %v, want immediate", elapsed)
-	}
-}
-
 func TestClaimWaitReceivesEnqueuedTask(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {

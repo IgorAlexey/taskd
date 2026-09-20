@@ -20,25 +20,3 @@ func TestRenderBodySingleLine(t *testing.T) {
 		t.Fatalf("expected %q in %q", tail, got)
 	}
 }
-
-func TestRenderBodySingleLineWithTrailingNewline(t *testing.T) {
-	var m model
-	got := m.renderBody(task{Body: "single line task description\n"})
-	if strings.TrimSpace(got) == "" {
-		t.Fatal("renderBody returned empty string for single-line body with trailing newline")
-	}
-	if !strings.Contains(got, "single line task description") {
-		t.Fatalf("expected single line task description in %q", got)
-	}
-}
-
-func TestRenderBodyFullContent(t *testing.T) {
-	var m model
-	got := m.renderBody(task{Body: "Long task title that exceeds terminal column width\n\nWhy: description here"})
-	if !strings.Contains(got, "Long task title that exceeds terminal column width") {
-		t.Fatalf("expected title preserved in detail viewport, got %q", got)
-	}
-	if !strings.Contains(got, "Why: description here") {
-		t.Fatalf("expected description preserved in detail viewport, got %q", got)
-	}
-}

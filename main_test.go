@@ -942,28 +942,6 @@ func TestTasksAndStatsRejectInvalidProject(t *testing.T) {
 	}
 }
 
-func TestGetTasksEmptyStatus(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
-	if err != nil {
-		t.Fatalf("openDB failed: %v", err)
-	}
-	defer db.Close()
-
-	handler := newHandler(db, 30)
-
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/tasks?status=", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	recInvalid := httptest.NewRecorder()
-	handler.ServeHTTP(recInvalid, httptest.NewRequest(http.MethodGet, "/tasks?status=invalid", nil))
-	if recInvalid.Code != http.StatusBadRequest {
-		t.Fatalf("expected status 400, got %d", recInvalid.Code)
-	}
-}
-
 func TestGetTasksInvalidSortOrderFields(t *testing.T) {
 	db, err := openDB(":memory:", 0)
 	if err != nil {

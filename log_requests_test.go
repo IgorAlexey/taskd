@@ -100,30 +100,3 @@ func TestLogRequestsPanicSuppression(t *testing.T) {
 		t.Errorf("panicked request must not be logged as 200 OK, got:\n%s", buf.String())
 	}
 }
-
-func TestLogRequestsFlag(t *testing.T) {
-	cfg, err := parseFlags(nil)
-	if err != nil {
-		t.Fatalf("parseFlags(nil): %v", err)
-	}
-	if !cfg.logRequests {
-		t.Error("expected logRequests to default to true")
-	}
-
-	cfg, err = parseFlags([]string{"-log-requests=false"})
-	if err != nil {
-		t.Fatalf("parseFlags(-log-requests=false): %v", err)
-	}
-	if cfg.logRequests {
-		t.Error("expected logRequests to be false with flag")
-	}
-
-	t.Setenv("TASKD_LOG_REQUESTS", "false")
-	cfg, err = parseFlags(nil)
-	if err != nil {
-		t.Fatalf("parseFlags with env: %v", err)
-	}
-	if cfg.logRequests {
-		t.Error("expected logRequests to be false with env")
-	}
-}

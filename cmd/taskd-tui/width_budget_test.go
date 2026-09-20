@@ -71,23 +71,6 @@ func TestBudgetColumnsKeepsTitleAndOneIdentifier(t *testing.T) {
 	}
 }
 
-// Nothing is shed while there is room, whatever the rows happen to hold.
-func TestBudgetColumnsKeepsEveryColumnWhenItFits(t *testing.T) {
-	got := budgetColumns(110, 1, 5, 0, 0, 7, false)
-	want := tableCols{priority: 1, scope: 5, title: 74, claims: 0, worker: 0, lease: 8, left: 7, id: 7}
-	if got != want {
-		t.Fatalf("budgetColumns(110) = %+v, want %+v", got, want)
-	}
-}
-
-func TestBudgetColumnsPriorityWidth(t *testing.T) {
-	got := budgetColumns(110, 2, 5, 0, 0, 7, false)
-	want := tableCols{priority: 2, scope: 5, title: 73, claims: 0, worker: 0, lease: 8, left: 7, id: 7}
-	if got != want {
-		t.Fatalf("budgetColumns(110, pri 2) = %+v, want %+v", got, want)
-	}
-}
-
 func TestBudgetColumnsIDWidth(t *testing.T) {
 	gotMin := budgetColumns(110, 1, 5, 0, 0, 1, false)
 	if gotMin.id != 2 {

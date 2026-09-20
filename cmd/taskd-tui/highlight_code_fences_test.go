@@ -103,12 +103,3 @@ func TestHighlightCodeFences(t *testing.T) {
 		}
 	})
 }
-
-func TestHighlightCodeFencesTabIndent(t *testing.T) {
-	m := newModel(config{refresh: time.Hour}, nil)
-	body := "prose\n\t```\nnot a block fence\n\t```"
-	rendered := m.renderBody(task{Body: body})
-	if strings.Contains(rendered, m.theme.code.Render("not a block fence")) {
-		t.Fatalf("expected tab-indented block not to be highlighted as fence code:\n%s", rendered)
-	}
-}

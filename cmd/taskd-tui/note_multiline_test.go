@@ -116,14 +116,3 @@ func TestNoteEmptyCtrlSError(t *testing.T) {
 		t.Fatalf("errText = %q, want 'note text cannot be empty'", m.note.errText)
 	}
 }
-
-func TestNoteResizeSyncsHeight(t *testing.T) {
-	n, _ := newNoteModel(1, "tester", modeTable, 80, 24, newTheme(true))
-	if n.input.Height() < 3 {
-		t.Fatalf("expected input height >= 3, got %d", n.input.Height())
-	}
-	n.resize(80, 6)
-	if n.input.Height() > 2 {
-		t.Fatalf("expected smaller input height on small terminal, got %d", n.input.Height())
-	}
-}

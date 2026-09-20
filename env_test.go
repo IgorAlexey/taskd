@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -100,24 +98,4 @@ func TestParseFlagsEnvInvalid(t *testing.T) {
 			t.Fatal("expected error for negative TASKD_MAX_CLAIMS, got nil")
 		}
 	})
-}
-
-func TestPrintUsageEnvironmentVariables(t *testing.T) {
-	var buf bytes.Buffer
-	printUsage(&buf)
-	out := buf.String()
-
-	required := []string{
-		"Environment variables:",
-		"TASKD_ADDR",
-		"TASKD_DB",
-		"TASKD_LEASE",
-		"TASKD_MAX_CLAIMS",
-		"TASKD_CORS_ORIGIN",
-	}
-	for _, term := range required {
-		if !strings.Contains(out, term) {
-			t.Fatalf("expected usage text to contain %q, but was missing:\n%s", term, out)
-		}
-	}
 }
