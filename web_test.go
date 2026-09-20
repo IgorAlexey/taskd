@@ -451,3 +451,34 @@ func TestWebUIButtonVariants(t *testing.T) {
 		t.Error("expected delete-task-btn to have data-variant=\"warning\"")
 	}
 }
+
+func TestWebUIPurgeDone(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="purge-done-btn"`) {
+		t.Fatal("expected #purge-done-btn in web/index.html")
+	}
+	if !strings.Contains(ui, `onclick="openPurgeModal()"`) {
+		t.Fatal("expected #purge-done-btn to trigger openPurgeModal()")
+	}
+	if !strings.Contains(ui, `aria-haspopup="dialog"`) {
+		t.Fatal("expected #purge-done-btn to declare aria-haspopup=dialog")
+	}
+	if !strings.Contains(ui, `<dialog id="purge-modal"`) {
+		t.Fatal("expected #purge-modal dialog in web/index.html")
+	}
+	if !strings.Contains(ui, `data-state="closed"`) {
+		t.Fatal("expected #purge-modal to start with data-state=closed")
+	}
+	if !strings.Contains(ui, `id="purge-confirm-btn"`) {
+		t.Fatal("expected #purge-confirm-btn in web/index.html")
+	}
+	if !strings.Contains(ui, `onclick="confirmPurge()"`) {
+		t.Fatal("expected #purge-confirm-btn to trigger confirmPurge()")
+	}
+	if !strings.Contains(ui, `id="purge-cancel-btn"`) {
+		t.Fatal("expected #purge-cancel-btn in web/index.html")
+	}
+	if !strings.Contains(ui, `onclick="closePurgeModal()"`) {
+		t.Fatal("expected #purge-cancel-btn to trigger closePurgeModal()")
+	}
+}
