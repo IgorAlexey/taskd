@@ -31,7 +31,8 @@ func TestTUIFlagErrors(t *testing.T) {
 		{"invalid ascii bool", []string{"-ascii=maybe"}, "taskd-tui: invalid boolean value \"maybe\" for -ascii\ntry 'taskd-tui -h' for usage\n"},
 		{"empty url", []string{"-url", " "}, "taskd-tui: url cannot be empty\ntry 'taskd-tui -h' for usage\n"},
 		{"invalid url scheme", []string{"-url", "ftp://localhost"}, "taskd-tui: invalid url scheme \"ftp\": must be http or https\ntry 'taskd-tui -h' for usage\n"},
-		{"invalid status", []string{"-status", "bad"}, "taskd-tui: invalid status \"bad\" for -status\ntry 'taskd-tui -h' for usage\n"},
+		{"invalid status", []string{"-status", "bad"}, "taskd-tui: invalid status \"bad\" for -status, must be one of [all, pending, leased, done, buried, live]\ntry 'taskd-tui -h' for usage\n"},
+		{"invalid status choice", []string{"-status", "invalid"}, "taskd-tui: invalid status \"invalid\" for -status, must be one of [all, pending, leased, done, buried, live]\ntry 'taskd-tui -h' for usage\n"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -449,8 +450,9 @@ func TestStatusFlagAndEnv(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("exit code = %d, want 2", code)
 		}
-		if !strings.Contains(stderr.String(), "unknown_status") {
-			t.Fatalf("expected error message to mention unknown_status, got %q", stderr.String())
+		want := "taskd-tui: invalid status \"unknown_status\" for -status, must be one of [all, pending, leased, done, buried, live]\ntry 'taskd-tui -h' for usage\n"
+		if stderr.String() != want {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
 	})
 
@@ -465,8 +467,9 @@ func TestStatusFlagAndEnv(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("exit code = %d, want 2", code)
 		}
-		if !strings.Contains(stderr.String(), "bogus") {
-			t.Fatalf("expected error message to mention bogus, got %q", stderr.String())
+		want := "taskd-tui: invalid status \"bogus\" for TASKD_STATUS, must be one of [all, pending, leased, done, buried, live]\ntry 'taskd-tui -h' for usage\n"
+		if stderr.String() != want {
+			t.Fatalf("stderr = %q, want %q", stderr.String(), want)
 		}
 	})
 

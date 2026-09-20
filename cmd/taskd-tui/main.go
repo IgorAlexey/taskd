@@ -120,7 +120,7 @@ func parseFlags(args []string) (config, error) {
 	if rawStatus := os.Getenv("TASKD_STATUS"); rawStatus != "" {
 		st, ok := parseStatusFilter(rawStatus)
 		if !ok {
-			return cfg, usagef("invalid status %q for TASKD_STATUS", rawStatus)
+			return cfg, usagef("invalid status %q for TASKD_STATUS, must be one of %s", rawStatus, validStatusChoices())
 		}
 		cfg.status = st
 	}
@@ -254,7 +254,7 @@ func parseFlags(args []string) (config, error) {
 			}
 			st, ok := parseStatusFilter(val)
 			if !ok {
-				return cfg, usagef("invalid status %q for %s", val, token)
+				return cfg, usagef("invalid status %q for %s, must be one of %s", val, token, validStatusChoices())
 			}
 			cfg.status = st
 		case "priority":
@@ -406,23 +406,34 @@ func parseSortColumn(val string) (sortColumn, bool) {
 	}
 }
 
-func parseStatusFilter(val string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(val)) {
-	case "all":
-		return "", true
-	case "pending":
-		return "pending", true
-	case "leased":
-		return "leased", true
-	case "done":
-		return "done", true
-	case "buried":
-		return "buried", true
-	case "live":
-		return "live", true
-	default:
-		return "", false
+var statusFilters = []struct {
+	choice string
+	status string
+}{
+	{"all", ""},
+	{"pending", "pending"},
+	{"leased", "leased"},
+	{"done", "done"},
+	{"buried", "buried"},
+	{"live", "live"},
+}
+
+func validStatusChoices() string {
+	choices := make([]string, len(statusFilters))
+	for i, sf := range statusFilters {
+		choices[i] = sf.choice
 	}
+	return "[" + strings.Join(choices, ", ") + "]"
+}
+
+func parseStatusFilter(val string) (string, bool) {
+	lower := strings.ToLower(strings.TrimSpace(val))
+	for _, sf := range statusFilters {
+		if lower == sf.choice {
+			return sf.status, true
+		}
+	}
+	return "", false
 }
 
 func defaultWorker() string {
