@@ -1175,6 +1175,9 @@ FROM tasks`
 		req.Project = strings.TrimSpace(req.Project)
 		if req.Project == "" {
 			req.Project = "*"
+		} else if !validProject(req.Project) {
+			writeError(w, http.StatusBadRequest, "invalid project")
+			return
 		}
 		if err := sweepLapsedLeases(""); err != nil {
 			internalError(w, err)

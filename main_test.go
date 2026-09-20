@@ -510,3 +510,71 @@ func TestSweepLapsedBuriesExhaustedClaims(t *testing.T) {
 		t.Fatalf("expected task to be buried after maxClaims exceeded, got status %q", status)
 	}
 }
+
+func TestClaimProjectValidation(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	postTask := func(id, project string) {
+		body := `{"id":"` + id + `","body":"test","project":"` + project + `"}`
+		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("post task failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", resp.StatusCode)
+		}
+	}
+
+	postTask("t1", "valid-proj")
+
+	badPayload := `{"worker":"w1","project":"bad project name with spaces"}`
+	resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(badPayload))
+	if err != nil {
+		t.Fatalf("claim failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", resp.StatusCode)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+	var errResp map[string]string
+	if err := json.Unmarshal(raw, &errResp); err != nil {
+		t.Fatalf("unmarshal error failed: %v", err)
+	}
+	if got := errResp["error"]; got != "invalid project" {
+		t.Fatalf("expected error %q, got %q", "invalid project", got)
+	}
+
+	emptyPayload := `{"worker":"w1","project":""}`
+	respEmpty, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(emptyPayload))
+	if err != nil {
+		t.Fatalf("claim empty failed: %v", err)
+	}
+	defer respEmpty.Body.Close()
+	if respEmpty.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for empty project, got %d", respEmpty.StatusCode)
+	}
+
+	postTask("t2", "valid-proj")
+	validPayload := `{"worker":"w1","project":"valid-proj"}`
+	respValid, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(validPayload))
+	if err != nil {
+		t.Fatalf("claim valid failed: %v", err)
+	}
+	defer respValid.Body.Close()
+	if respValid.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for valid project, got %d", respValid.StatusCode)
+	}
+}
