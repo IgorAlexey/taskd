@@ -489,14 +489,14 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  #purge-modal, #shortcuts-modal {
+  #kick-modal, #purge-modal, #shortcuts-modal {
     border: none;
     background: transparent;
     padding: 16px;
     max-width: 520px;
     width: 100%;
   }
-  #purge-modal::backdrop, #shortcuts-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
+  #kick-modal::backdrop, #purge-modal::backdrop, #shortcuts-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
   kbd {
     background: var(--surface-raised);
     border: 1px solid var(--border);
@@ -829,6 +829,7 @@
         <h2 id="queue-heading">Task Queue</h2>
         <div class="cluster">
           <span id="queue-count" class="text-muted text-sm">-</span>
+          <button type="button" id="kick-buried-btn" class="kick-btn btn-sm" onclick="openKickModal()" aria-haspopup="dialog" title="Kick buried tasks" hidden style="display: none;">Kick Buried</button>
           <button type="button" id="purge-done-btn" class="purge-btn btn-sm danger" onclick="openPurgeModal()" aria-haspopup="dialog" title="Purge completed tasks">Purge Done</button>
           <button type="button" id="prev-page-btn" onclick="prevPage()" disabled aria-label="Previous page" class="btn-sm">Prev</button>
           <button type="button" id="next-page-btn" onclick="nextPage()" disabled aria-label="Next page" class="btn-sm">Next</button>
@@ -964,6 +965,21 @@
         <button type="button" id="body-overlay-close">Close (Esc)</button>
       </div>
       <pre id="body-overlay-pre"></pre>
+    </div>
+  </dialog>
+  <dialog id="kick-modal" class="modal" aria-labelledby="kick-modal-title" aria-describedby="kick-modal-desc" data-state="closed">
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 id="kick-modal-title">Kick Buried Tasks</h2>
+        <button type="button" id="kick-modal-close" class="modal-close-btn" onclick="closeKickModal()" aria-label="Close dialog">&times;</button>
+      </div>
+      <p id="kick-modal-desc" class="modal-body">
+        Are you sure you want to unbury tasks<span id="kick-project-warning"></span>?
+      </p>
+      <div class="modal-actions cluster">
+        <button type="button" id="kick-cancel-btn" onclick="closeKickModal()">Cancel</button>
+        <button type="button" id="kick-confirm-btn" class="kick-confirm-btn" onclick="confirmKick()" aria-busy="false">Kick</button>
+      </div>
     </div>
   </dialog>
   <dialog id="purge-modal" class="modal" aria-labelledby="purge-modal-title" aria-describedby="purge-modal-desc" data-state="closed">
@@ -1330,6 +1346,7 @@
       currentPage = 1;
       syncURL(false);
       syncFilterProjectToForm();
+      updateKickBuriedButton();
       loadTasks();
       loadStats();
     }
@@ -1624,6 +1641,7 @@
         setVal('stat-done', stats.done);
         setVal('stat-buried', stats.buried);
         setVal('stat-total', stats.total);
+        updateKickBuriedButton();
       } catch (e) {
         showFetchError(e);
         logFailure('Failed to load stats:', e);
@@ -2526,6 +2544,93 @@
       }
     }
 
+    function updateKickBuriedButton() {
+      const btn = document.getElementById('kick-buried-btn');
+      if (!btn) return;
+      const statusFilter = getStatusFilter();
+      const statBuriedEl = document.getElementById('stat-buried');
+      const buriedCount = statBuriedEl ? parseInt(statBuriedEl.textContent, 10) || 0 : 0;
+      const show = (statusFilter === 'buried') || (buriedCount > 0);
+      btn.hidden = !show;
+      btn.style.display = show ? '' : 'none';
+    }
+
+    function openKickModal() {
+      const dlg = document.getElementById('kick-modal');
+      if (!dlg) return;
+      const projEl = document.getElementById('filter-project');
+      const proj = (projEl && projEl.value) ? projEl.value.trim() : '';
+      const warn = document.getElementById('kick-project-warning');
+      if (warn) {
+        warn.textContent = proj ? (' for project "' + proj + '"') : ' across all projects';
+      }
+      dlg.setAttribute('data-state', 'open');
+      if (typeof dlg.showModal === 'function') {
+        if (!dlg.open) dlg.showModal();
+      } else {
+        dlg.open = true;
+        dlg.hidden = false;
+      }
+    }
+
+    function closeKickModal() {
+      const dlg = document.getElementById('kick-modal');
+      if (!dlg) return;
+      if (typeof dlg.close === 'function') {
+        if (dlg.open) dlg.close();
+      } else {
+        dlg.open = false;
+        dlg.hidden = true;
+        dlg.dispatchEvent(new Event('close'));
+      }
+    }
+
+    async function confirmKick() {
+      const btn = document.getElementById('kick-confirm-btn');
+      const cancelBtn = document.getElementById('kick-cancel-btn');
+      const projEl = document.getElementById('filter-project');
+      const proj = (projEl && projEl.value) ? projEl.value.trim() : '';
+
+      let url = '/tasks/kick';
+      if (proj) {
+        url += '?project=' + encodeURIComponent(proj);
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+      }
+      if (cancelBtn) cancelBtn.disabled = true;
+
+      try {
+        await fetchJSON(url, { method: 'POST' });
+        closeKickModal();
+        await finishTaskTransition();
+      } catch (err) {
+        closeKickModal();
+        showFetchError(err);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.setAttribute('aria-busy', 'false');
+        }
+        if (cancelBtn) cancelBtn.disabled = false;
+      }
+    }
+
+    function setupKickModal() {
+      const dlg = document.getElementById('kick-modal');
+      if (!dlg) return;
+      dlg.addEventListener('click', (e) => {
+        if (e.target === dlg) closeKickModal();
+      });
+      dlg.addEventListener('close', () => {
+        dlg.setAttribute('data-state', 'closed');
+        const btn = document.getElementById('kick-buried-btn');
+        if (btn && typeof btn.focus === 'function') btn.focus();
+      });
+    }
+
     function setupPurgeModal() {
       const dlg = document.getElementById('purge-modal');
       if (!dlg) return;
@@ -3187,6 +3292,7 @@
       setupGlobalShortcuts();
       setupBodyOverlay();
       setupPurgeModal();
+      setupKickModal();
       setupShortcutsModal();
       setupSubmitForm();
       setupTableSorting();
