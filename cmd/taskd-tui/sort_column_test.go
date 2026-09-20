@@ -511,3 +511,24 @@ func TestToggleSortDirection(t *testing.T) {
 		t.Fatalf("expected reverse glyph in ascii colH, got view:\n%s", viewAscii)
 	}
 }
+
+func TestSortFlagInvalidChoices(t *testing.T) {
+	for _, flagName := range []string{"-s", "-sort"} {
+		_, err := parseFlags([]string{flagName, "invalid"})
+		if err == nil {
+			t.Fatalf("expected error for %s invalid, got nil", flagName)
+		}
+		if !strings.Contains(err.Error(), "must be one of: priority, status, project, worker, lease, claims") {
+			t.Fatalf("%s invalid error %q does not contain expected choices", flagName, err.Error())
+		}
+	}
+
+	t.Setenv("TASKD_SORT", "invalid")
+	_, err := parseFlags(nil)
+	if err == nil {
+		t.Fatal("expected error for TASKD_SORT=invalid, got nil")
+	}
+	if !strings.Contains(err.Error(), "must be one of: priority, status, project, worker, lease, claims") {
+		t.Fatalf("TASKD_SORT error %q does not contain expected choices", err.Error())
+	}
+}

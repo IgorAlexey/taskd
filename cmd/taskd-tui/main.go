@@ -58,6 +58,7 @@ func usagef(format string, a ...any) *usageError {
 }
 
 const maxProjectLen = 64
+const validSortColumns = "priority, status, project, worker, lease, claims"
 
 func validProjectChars(p string) bool {
 	for i := 0; i < len(p); i++ {
@@ -105,7 +106,7 @@ func parseFlags(args []string) (config, error) {
 	if rawSort := os.Getenv("TASKD_SORT"); rawSort != "" {
 		col, ok := parseSortColumn(rawSort)
 		if !ok {
-			return cfg, usagef("invalid sort column %q for TASKD_SORT", rawSort)
+			return cfg, usagef("invalid sort column %q for TASKD_SORT; must be one of: %s", rawSort, validSortColumns)
 		}
 		cfg.sortCol = col
 	}
@@ -214,7 +215,7 @@ func parseFlags(args []string) (config, error) {
 			}
 			col, ok := parseSortColumn(val)
 			if !ok {
-				return cfg, usagef("invalid sort column %q for %s", val, token)
+				return cfg, usagef("invalid sort column %q for %s; must be one of: %s", val, token, validSortColumns)
 			}
 			cfg.sortCol = col
 		case "status":
