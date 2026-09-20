@@ -2277,8 +2277,21 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 
+		var buf bytes.Buffer
+		if err := json.NewEncoder(&buf).Encode(taskDetail{taskItem: item, Notes: notes}); err != nil {
+			internalError(w, err)
+			return
+		}
+		h := fnv.New64a()
+		h.Write(buf.Bytes())
+		etag := fmt.Sprintf("\"%x\"", h.Sum64())
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(taskDetail{taskItem: item, Notes: notes})
+		w.Header().Set("ETag", etag)
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Write(buf.Bytes())
 	}
 	getNotesHandler := func(w http.ResponseWriter, r *http.Request) {
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
