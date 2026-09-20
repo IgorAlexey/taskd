@@ -325,7 +325,8 @@ func validateCustomID(id string) string {
 	if len(id) > maxTaskIDLen {
 		return fmt.Sprintf("id must not exceed %d characters", maxTaskIDLen)
 	}
-	if id == "." || id == ".." || strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") {
+	switch strings.ToLower(id) {
+	case ".", "..", "claim", "purge", "kick":
 		return fmt.Sprintf("id %q is reserved", id)
 	}
 	for i := range len(id) {

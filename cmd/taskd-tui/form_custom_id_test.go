@@ -152,6 +152,8 @@ func TestCreateFormCustomID(t *testing.T) {
 			{"CLAIM", "id \"CLAIM\" is reserved"},
 			{"purge", "id \"purge\" is reserved"},
 			{"PURGE", "id \"PURGE\" is reserved"},
+			{"kick", "id \"kick\" is reserved"},
+			{"KICK", "id \"KICK\" is reserved"},
 			{strings.Repeat("x", maxTaskIDLen+1), "id must not exceed 128 characters"},
 		}
 		for _, tc := range invalidCases {
@@ -198,4 +200,18 @@ func TestCreateFormCustomID(t *testing.T) {
 			t.Fatalf("expected focus %d (body), got %d", fieldBody, m.form.focus)
 		}
 	})
+}
+
+func TestValidateCustomIDKick(t *testing.T) {
+	f, _ := newCreateForm("default")
+	f.body.SetValue("test body")
+	f.customID.SetValue("kick")
+
+	method, path, body, success, errText := f.submit()
+	if errText != `id "kick" is reserved` {
+		t.Fatalf("submit() errText = %q, want %q", errText, `id "kick" is reserved`)
+	}
+	if method != "" || path != "" || body != nil || success != "" {
+		t.Fatalf("submit() should not prepare request when id is reserved: got %s %s", method, path)
+	}
 }
