@@ -180,3 +180,46 @@ func TestParseSortColumnFlag(t *testing.T) {
 		t.Fatalf("expected sortWorker for -sort flag, got %v", cfgLong.sortCol)
 	}
 }
+
+func TestPendingPriorityOrdering(t *testing.T) {
+	tPri3 := task{
+		ID:        "t-pri3",
+		Priority:  3,
+		Status:    "pending",
+		Project:   "sorttest",
+		CreatedAt: 100,
+	}
+	tPri1 := task{
+		ID:        "t-pri1",
+		Priority:  1,
+		Status:    "pending",
+		Project:   "sorttest",
+		CreatedAt: 200,
+	}
+	tPri1Old := task{
+		ID:        "t-pri1-old",
+		Priority:  1,
+		Status:    "pending",
+		Project:   "sorttest",
+		CreatedAt: 50,
+	}
+
+	m := newModel(config{project: "sorttest"}, nil)
+	m.tasks = []task{tPri3, tPri1, tPri1Old}
+	m.rebuildShown()
+
+	if len(m.shown) != 3 {
+		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
+	}
+	got := []string{
+		m.tasks[m.shown[0]].ID,
+		m.tasks[m.shown[1]].ID,
+		m.tasks[m.shown[2]].ID,
+	}
+	want := []string{"t-pri1-old", "t-pri1", "t-pri3"}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("shown[%d] = %s, want %s (all: %v)", i, got[i], want[i], got)
+		}
+	}
+}

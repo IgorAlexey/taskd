@@ -878,19 +878,12 @@ func (m *model) rebuildShown() {
 
 	slices.SortStableFunc(indices, func(a, b int) int {
 		ti, tj := m.tasks[a], m.tasks[b]
+		var c int
 		switch m.sortCol {
 		case sortStatus:
-			si := statusRank(ti.Status)
-			sj := statusRank(tj.Status)
-			if si != sj {
-				return cmp.Compare(si, sj)
-			}
-			return cmp.Compare(ti.Priority, tj.Priority)
+			c = cmp.Compare(statusRank(ti.Status), statusRank(tj.Status))
 		case sortProject:
-			if c := compareFold(ti.Project, tj.Project); c != 0 {
-				return c
-			}
-			return cmp.Compare(ti.Priority, tj.Priority)
+			c = compareFold(ti.Project, tj.Project)
 		case sortWorker:
 			if (ti.Worker != "") != (tj.Worker != "") {
 				if ti.Worker != "" {
@@ -898,10 +891,7 @@ func (m *model) rebuildShown() {
 				}
 				return 1
 			}
-			if c := compareFold(ti.Worker, tj.Worker); c != 0 {
-				return c
-			}
-			return cmp.Compare(ti.Priority, tj.Priority)
+			c = compareFold(ti.Worker, tj.Worker)
 		case sortLease:
 			if (ti.LeaseExpires > 0) != (tj.LeaseExpires > 0) {
 				if ti.LeaseExpires > 0 {
@@ -909,16 +899,20 @@ func (m *model) rebuildShown() {
 				}
 				return 1
 			}
-			if ti.LeaseExpires != tj.LeaseExpires {
-				return cmp.Compare(ti.LeaseExpires, tj.LeaseExpires)
-			}
-			return cmp.Compare(ti.Priority, tj.Priority)
+			c = cmp.Compare(ti.LeaseExpires, tj.LeaseExpires)
 		default:
-			if ti.Priority != tj.Priority {
-				return cmp.Compare(ti.Priority, tj.Priority)
+			c = cmp.Compare(ti.Priority, tj.Priority)
+			if c == 0 {
+				c = cmp.Compare(statusRank(ti.Status), statusRank(tj.Status))
 			}
-			return cmp.Compare(statusRank(ti.Status), statusRank(tj.Status))
 		}
+		if c != 0 {
+			return c
+		}
+		if c := cmp.Compare(ti.Priority, tj.Priority); c != 0 {
+			return c
+		}
+		return cmp.Compare(ti.CreatedAt, tj.CreatedAt)
 	})
 
 	m.shown = indices
