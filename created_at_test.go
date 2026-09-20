@@ -150,8 +150,8 @@ PRAGMA user_version = 7;
 	if err := store.ro.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("query user_version failed: %v", err)
 	}
-	if version != 8 {
-		t.Fatalf("expected schema version 8, got %d", version)
+	if version < 8 {
+		t.Fatalf("expected schema version >= 8, got %d", version)
 	}
 
 	var createdAt int64

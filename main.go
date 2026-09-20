@@ -74,7 +74,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9}
 
 const schemaVersion = len(migrations) + 1
 
@@ -228,7 +228,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, id ASC) WHE
 CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, id ASC) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);
-CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;`
+CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;
+CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (project) WHERE status = 'done';`
 	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
 	if err != nil {
 		db.Close()
@@ -521,6 +522,25 @@ func migrateV8(db *sql.DB) error {
 	}
 	if _, err := tx.Exec("PRAGMA user_version = 8;"); err != nil {
 		return err
+	}
+	return tx.Commit()
+}
+
+func migrateV9(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (project) WHERE status = 'done';",
+		"PRAGMA user_version = 9;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -1988,6 +2008,44 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+
+	purgeTasksHandler := func(w http.ResponseWriter, r *http.Request) {
+		q := requestQuery(r)
+		var projectFilter string
+		if q.Has("project") {
+			p := q.Get("project")
+			if p == "" {
+				writeError(w, http.StatusBadRequest, "project cannot be empty")
+				return
+			}
+			if p != "*" && !validProject(p) {
+				writeError(w, http.StatusBadRequest, "invalid project")
+				return
+			}
+			if p != "*" {
+				projectFilter = p
+			}
+		}
+
+		query := "DELETE FROM tasks WHERE status = 'done'"
+		var args []any
+		if projectFilter != "" {
+			query += " AND project = ?"
+			args = append(args, projectFilter)
+		}
+		res, err := db.rw.Exec(query, args...)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		deleted, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]int64{"deleted": deleted})
+	}
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		if err := db.rw.PingContext(r.Context()); err != nil {
 			writeError(w, http.StatusInternalServerError, "database ping failed")
@@ -2010,6 +2068,9 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			"asset_path", "q", "fields", "columns", "after", "order",
 		}},
 		http.MethodPost: {handler: createTaskHandler},
+	})
+	handleMethods(mux, "/tasks/purge", map[string]route{
+		http.MethodPost: {handler: purgeTasksHandler, params: []string{"project"}},
 	})
 	handleMethods(mux, "/tasks/claim", map[string]route{
 		http.MethodPost: {handler: claimHandler},
@@ -2145,6 +2206,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority, optional claim_count)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task (?force=1 to delete done task)
+  POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   GET    /projects           list active projects
   GET    /workers            list active workers
   GET    /stats              task queue statistics
