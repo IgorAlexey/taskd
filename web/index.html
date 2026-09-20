@@ -362,6 +362,17 @@
     margin-bottom: 16px;
     font-size: 13px;
   }
+  .noscript-banner {
+    display: block;
+    background: rgba(248,81,73,0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-bottom: 16px;
+    font-size: 13px;
+    text-align: center;
+  }
   .error-banner-dismiss {
     background: none;
     border: none;
@@ -450,6 +461,11 @@
     <span id="error-banner-text"></span>
     <button type="button" class="error-banner-dismiss" onclick="showError(null)" aria-label="Dismiss error">&times;</button>
   </div>
+  <noscript>
+    <div class="noscript-banner" role="alert">
+      JavaScript is disabled. This dashboard requires JavaScript to query daemon status. Query tasks via the CLI or HTTP API (/tasks, /stats) instead.
+    </div>
+  </noscript>
   <header>
     <h1>taskd</h1>
     <div class="controls">
@@ -465,23 +481,23 @@
   <div class="grid-stats">
     <button type="button" class="card" data-status-filter="pending">
       <div class="stat-label">Pending</div>
-      <div class="stat-val" id="stat-pending">0</div>
+      <div class="stat-val" id="stat-pending">-</div>
     </button>
     <button type="button" class="card" data-status-filter="leased">
       <div class="stat-label">Leased</div>
-      <div class="stat-val" id="stat-leased">0</div>
+      <div class="stat-val" id="stat-leased">-</div>
     </button>
     <button type="button" class="card" data-status-filter="done">
       <div class="stat-label">Done</div>
-      <div class="stat-val" id="stat-done">0</div>
+      <div class="stat-val" id="stat-done">-</div>
     </button>
     <button type="button" class="card" data-status-filter="buried">
       <div class="stat-label">Buried</div>
-      <div class="stat-val" id="stat-buried">0</div>
+      <div class="stat-val" id="stat-buried">-</div>
     </button>
     <button type="button" class="card" data-status-filter="">
       <div class="stat-label">Total</div>
-      <div class="stat-val" id="stat-total">0</div>
+      <div class="stat-val" id="stat-total">-</div>
     </button>
   </div>
 
@@ -490,7 +506,7 @@
       <div class="panel-header">
         <h2 id="queue-heading">Task Queue</h2>
         <div style="display: flex; align-items: center; gap: 8px;">
-          <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>
+          <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">-</span>
           <button type="button" id="prev-page-btn" onclick="prevPage()" disabled aria-label="Previous page" style="padding: 2px 8px; font-size: 12px;">Prev</button>
           <button type="button" id="next-page-btn" onclick="nextPage()" disabled aria-label="Next page" style="padding: 2px 8px; font-size: 12px;">Next</button>
         </div>
@@ -540,7 +556,7 @@
             </tr>
           </thead>
           <tbody id="task-table-body">
-            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>
+            <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Not connected</td></tr>
           </tbody>
         </table>
       </div>
@@ -1134,9 +1150,9 @@
             let emptyRow = tbody.querySelector('tr:not([data-task-id])');
             if (!emptyRow) {
               emptyRow = document.createElement('tr');
-              emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
               tbody.appendChild(emptyRow);
             }
+            emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks</td>';
             return;
           }
 

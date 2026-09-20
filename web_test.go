@@ -64,3 +64,42 @@ func TestWebUIFetchTimeout(t *testing.T) {
 		t.Errorf("recovered status display = %q, want none", got.RecoveredDisplay)
 	}
 }
+
+func TestWebUIInitialPlaceholdersAndNoscript(t *testing.T) {
+	ui := string(uiHTML)
+	stats := []string{"stat-pending", "stat-leased", "stat-done", "stat-buried", "stat-total"}
+	for _, id := range stats {
+		placeholder := `id="` + id + `">-`
+		if !strings.Contains(ui, placeholder) {
+			t.Errorf("expected placeholder %q in web/index.html", placeholder)
+		}
+		zero := `id="` + id + `">0`
+		if strings.Contains(ui, zero) {
+			t.Errorf("found hard-coded zero %q in web/index.html", zero)
+		}
+	}
+
+	if !strings.Contains(ui, "<noscript") {
+		t.Fatal("expected <noscript> block in web/index.html")
+	}
+	if !strings.Contains(ui, "CLI") || !strings.Contains(ui, "/tasks") {
+		t.Error("expected noscript block to name CLI and API alternatives")
+	}
+
+	if !strings.Contains(ui, `id="queue-count"`) {
+		t.Fatal("expected #queue-count in web/index.html")
+	}
+	if strings.Contains(ui, `id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>`) {
+		t.Error("expected queue-count to not start with hard-coded 0 tasks")
+	}
+
+	if !strings.Contains(ui, `id="task-table-body"`) {
+		t.Fatal("expected #task-table-body in web/index.html")
+	}
+	if !strings.Contains(ui, "Not connected") {
+		t.Error("expected initial table body to indicate Not connected")
+	}
+	if strings.Contains(ui, `<tbody id="task-table-body">`+"\n"+`            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>`) {
+		t.Error("table body should not claim No tasks in initial markup")
+	}
+}
