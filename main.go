@@ -1951,6 +1951,18 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		if err := db.rw.PingContext(r.Context()); err != nil {
+			writeError(w, http.StatusInternalServerError, "database ping failed")
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte("{\"status\":\"ok\"}\n"))
+	}
+
+	handleMethods(mux, "/health", map[string]route{
+		http.MethodGet: {handler: healthHandler},
+	})
 
 	handleMethods(mux, "/stats", map[string]route{
 		http.MethodGet: {handler: statsHandler, params: []string{"project", "worker"}},
@@ -2057,6 +2069,7 @@ func printUsage(w io.Writer) {
 	fs.PrintDefaults()
 	fmt.Fprintf(w, `
 HTTP Endpoints:
+  GET    /health             daemon readiness and database ping
   GET    /tasks              list tasks
          ?status=            pending | leased | done | buried | live
          ?project=           exact match; project=* matches all projects
