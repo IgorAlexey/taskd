@@ -598,6 +598,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[n]", "new"},
 		{"[e]", "edit"},
 		{"[ctrl-s]", "save form"},
+		{"[?]", "help"},
 	}
 
 	col2 := []keyRef{
@@ -606,11 +607,12 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[c]", "claim"},
 		{"[u]", "release"},
 		{"[t]", "touch lease"},
+		{"[b]", "bury"},
+		{"[K]", "kick"},
 		{"[D]", "delete"},
 		{"[x]", "complete"},
 		{"[y/Y]", "copy id/body"},
 		{"[r]", "refresh"},
-		{"[?]", "help"},
 		{"[q]", "quit"},
 	}
 

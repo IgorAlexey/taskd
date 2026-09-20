@@ -621,6 +621,32 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				id7 := shortID(t.ID)
 				m.msg = ""
 				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7)
+			case msg.Text == "b":
+				t, ok := m.selected()
+				if !ok {
+					return m, nil
+				}
+				if t.Status != "leased" {
+					cmd := m.setMsg("task is not leased")
+					return m, cmd
+				}
+				if t.Worker != m.cfg.worker {
+					cmd := m.setMsg("task leased by another worker")
+					return m, cmd
+				}
+				m.confirmTask("Bury", "buried", "POST", "/tasks/"+t.ID+"/bury", t, map[string]any{"worker": m.cfg.worker})
+				return m, nil
+			case msg.Text == "K":
+				t, ok := m.selected()
+				if !ok {
+					return m, nil
+				}
+				if t.Status != "buried" {
+					cmd := m.setMsg("task is not buried")
+					return m, cmd
+				}
+				m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
+				return m, nil
 			case msg.Text == "D":
 				t, ok := m.selected()
 				if !ok {
@@ -630,17 +656,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd := m.setMsg("cannot delete actively leased task")
 					return m, cmd
 				}
-				id7 := shortID(t.ID)
-				_, title := titleOf(t)
-				title40 := truncateRunes(title, 40)
-				m.confirm = confirmModel{
-					text:    fmt.Sprintf("Delete task %s %q?", id7, title40),
-					button:  "delete",
-					method:  "DELETE",
-					path:    "/tasks/" + t.ID,
-					success: "deleted task " + id7,
-				}
-				m.mode = modeConfirm
+				m.confirmTask("Delete", "deleted", "DELETE", "/tasks/"+t.ID, t, nil)
 				return m, nil
 			case msg.Text == "x":
 				t, ok := m.selected()
@@ -655,17 +671,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd := m.setMsg("cannot complete actively leased task")
 					return m, cmd
 				}
-				id7 := shortID(t.ID)
-				_, title := titleOf(t)
-				title40 := truncateRunes(title, 40)
-				m.confirm = confirmModel{
-					text:    fmt.Sprintf("Complete task %s %q?", id7, title40),
-					button:  "complete",
-					method:  "POST",
-					path:    "/tasks/" + t.ID + "/close",
-					success: "completed task " + id7,
-				}
-				m.mode = modeConfirm
+				m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
 				return m, nil
 			case msg.Text == "y":
 				if t, ok := m.selected(); ok {
@@ -861,6 +867,21 @@ func (m *model) setError(s string) tea.Cmd {
 	m.msg = "error: " + s
 	m.msgID++
 	return nil
+}
+
+func (m *model) confirmTask(action, past, method, path string, t task, body any) {
+	id7 := shortID(t.ID)
+	_, title := titleOf(t)
+	title40 := truncateRunes(title, 40)
+	m.confirm = confirmModel{
+		text:    fmt.Sprintf("%s task %s %q?", action, id7, title40),
+		button:  strings.ToLower(action),
+		method:  method,
+		path:    path,
+		body:    body,
+		success: fmt.Sprintf("%s task %s", past, id7),
+	}
+	m.mode = modeConfirm
 }
 
 func titleOf(t task) (scope, title string) {
