@@ -251,6 +251,9 @@ func parseFlags(args []string) (config, error) {
 	cfg.refresh = refresh
 	cfg.icons = !ascii
 
+	if cfg.project == "*" {
+		cfg.project = ""
+	}
 	if cfg.project != "" {
 		if err := validateProject(cfg.project); err != nil {
 			return cfg, usagef("%w", err)
