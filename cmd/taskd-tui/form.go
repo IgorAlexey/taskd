@@ -952,6 +952,101 @@ func (n *noteModel) resize(width, height int) {
 	n.input.SetWidth(max(1, inner-2))
 }
 
+type noteLayout struct {
+	boxWidth int
+	inner    int
+	head     []string
+	keep     []string
+	targets  []noteTarget
+}
+
+func (n noteModel) layout(width, height int, th theme) noteLayout {
+	boxWidth, inner := boxSize(width, 20, 60)
+	if boxWidth < 5 || height < 3 {
+		return noteLayout{}
+	}
+	title := th.bold.Render("Add Note")
+	if len(n.taskID) > 0 {
+		title += " " + th.dim.Render("("+shortID(n.taskID)+")")
+	}
+	head := []string{title, ""}
+	if n.errText != "" {
+		head = append(head, th.err.Render(n.errText), "")
+	}
+	inputLine := n.input.View()
+	head = append(head, inputLine, "")
+
+	wrappedHead := wrapRows(head, inner)
+
+	saveToken := "[enter] save"
+	cancelToken := "[esc] cancel"
+	saveW := ansi.StringWidth(saveToken)
+	cancelW := ansi.StringWidth(cancelToken)
+	singleLineW := saveW + buttonGap + cancelW
+	singleLine := singleLineW <= inner
+
+	var keep []string
+	if singleLine {
+		keep = []string{th.accent.Render(saveToken) + strings.Repeat(" ", buttonGap) + th.dim.Render(cancelToken)}
+	} else {
+		keep = []string{th.accent.Render(saveToken), th.dim.Render(cancelToken)}
+	}
+	wrappedKeep := wrapRows(keep, inner)
+
+	room := max(1, height-2*modalBorderW)
+	if len(wrappedHead)+len(wrappedKeep) > room {
+		wrappedHead = wrappedHead[:max(0, room-len(wrappedKeep))]
+	}
+	if len(wrappedHead)+len(wrappedKeep) > room {
+		wrappedKeep = wrappedKeep[:max(0, room-len(wrappedHead))]
+	}
+	if len(wrappedKeep) == 0 {
+		return noteLayout{boxWidth: boxWidth, inner: inner, head: wrappedHead}
+	}
+
+	lines := make([]string, 0, len(wrappedHead)+len(wrappedKeep))
+	lines = append(lines, wrappedHead...)
+	lines = append(lines, wrappedKeep...)
+	boxH := len(lines) + 2*modalBorderW
+	boxX := (width - boxWidth) / 2
+	boxY := (height - boxH) / 2
+
+	contentLeft := boxX + modalFrameW
+	contentTop := boxY + modalBorderW
+	actY := contentTop + len(wrappedHead)
+
+	var targets []noteTarget
+	if singleLine {
+		targets = []noteTarget{
+			{action: noteActionSave, y: actY, start: contentLeft, end: contentLeft + saveW},
+			{action: noteActionCancel, y: actY, start: contentLeft + saveW + buttonGap, end: contentLeft + saveW + buttonGap + cancelW},
+		}
+	} else {
+		targets = append(targets, noteTarget{
+			action: noteActionSave,
+			y:      actY,
+			start:  contentLeft,
+			end:    contentLeft + saveW,
+		})
+		if len(wrappedKeep) >= 2 {
+			targets = append(targets, noteTarget{
+				action: noteActionCancel,
+				y:      actY + 1,
+				start:  contentLeft,
+				end:    contentLeft + cancelW,
+			})
+		}
+	}
+
+	return noteLayout{
+		boxWidth: boxWidth,
+		inner:    inner,
+		head:     wrappedHead,
+		keep:     wrappedKeep,
+		targets:  targets,
+	}
+}
+
 func (n noteModel) Update(msg tea.Msg) (noteModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
@@ -968,6 +1063,33 @@ func (n noteModel) Update(msg tea.Msg) (noteModel, tea.Cmd) {
 			n.done = true
 			return n, nil
 		}
+	case tea.MouseClickMsg:
+		if msg.Button == tea.MouseLeft {
+			w, h := n.width, n.height
+			if w <= 0 {
+				w = 80
+			}
+			if h <= 0 {
+				h = 24
+			}
+			for _, target := range n.layout(w, h, n.th).targets {
+				if msg.Y == target.y && msg.X >= target.start && msg.X < target.end {
+					switch target.action {
+					case noteActionSave:
+						val := strings.TrimSpace(n.input.Value())
+						if val == "" {
+							n.errText = "note text cannot be empty"
+							return n, nil
+						}
+						n.done = true
+						return n, nil
+					case noteActionCancel:
+						n.cancel = true
+						return n, nil
+					}
+				}
+			}
+		}
 	}
 	var cmd tea.Cmd
 	n.input, cmd = n.input.Update(msg)
@@ -975,22 +1097,20 @@ func (n noteModel) Update(msg tea.Msg) (noteModel, tea.Cmd) {
 }
 
 func (n noteModel) View(width, height int, th theme) string {
-	boxWidth, inner := boxSize(width, 20, 60)
-	if boxWidth < 5 {
+	l := n.layout(width, height, th)
+	if l.boxWidth < 5 || len(l.keep) == 0 {
 		return ""
 	}
-	title := th.bold.Render("Add Note")
-	if len(n.taskID) > 0 {
-		title += " " + th.dim.Render("("+shortID(n.taskID)+")")
-	}
-	head := []string{title, ""}
-	if n.errText != "" {
-		head = append(head, th.err.Render(n.errText), "")
-	}
-	inputLine := n.input.View()
-	head = append(head, inputLine, "")
-	keep := []string{th.accent.Render("[enter] save") + "   " + th.dim.Render("[esc] cancel")}
-	return box(wrapRows(head, inner), wrapRows(keep, inner), boxWidth, height, lipgloss.Left, th)
+	lines := make([]string, 0, len(l.head)+len(l.keep))
+	lines = append(lines, l.head...)
+	lines = append(lines, l.keep...)
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(th.accent.GetForeground()).
+		Padding(0, 1).
+		Width(l.boxWidth).
+		Align(lipgloss.Left).
+		Render(lipgloss.JoinVertical(lipgloss.Left, lines...))
 }
 
 func (c confirmModel) buttonBounds(width, height int) []confirmTarget {

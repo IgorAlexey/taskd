@@ -234,6 +234,21 @@ type confirmTarget struct {
 	start  int
 	end    int
 }
+
+type noteAction int
+
+const (
+	noteActionNone noteAction = iota
+	noteActionSave
+	noteActionCancel
+)
+
+type noteTarget struct {
+	action noteAction
+	y      int
+	start  int
+	end    int
+}
 type paneLayout struct {
 	tableTop   int
 	tableRows  int
