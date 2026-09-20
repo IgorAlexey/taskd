@@ -335,6 +335,10 @@
   th.sortable:hover {
     color: var(--text);
   }
+  th.sortable:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
   tbody tr:hover td {
     background: rgba(255,255,255,0.03);
   }
@@ -804,12 +808,12 @@
         <table>
           <thead id="task-table-head">
             <tr>
-              <th scope="col" class="sortable" data-col="id">ID</th>
-              <th scope="col" class="sortable" data-col="project">Project</th>
-              <th scope="col" class="sortable" data-col="status">Status</th>
-              <th scope="col" class="sortable" data-col="priority">Priority</th>
-              <th scope="col" class="sortable" data-col="claim_count">Claims</th>
-              <th scope="col" class="sortable" data-col="worker">Worker</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="id">ID</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="project">Project</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="status">Status</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="priority">Priority</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="claim_count">Claims</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="worker">Worker</th>
               <th scope="col">Summary</th>
             </tr>
           </thead>
@@ -955,10 +959,21 @@
     function setupTableSorting() {
       const thead = document.getElementById('task-table-head');
       if (!thead) return;
-      thead.addEventListener('click', (e) => {
+      const getCol = (e) => {
         const th = e.target.closest ? e.target.closest('th.sortable') : null;
-        if (th && th.dataset && th.dataset.col) {
-          sort(th.dataset.col);
+        return (th && th.dataset) ? th.dataset.col : null;
+      };
+      thead.addEventListener('click', (e) => {
+        const col = getCol(e);
+        if (col) sort(col);
+      });
+      thead.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          const col = getCol(e);
+          if (col) {
+            e.preventDefault();
+            sort(col);
+          }
         }
       });
     }

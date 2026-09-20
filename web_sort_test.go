@@ -107,3 +107,25 @@ func TestServerTasksSort(t *testing.T) {
 		t.Errorf("sort priority desc = %v, want %v", desc, wantDesc)
 	}
 }
+
+func TestWebUITableSortKeyboard(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/table_sort_keyboard.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("table sort keyboard harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("table sort keyboard harness failed: %v", err)
+	}
+
+	var got struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil || !got.OK {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+}
