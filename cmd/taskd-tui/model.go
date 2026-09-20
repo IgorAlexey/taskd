@@ -286,6 +286,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+			if m.mode == modeForm {
+				if m.form.dirty() && !m.form.discarding {
+					m.form.discarding = true
+					return m, nil
+				}
+				if !m.form.dirty() {
+					m.mode = modeTable
+					return m, nil
+				}
+			}
 			return m, tea.Quit
 		}
 		switch m.mode {
@@ -312,8 +322,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, actCmd(m.client, m.confirm.method, m.confirm.path, m.confirm.body, m.confirm.success)
 			case msg.Code == tea.KeyEnter || msg.Code == tea.KeyEscape ||
 				msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
-				// Bare Enter cancels: a destructive action needs an
-				// explicit y.
 				m.mode = modeTable
 				return m, nil
 			}

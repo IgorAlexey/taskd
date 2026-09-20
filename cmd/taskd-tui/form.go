@@ -12,18 +12,18 @@ import (
 )
 
 type formModel struct {
-	title     string
-	project   textinput.Model
-	priority  textinput.Model
-	asset     textinput.Model
-	body      textarea.Model
-	focus     int // 0 project, 1 priority, 2 asset, 3 body, 4 save button
-	editing   bool
-	id        string
-	errText   string
-	done      bool
-	cancelled bool
-
+	title           string
+	project         textinput.Model
+	priority        textinput.Model
+	asset           textinput.Model
+	body            textarea.Model
+	focus           int // 0 project, 1 priority, 2 asset, 3 body, 4 save button
+	editing         bool
+	id              string
+	errText         string
+	done            bool
+	cancelled       bool
+	discarding      bool
 	origProject     string
 	origPriority    int
 	origHasPriority bool
@@ -35,8 +35,9 @@ type formModel struct {
 
 func newCreateForm(project string) (formModel, tea.Cmd) {
 	f := formModel{
-		title:   "New Task",
-		editing: false,
+		title:       "New Task",
+		editing:     false,
+		origProject: project,
 	}
 
 	f.project = textinput.New()
@@ -271,14 +272,50 @@ func (f formModel) validate() string {
 
 	return ""
 }
+func (f formModel) dirty() bool {
+	if f.project.Value() != f.origProject {
+		return true
+	}
+	if f.asset.Value() != f.origAsset {
+		return true
+	}
+	if f.body.Value() != f.origBody {
+		return true
+	}
+	if f.editing {
+		return f.priority.Value() != strconv.Itoa(f.origPriority)
+	}
+	return f.priority.Value() != ""
+}
 
 func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 	f.done = false
 	f.cancelled = false
 
+	if f.discarding {
+		switch msg := msg.(type) {
+		case tea.KeyPressMsg:
+			switch {
+			case msg.Text == "y" || msg.Text == "Y":
+				f.cancelled = true
+				f.discarding = false
+				return f, nil
+			case msg.Code == tea.KeyEnter || msg.Code == tea.KeyEscape ||
+				msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
+				f.discarding = false
+				return f.refit(), nil
+			}
+		}
+		return f, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.KeyPressMsg:
 		if msg.Code == tea.KeyEscape {
+			if f.dirty() {
+				f.discarding = true
+				return f, nil
+			}
 			f.cancelled = true
 			return f, nil
 		}
@@ -499,6 +536,12 @@ func (f formModel) refit() formModel {
 // View renders the form for the terminal it was last fitted to; the
 // copy is refitted so the drawing and the stored layout are the same.
 func (f formModel) View() string {
+	if f.discarding {
+		actions := f.th.accent.Render("[y] discard") + "   " + f.th.dim.Render("[n] cancel")
+		boxWidth, inner := boxSize(f.width, 20, 54)
+		head := wrapRows([]string{"Discard unsaved changes?", ""}, inner)
+		return box(head, wrapRows([]string{actions}, inner), boxWidth, f.height, lipgloss.Center, f.th)
+	}
 	head, boxWidth := f.fit(f.width, f.height, f.th)
 	return box(head, nil, boxWidth, f.height, lipgloss.Left, f.th)
 }
