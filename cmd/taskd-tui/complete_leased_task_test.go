@@ -31,13 +31,13 @@ func TestCompleteLeasedTask(t *testing.T) {
 
 	now := time.Now()
 	tOwn := task{
-		ID:           "task-own-1",
+		ID:           1,
 		Status:       "leased",
 		Worker:       "worker-me",
 		LeaseExpires: now.Add(time.Hour).Unix(),
 	}
 	tOther := task{
-		ID:           "task-other-2",
+		ID:           2,
 		Status:       "leased",
 		Worker:       "worker-other",
 		LeaseExpires: now.Add(time.Hour).Unix(),
@@ -78,7 +78,7 @@ func TestCompleteLeasedTask(t *testing.T) {
 	if m.mode != modeConfirm {
 		t.Fatalf("mode after pressing x = %v, want modeConfirm", m.mode)
 	}
-	if m.confirm.method != "POST" || m.confirm.path != "/tasks/task-own-1/done" || m.confirm.button != "complete" {
+	if m.confirm.method != "POST" || m.confirm.path != "/tasks/1/done" || m.confirm.button != "complete" {
 		t.Fatalf("unexpected confirm modal: %+v", m.confirm)
 	}
 	wantBody := map[string]any{"worker": "worker-me"}
@@ -100,7 +100,7 @@ func TestCompleteLeasedTask(t *testing.T) {
 		t.Fatalf("action failed: %+v", actResult)
 	}
 
-	if received.path != "/tasks/task-own-1/done" || received.worker != "worker-me" {
-		t.Fatalf("server received %+v, want path /tasks/task-own-1/done and worker worker-me", received)
+	if received.path != "/tasks/1/done" || received.worker != "worker-me" {
+		t.Fatalf("server received %+v, want path /tasks/1/done and worker worker-me", received)
 	}
 }

@@ -93,7 +93,7 @@ func TestClickFormCancel(t *testing.T) {
 		m.width = 80
 		m.height = 24
 		m.tasks = []task{
-			{ID: "task-edit", Project: "default", Priority: 2, Status: "pending", Body: "existing task body"},
+			{ID: 100, Project: "default", Priority: 2, Status: "pending", Body: "existing task body"},
 		}
 		m.rebuildShown()
 		m.syncDetail()
@@ -135,7 +135,7 @@ func TestClickFormCancel(t *testing.T) {
 		m.width = 80
 		m.height = 24
 		m.tasks = []task{
-			{ID: "task-edit", Project: "default", Priority: 2, Status: "pending", Body: "existing task body"},
+			{ID: 100, Project: "default", Priority: 2, Status: "pending", Body: "existing task body"},
 		}
 		m.rebuildShown()
 		m.syncDetail()

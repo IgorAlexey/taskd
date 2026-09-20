@@ -38,8 +38,8 @@ func TestPurgeCompletedTasks(t *testing.T) {
 				worker: "worker-1",
 			}, newClient(ts.URL))
 			m.tasks = []task{
-				{ID: "t-1", Project: "proj-a", Status: "done", Body: "done 1"},
-				{ID: "t-2", Project: "proj-b", Status: "done", Body: "done 2"},
+				{ID: 1, Project: "proj-a", Status: "done", Body: "done 1"},
+				{ID: 2, Project: "proj-b", Status: "done", Body: "done 2"},
 			}
 			m.rebuildShown()
 			m.mode = initialMode
@@ -108,7 +108,7 @@ func TestPurgeScopedToProjectFilter(t *testing.T) {
 	}, newClient(ts.URL))
 	m.project = "alpha"
 	m.tasks = []task{
-		{ID: "t-1", Project: "alpha", Status: "done", Body: "done in alpha"},
+		{ID: 1, Project: "alpha", Status: "done", Body: "done in alpha"},
 	}
 	m.rebuildShown()
 	m.cursor = 0
@@ -150,7 +150,7 @@ func TestPurgeCancel(t *testing.T) {
 		worker: "worker-1",
 	}, newClient("http://localhost:8080"))
 	m.tasks = []task{
-		{ID: "t-1", Project: "alpha", Status: "done", Body: "done in alpha"},
+		{ID: 1, Project: "alpha", Status: "done", Body: "done in alpha"},
 	}
 	m.rebuildShown()
 

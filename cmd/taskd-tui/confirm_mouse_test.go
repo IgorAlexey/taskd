@@ -12,7 +12,7 @@ func TestClickConfirmModalButtons(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.tasks = []task{
-		{ID: "task-0", Project: "test", Status: "pending", Body: "zero [y] task with [n] cancel token"},
+		{ID: 1, Project: "test", Status: "pending", Body: "zero [y] task with [n] cancel token"},
 	}
 	m.rebuildShown()
 	m.syncDetail()

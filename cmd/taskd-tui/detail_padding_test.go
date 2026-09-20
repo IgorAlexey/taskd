@@ -61,7 +61,7 @@ func TestDetailPaneInnerPadding(t *testing.T) {
 
 	now := time.Unix(1700000000, 0)
 	sampleTask := task{
-		ID:           "abcdef123456",
+		ID:           123456,
 		Project:      "proj",
 		Status:       "leased",
 		Worker:       "host1:main",
@@ -119,7 +119,7 @@ func TestDetailLongTokensViewportClamping(t *testing.T) {
 	token120 := strings.Repeat("B", 120)
 	longWorker := strings.Repeat("w", 50) + ":" + strings.Repeat("b", 50)
 	longTask := task{
-		ID:           "long-task-id-1",
+		ID:           99999,
 		Project:      strings.Repeat("p", 40),
 		Status:       "leased",
 		Worker:       longWorker,

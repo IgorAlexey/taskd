@@ -134,7 +134,7 @@ func (c *client) list(sc listScope, etag string) (listResult, error) {
 	// The daemon's cursor is (priority, rowid) and priority is mutable, so
 	// a task repriced between two pages can come back on both. Dropping
 	// the second copy keeps the list countable.
-	seen := make(map[string]bool, tasksPageLimit)
+	seen := make(map[int64]bool, tasksPageLimit)
 	for page := 0; ; page++ {
 		relPath := "/tasks?" + q.Encode()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+relPath, nil)
@@ -271,8 +271,8 @@ func (c *client) getWorkers() ([]string, error) {
 	return workers, nil
 }
 
-func (c *client) getNotes(id string) ([]taskNote, error) {
-	relPath := "/tasks/" + url.PathEscape(id)
+func (c *client) getNotes(id int64) ([]taskNote, error) {
+	relPath := "/tasks/" + strconv.FormatInt(id, 10)
 	u := c.base + relPath
 	req, err := http.NewRequest(http.MethodGet, u, nil)
 	if err != nil {
@@ -295,8 +295,8 @@ func (c *client) getNotes(id string) ([]taskNote, error) {
 	return res.Notes, nil
 }
 
-func taskNotesCmd(c *client, id string) tea.Cmd {
-	if c == nil || id == "" {
+func taskNotesCmd(c *client, id int64) tea.Cmd {
+	if c == nil || id <= 0 {
 		return nil
 	}
 	return func() tea.Msg {

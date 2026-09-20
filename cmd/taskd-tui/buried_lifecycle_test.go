@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -39,7 +40,7 @@ func TestBuriedLifecycle(t *testing.T) {
 	}
 	st := &serverState{
 		task: task{
-			ID:           "test-task-12345",
+			ID:           12345,
 			Project:      "taskd",
 			Status:       "leased",
 			Worker:       "worker-a",
@@ -69,7 +70,7 @@ func TestBuriedLifecycle(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/projects":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode([]string{"taskd"})
-		case r.Method == http.MethodPost && r.URL.Path == "/tasks/"+st.task.ID+"/bury":
+		case r.Method == http.MethodPost && r.URL.Path == "/tasks/"+strconv.FormatInt(st.task.ID, 10)+"/bury":
 			var body struct {
 				Worker string `json:"worker"`
 			}
@@ -86,7 +87,7 @@ func TestBuriedLifecycle(t *testing.T) {
 			st.stats.Leased = 0
 			st.stats.Buried = 1
 			w.WriteHeader(http.StatusNoContent)
-		case r.Method == http.MethodPost && r.URL.Path == "/tasks/"+st.task.ID+"/kick":
+		case r.Method == http.MethodPost && r.URL.Path == "/tasks/"+strconv.FormatInt(st.task.ID, 10)+"/kick":
 			st.task.Status = "pending"
 			st.task.Worker = ""
 			st.stats.Buried = 0
@@ -129,7 +130,7 @@ func TestBuriedLifecycle(t *testing.T) {
 	if m.mode != modeConfirm {
 		t.Fatalf("mode after pressing b = %v, want modeConfirm", m.mode)
 	}
-	if m.confirm.button != "bury" || m.confirm.method != "POST" || m.confirm.path != "/tasks/"+st.task.ID+"/bury" {
+	if m.confirm.button != "bury" || m.confirm.method != "POST" || m.confirm.path != "/tasks/"+strconv.FormatInt(st.task.ID, 10)+"/bury" {
 		t.Fatalf("unexpected confirm state for bury: %+v", m.confirm)
 	}
 
@@ -165,7 +166,7 @@ func TestBuriedLifecycle(t *testing.T) {
 	if m.mode != modeConfirm {
 		t.Fatalf("mode after pressing K = %v, want modeConfirm", m.mode)
 	}
-	if m.confirm.button != "kick" || m.confirm.method != "POST" || m.confirm.path != "/tasks/"+st.task.ID+"/kick" {
+	if m.confirm.button != "kick" || m.confirm.method != "POST" || m.confirm.path != "/tasks/"+strconv.FormatInt(st.task.ID, 10)+"/kick" {
 		t.Fatalf("unexpected confirm state for kick: %+v", m.confirm)
 	}
 
@@ -185,7 +186,7 @@ func TestBuriedLifecycle(t *testing.T) {
 	up, batchCmd = m.Update(act)
 	m = up.(model)
 
-	wantID := shortID(st.task.ID)
+	wantID := strconv.FormatInt(st.task.ID, 10)
 	if !strings.Contains(m.msg, "kicked task "+wantID) {
 		t.Fatalf("status feedback %q does not announce kicked task %s", m.msg, wantID)
 	}

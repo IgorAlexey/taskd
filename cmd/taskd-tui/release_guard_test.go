@@ -28,7 +28,7 @@ func TestReleaseLeaseWorkerGuard(t *testing.T) {
 
 	t.Run("AnotherWorker", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
-		m.tasks = []task{{ID: "t-1", Status: "leased", Worker: "worker-2"}}
+		m.tasks = []task{{ID: 1, Status: "leased", Worker: "worker-2"}}
 		m.rebuildShown()
 
 		up, _ := m.Update(tea.KeyPressMsg{Text: "u"})
@@ -43,7 +43,7 @@ func TestReleaseLeaseWorkerGuard(t *testing.T) {
 
 	t.Run("HeldLease", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
-		m.tasks = []task{{ID: "t-1", Status: "leased", Worker: "worker-1"}}
+		m.tasks = []task{{ID: 1, Status: "leased", Worker: "worker-1"}}
 		m.rebuildShown()
 
 		_, cmd := m.Update(tea.KeyPressMsg{Text: "u"})
@@ -52,8 +52,8 @@ func TestReleaseLeaseWorkerGuard(t *testing.T) {
 		}
 		cmd()
 
-		if gotMethod != http.MethodPost || gotPath != "/tasks/t-1/release" {
-			t.Fatalf("got %s %s, want POST /tasks/t-1/release", gotMethod, gotPath)
+		if gotMethod != http.MethodPost || gotPath != "/tasks/1/release" {
+			t.Fatalf("got %s %s, want POST /tasks/1/release", gotMethod, gotPath)
 		}
 		if gotWorker != "worker-1" {
 			t.Fatalf("worker = %q, want worker-1", gotWorker)

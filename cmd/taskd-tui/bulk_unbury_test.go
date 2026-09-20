@@ -68,8 +68,8 @@ func TestBulkUnburyAction(t *testing.T) {
 			}, newClient(ts.URL))
 			m.project = tc.project
 			m.tasks = []task{
-				{ID: "t-1", Project: "alpha", Status: "buried", Body: "buried 1"},
-				{ID: "t-2", Project: "beta", Status: "buried", Body: "buried 2"},
+				{ID: 1, Project: "alpha", Status: "buried", Body: "buried 1"},
+				{ID: 2, Project: "beta", Status: "buried", Body: "buried 2"},
 			}
 			m.rebuildShown()
 			m.mode = tc.mde
@@ -124,7 +124,7 @@ func TestBulkUnburyAction(t *testing.T) {
 			worker: "worker-1",
 		}, newClient("http://localhost:8080"))
 		m.tasks = []task{
-			{ID: "t-1", Project: "alpha", Status: "buried", Body: "buried in alpha"},
+			{ID: 1, Project: "alpha", Status: "buried", Body: "buried in alpha"},
 		}
 		m.rebuildShown()
 

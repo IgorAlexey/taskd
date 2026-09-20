@@ -98,7 +98,7 @@ type tableCols struct {
 // widest and most redundant first, until the title clears minTitle; the
 // scope degrades to its header before the id, the last identifier on the
 // row, is given up.
-func budgetColumns(w, maxPri, maxScope, maxWorker, maxClaims int, hasScrollbar bool) tableCols {
+func budgetColumns(w, maxPri, maxScope, maxWorker, maxClaims, maxID int, hasScrollbar bool) tableCols {
 	const minTitle = 24
 	c := tableCols{
 		priority: max(maxPri, 1),
@@ -107,7 +107,7 @@ func budgetColumns(w, maxPri, maxScope, maxWorker, maxClaims int, hasScrollbar b
 		worker:   min(maxWorker, 14),
 		lease:    8,
 		left:     7,
-		id:       7,
+		id:       max(maxID, 2),
 	}
 
 	fixed := 4 + c.priority
@@ -716,11 +716,8 @@ func (m model) View() tea.View {
 					leftStyled = strings.Repeat(" ", wLeft)
 				}
 
-				id7 := t.ID
-				if len(id7) > 7 {
-					id7 = id7[:7]
-				}
-				idStyled := m.theme.dim.Render(padRight(id7, wID))
+				idStr := strconv.FormatInt(t.ID, 10)
+				idStyled := m.theme.dim.Render(padRight(idStr, wID))
 
 				var rowBody strings.Builder
 				rowBody.WriteString(statusStyled)
@@ -787,13 +784,8 @@ func (m model) View() tea.View {
 		sb := calcScrollbar(totalLines, m.detail.YOffset(), vpMax)
 		hasDetailScroll := sb.hasScrollbar
 
-		id7 := curTask.ID
-		idRest := ""
-		if len(curTask.ID) > 7 {
-			id7 = curTask.ID[:7]
-			idRest = curTask.ID[7:]
-		}
-		leftPart := m.theme.rule.Render(ruleChar+ruleChar+" ") + m.theme.dim.Render(m.glyph.hash+" ") + m.theme.bold.Render(id7) + m.theme.dim.Render(idRest) + m.theme.rule.Render(" ")
+		idStr := strconv.FormatInt(curTask.ID, 10)
+		leftPart := m.theme.rule.Render(ruleChar+ruleChar+" ") + m.theme.dim.Render(m.glyph.hash+" ") + m.theme.bold.Render(idStr) + m.theme.rule.Render(" ")
 
 		var stGlyph string
 		switch curTask.Status {

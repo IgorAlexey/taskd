@@ -35,7 +35,7 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 			"error": "project name is reserved",
 		})
 	})
-	mux.HandleFunc("PATCH /tasks/task-456", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PATCH /tasks/456", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusConflict)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -121,7 +121,7 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 
 	t.Run("EditTask", func(t *testing.T) {
 		tOriginal := task{
-			ID:       "task-456",
+			ID:       456,
 			Project:  "proj-test",
 			Priority: 2,
 			Body:     "orig body",

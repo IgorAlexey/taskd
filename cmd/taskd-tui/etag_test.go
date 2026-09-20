@@ -23,7 +23,7 @@ func TestTUIIfNoneMatchAndNotModified(t *testing.T) {
 				w.Header().Set("X-Total-Count", "1")
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode([]task{
-					{ID: "task-1", Body: "initial body", Status: "pending", Project: "p1"},
+					{ID: 1, Body: "initial body", Status: "pending", Project: "p1"},
 				})
 				return
 			}
@@ -63,7 +63,7 @@ func TestTUIIfNoneMatchAndNotModified(t *testing.T) {
 	up1, _ := m.Update(msg1)
 	m = up1.(model)
 
-	if len(m.tasks) != 1 || m.tasks[0].ID != "task-1" {
+	if len(m.tasks) != 1 || m.tasks[0].ID != 1 {
 		t.Fatalf("expected 1 task in table after first poll, got: %+v", m.tasks)
 	}
 	if m.etag != `"etag-v1"` {

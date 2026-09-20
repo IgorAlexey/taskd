@@ -18,7 +18,7 @@ type taskNote struct {
 }
 
 type task struct {
-	ID           string          `json:"id"`
+	ID           int64           `json:"id"`
 	Project      string          `json:"project"`
 	Status       string          `json:"status"`
 	Worker       string          `json:"worker"`
@@ -136,11 +136,11 @@ type (
 	searchMsg struct{ seq uint64 }
 
 	noteFetchMsg struct {
-		id  string
+		id  int64
 		seq uint64
 	}
 	taskNotesMsg struct {
-		id    string
+		id    int64
 		notes []taskNote
 		err   error
 	}
@@ -197,13 +197,13 @@ type model struct {
 	msgID     int
 
 	detail   viewport.Model // scrolls the detail pane body
-	detailID string         // task the viewport content was built for
+	detailID int64          // task the viewport content was built for; 0 means none
 
 	form         formModel
 	confirm      confirmModel
 	help         helpModel
 	note         noteModel
-	notesCache   map[string][]taskNote
+	notesCache   map[int64][]taskNote
 	noteSeq      uint64
 	editorRunner func(cmd *exec.Cmd, fn func(error) tea.Msg) tea.Cmd
 }

@@ -63,7 +63,7 @@ func TestDetailNoteCountChip(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			tsk := task{
-				ID:        "task-1",
+				ID:        1,
 				Project:   "taskd",
 				Priority:  1,
 				CreatedAt: now.Unix() - 60,
@@ -77,7 +77,7 @@ func TestDetailNoteCountChip(t *testing.T) {
 			m.mode = tc.mode
 			m.tasks = []task{tsk}
 			if tc.hasCache {
-				m.notesCache["task-1"] = tc.cachedNotes
+				m.notesCache[1] = tc.cachedNotes
 			}
 			m.rebuildShown()
 			m.cursor = 0

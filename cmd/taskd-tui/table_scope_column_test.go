@@ -114,7 +114,7 @@ func TestTableScopeColumn(t *testing.T) {
 	m.height = 24
 	m.tasks = []task{
 		{
-			ID:       "task-123",
+			ID:       123,
 			Project:  "taskd",
 			Status:   "pending",
 			Priority: 1,

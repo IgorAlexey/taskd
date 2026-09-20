@@ -156,8 +156,8 @@ func TestWorkerFilter(t *testing.T) {
 		m.workers = []string{"worker-alpha", "worker-beta"}
 		future := time.Now().Unix() + 3600
 		m.tasks = []task{
-			{ID: "t1", Status: "leased", Worker: "worker-alpha", Body: "alpha task title", LeaseExpires: future},
-			{ID: "t2", Status: "leased", Worker: "worker-beta", Body: "beta task title", LeaseExpires: future},
+			{ID: 1, Status: "leased", Worker: "worker-alpha", Body: "alpha task title", LeaseExpires: future},
+			{ID: 2, Status: "leased", Worker: "worker-beta", Body: "beta task title", LeaseExpires: future},
 		}
 		m.rebuild()
 		if len(m.shown) != 2 {
@@ -173,8 +173,8 @@ func TestWorkerFilter(t *testing.T) {
 		if m.tasks == nil {
 			t.Fatalf("m.tasks should not be cleared to nil")
 		}
-		if m.tasks[m.shown[0]].ID != "t1" {
-			t.Fatalf("expected task t1, got %s", m.tasks[m.shown[0]].ID)
+		if m.tasks[m.shown[0]].ID != 1 {
+			t.Fatalf("expected task 1, got %d", m.tasks[m.shown[0]].ID)
 		}
 
 		content := ansi.Strip(m.View().Content)

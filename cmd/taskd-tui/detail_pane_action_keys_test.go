@@ -3,6 +3,7 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -17,7 +18,7 @@ func TestDetailPaneActionKeys(t *testing.T) {
 
 	for _, initialMode := range []mode{modeDetail, modeZoom} {
 		testTask := task{
-			ID:       "test-task-action-12345",
+			ID:       12345,
 			Project:  "taskd",
 			Status:   "pending",
 			Body:     "action keys test task body",
@@ -44,7 +45,7 @@ func TestDetailPaneActionKeys(t *testing.T) {
 		if mDel.mode != modeConfirm {
 			t.Fatalf("mode %v: pressing D got mode %v, want modeConfirm", initialMode, mDel.mode)
 		}
-		if mDel.confirm.method != "DELETE" || mDel.confirm.path != "/tasks/"+testTask.ID {
+		if mDel.confirm.method != "DELETE" || mDel.confirm.path != "/tasks/"+strconv.FormatInt(testTask.ID, 10) {
 			t.Fatalf("mode %v: unexpected confirm modal for D: %+v", initialMode, mDel.confirm)
 		}
 
@@ -64,7 +65,7 @@ func TestDetailPaneActionKeys(t *testing.T) {
 		if mComplete.mode != modeConfirm {
 			t.Fatalf("mode %v: pressing x got mode %v, want modeConfirm", initialMode, mComplete.mode)
 		}
-		if mComplete.confirm.button != "complete" || mComplete.confirm.path != "/tasks/"+testTask.ID+"/close" {
+		if mComplete.confirm.button != "complete" || mComplete.confirm.path != "/tasks/"+strconv.FormatInt(testTask.ID, 10)+"/close" {
 			t.Fatalf("mode %v: unexpected confirm modal for x: %+v", initialMode, mComplete.confirm)
 		}
 
@@ -94,7 +95,7 @@ func TestDetailPaneActionKeys(t *testing.T) {
 		if mBury.mode != modeConfirm {
 			t.Fatalf("mode %v: pressing b got mode %v, want modeConfirm", initialMode, mBury.mode)
 		}
-		if mBury.confirm.button != "bury" || mBury.confirm.path != "/tasks/"+testTask.ID+"/bury" {
+		if mBury.confirm.button != "bury" || mBury.confirm.path != "/tasks/"+strconv.FormatInt(testTask.ID, 10)+"/bury" {
 			t.Fatalf("mode %v: unexpected confirm modal for b: %+v", initialMode, mBury.confirm)
 		}
 	}

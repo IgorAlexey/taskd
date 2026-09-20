@@ -18,7 +18,7 @@ func TestFooterContextualActions(t *testing.T) {
 	}
 
 	sampleTask := task{
-		ID:       "task-1234",
+		ID:       1234,
 		Project:  "taskd",
 		Status:   "pending",
 		Priority: 1,

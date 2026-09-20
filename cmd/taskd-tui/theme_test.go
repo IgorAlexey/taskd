@@ -16,14 +16,14 @@ func TestTUIBackgroundColorMsg(t *testing.T) {
 	m.height = 24
 	m.tasks = []task{
 		{
-			ID:       "task-1",
+			ID:       1,
 			Priority: 1,
 			Status:   "pending",
 			Project:  "taskd",
 			Body:     "test theme change",
 		},
 	}
-	m.notesCache["task-1"] = []taskNote{
+	m.notesCache[1] = []taskNote{
 		{
 			ID:     1,
 			Author: "tester",

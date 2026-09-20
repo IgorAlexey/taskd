@@ -17,7 +17,7 @@ func sampleTasksForMouse() []task {
 	tasks := make([]task, 5)
 	for i := range tasks {
 		tasks[i] = task{
-			ID:       string(rune('a' + i)),
+			ID:       int64(i + 1),
 			Body:     body,
 			Status:   "pending",
 			Priority: 1,
@@ -261,7 +261,7 @@ func TestClickScrollbarTrack(t *testing.T) {
 	tasks := make([]task, totalTasks)
 	for i := range tasks {
 		tasks[i] = task{
-			ID:       string(rune('a' + (i % 26))),
+			ID:       int64(i + 1),
 			Body:     "line\n",
 			Status:   "pending",
 			Priority: 1,

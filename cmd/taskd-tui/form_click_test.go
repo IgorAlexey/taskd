@@ -35,22 +35,22 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 		_ = json.NewDecoder(r.Body).Decode(&lastBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "new-task-1", "project": "default", "status": "pending"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 1, "project": "default", "status": "pending"})
 	})
-	mux.HandleFunc("PATCH /tasks/task-edit", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("PATCH /tasks/42", func(w http.ResponseWriter, r *http.Request) {
 		lastMethod = r.Method
 		lastPath = r.URL.Path
 		_ = json.NewDecoder(r.Body).Decode(&lastBody)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]any{"id": "task-edit", "project": "default", "status": "pending"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": 42, "project": "default", "status": "pending"})
 	})
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	findFormRows := func(content string) (projY, priY, idY, bodyY, saveY, saveX int) {
+	findFormRows := func(content string) (projY, priY, bodyY, saveY, saveX int) {
 		lines := strings.Split(content, "\n")
-		projY, priY, idY, bodyY, saveY, saveX = -1, -1, -1, -1, -1, -1
+		projY, priY, bodyY, saveY, saveX = -1, -1, -1, -1, -1
 		for y, raw := range lines {
 			stripped := ansi.Strip(raw)
 			if strings.Contains(stripped, "project:") {
@@ -58,9 +58,6 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 			}
 			if strings.Contains(stripped, "priority:") {
 				priY = y
-			}
-			if strings.Contains(stripped, "ID:") {
-				idY = y
 			}
 			if strings.Contains(stripped, "body:") && bodyY == -1 {
 				bodyY = y + 1
@@ -86,10 +83,10 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 			t.Fatalf("expected initial focus %d (body), got %d", fieldBody, m.form.focus)
 		}
 
-		projY, priY, idY, bodyY, saveY, saveX := findFormRows(m.View().Content)
-		if projY == -1 || priY == -1 || idY == -1 || bodyY == -1 || saveY == -1 || saveX == -1 {
-			t.Fatalf("missing form lines: proj=%d pri=%d id=%d body=%d save=%d saveX=%d\nview:\n%s",
-				projY, priY, idY, bodyY, saveY, saveX, m.View().Content)
+		projY, priY, bodyY, saveY, saveX := findFormRows(m.View().Content)
+		if projY == -1 || priY == -1 || bodyY == -1 || saveY == -1 || saveX == -1 {
+			t.Fatalf("missing form lines: proj=%d pri=%d body=%d save=%d saveX=%d\nview:\n%s",
+				projY, priY, bodyY, saveY, saveX, m.View().Content)
 		}
 
 		up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 20, Y: projY})
@@ -102,12 +99,6 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 		m = up.(model)
 		if m.form.focus != fieldPriority {
 			t.Fatalf("expected focus %d (priority) after click, got %d", fieldPriority, m.form.focus)
-		}
-
-		up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 20, Y: idY})
-		m = up.(model)
-		if m.form.focus != fieldID {
-			t.Fatalf("expected focus %d (id) after click, got %d", fieldID, m.form.focus)
 		}
 
 		up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 20, Y: bodyY})
@@ -126,6 +117,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 		}
 
 		m.form.body.SetValue("valid task body")
+		_, _, _, saveY, saveX = findFormRows(m.View().Content)
 		up, cmd := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: saveX + 2, Y: saveY})
 		m = up.(model)
 		if cmd == nil {
@@ -150,7 +142,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 		m.width = 80
 		m.height = 24
 		m.tasks = []task{
-			{ID: "task-edit", Project: "default", Priority: 2, Status: "pending", Body: "existing task body"},
+			{ID: 42, Project: "default", Priority: 2, Status: "pending", Body: "existing task body"},
 		}
 		m.rebuildShown()
 		m.syncDetail()
@@ -161,7 +153,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 			t.Fatalf("expected editing modeForm, got mode %v editing %v", m.mode, m.form.editing)
 		}
 
-		projY, priY, _, _, saveY, saveX := findFormRows(m.View().Content)
+		projY, priY, _, saveY, saveX := findFormRows(m.View().Content)
 		if priY == -1 || saveY == -1 {
 			t.Fatalf("missing form lines in edit mode: pri=%d save=%d", priY, saveY)
 		}
@@ -190,7 +182,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 		if m.mode != modeTable {
 			t.Fatalf("expected modeTable after edit submit, got %v", m.mode)
 		}
-		if lastMethod != "PATCH" || lastPath != "/tasks/task-edit" {
+		if lastMethod != "PATCH" || lastPath != "/tasks/42" {
 			t.Fatalf("unexpected patch request: %s %s", lastMethod, lastPath)
 		}
 		if p, _ := lastBody["priority"].(float64); int(p) != 8 {

@@ -13,7 +13,7 @@ import (
 func TestTUISortColumn(t *testing.T) {
 	now := time.Now()
 	t1 := task{
-		ID:           "t1",
+		ID:           1,
 		Priority:     2,
 		Status:       "pending",
 		Project:      "proj-z",
@@ -22,7 +22,7 @@ func TestTUISortColumn(t *testing.T) {
 		Body:         "pending task z",
 	}
 	t2 := task{
-		ID:           "t2",
+		ID:           2,
 		Priority:     0,
 		Status:       "leased",
 		Project:      "proj-a",
@@ -31,7 +31,7 @@ func TestTUISortColumn(t *testing.T) {
 		Body:         "leased task a",
 	}
 	t3 := task{
-		ID:           "t3",
+		ID:           3,
 		Priority:     1,
 		Status:       "done",
 		Project:      "proj-m",
@@ -49,8 +49,8 @@ func TestTUISortColumn(t *testing.T) {
 	if len(m.shown) != 3 {
 		t.Fatalf("expected 3 shown tasks, got %d", len(m.shown))
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
-		t.Fatalf("priority sort initial shown = [%s, %s, %s], want [t2, t3, t1]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 3 || m.tasks[m.shown[2]].ID != 1 {
+		t.Fatalf("priority sort initial shown = [%d, %d, %d], want [2, 3, 1]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 
@@ -64,8 +64,8 @@ func TestTUISortColumn(t *testing.T) {
 	if m.sortCol != sortStatus {
 		t.Fatalf("expected sortStatus after 's', got %v", m.sortCol)
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t1" || m.tasks[m.shown[2]].ID != "t3" {
-		t.Fatalf("status sort shown = [%s, %s, %s], want [t2, t1, t3]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 1 || m.tasks[m.shown[2]].ID != 3 {
+		t.Fatalf("status sort shown = [%d, %d, %d], want [2, 1, 3]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 	view = ansi.Strip(m.View().Content)
@@ -78,8 +78,8 @@ func TestTUISortColumn(t *testing.T) {
 	if m.sortCol != sortProject {
 		t.Fatalf("expected sortProject after 's', got %v", m.sortCol)
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
-		t.Fatalf("project sort shown = [%s, %s, %s], want [t2, t3, t1]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 3 || m.tasks[m.shown[2]].ID != 1 {
+		t.Fatalf("project sort shown = [%d, %d, %d], want [2, 3, 1]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 	view = ansi.Strip(m.View().Content)
@@ -92,8 +92,8 @@ func TestTUISortColumn(t *testing.T) {
 	if m.sortCol != sortWorker {
 		t.Fatalf("expected sortWorker after 's', got %v", m.sortCol)
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t1" || m.tasks[m.shown[2]].ID != "t3" {
-		t.Fatalf("worker sort shown = [%s, %s, %s], want [t2, t1, t3]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 1 || m.tasks[m.shown[2]].ID != 3 {
+		t.Fatalf("worker sort shown = [%d, %d, %d], want [2, 1, 3]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 	view = ansi.Strip(m.View().Content)
@@ -106,8 +106,8 @@ func TestTUISortColumn(t *testing.T) {
 	if m.sortCol != sortLease {
 		t.Fatalf("expected sortLease after 's', got %v", m.sortCol)
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t1" || m.tasks[m.shown[2]].ID != "t3" {
-		t.Fatalf("lease sort shown = [%s, %s, %s], want [t2, t1, t3]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 1 || m.tasks[m.shown[2]].ID != 3 {
+		t.Fatalf("lease sort shown = [%d, %d, %d], want [2, 1, 3]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 	view = ansi.Strip(m.View().Content)
@@ -200,21 +200,21 @@ func TestParseSortColumnFlag(t *testing.T) {
 
 func TestPendingPriorityOrdering(t *testing.T) {
 	tPri3 := task{
-		ID:        "t-pri3",
+		ID:        3,
 		Priority:  3,
 		Status:    "pending",
 		Project:   "sorttest",
 		CreatedAt: 100,
 	}
 	tPri1 := task{
-		ID:        "t-pri1",
+		ID:        2,
 		Priority:  1,
 		Status:    "pending",
 		Project:   "sorttest",
 		CreatedAt: 200,
 	}
 	tPri1Old := task{
-		ID:        "t-pri1-old",
+		ID:        1,
 		Priority:  1,
 		Status:    "pending",
 		Project:   "sorttest",
@@ -228,15 +228,15 @@ func TestPendingPriorityOrdering(t *testing.T) {
 	if len(m.shown) != 3 {
 		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
 	}
-	got := []string{
+	got := []int64{
 		m.tasks[m.shown[0]].ID,
 		m.tasks[m.shown[1]].ID,
 		m.tasks[m.shown[2]].ID,
 	}
-	want := []string{"t-pri1-old", "t-pri1", "t-pri3"}
+	want := []int64{1, 2, 3}
 	for i := range want {
 		if got[i] != want[i] {
-			t.Fatalf("shown[%d] = %s, want %s (all: %v)", i, got[i], want[i], got)
+			t.Fatalf("shown[%d] = %d, want %d (all: %v)", i, got[i], want[i], got)
 		}
 	}
 }
@@ -321,9 +321,9 @@ func TestSortByClaims(t *testing.T) {
 		t.Fatalf("expected sortClaims, got %v", cfg.sortCol)
 	}
 
-	t1 := task{ID: "t1", ClaimCount: 1}
-	t2 := task{ID: "t2", ClaimCount: 5}
-	t3 := task{ID: "t3", ClaimCount: 2}
+	t1 := task{ID: 1, ClaimCount: 1}
+	t2 := task{ID: 2, ClaimCount: 5}
+	t3 := task{ID: 3, ClaimCount: 2}
 
 	m := newModel(cfg, nil)
 	m.width = 120
@@ -334,8 +334,8 @@ func TestSortByClaims(t *testing.T) {
 	if len(m.shown) != 3 {
 		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
-		t.Fatalf("expected tasks sorted descending by claims [t2, t3, t1], got [%s, %s, %s]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 3 || m.tasks[m.shown[2]].ID != 1 {
+		t.Fatalf("expected tasks sorted descending by claims [2, 3, 1], got [%d, %d, %d]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 
@@ -370,7 +370,7 @@ func TestSortByClaims(t *testing.T) {
 	mZero := newModel(cfg, nil)
 	mZero.width = 120
 	mZero.height = 24
-	mZero.tasks = []task{{ID: "z1", ClaimCount: 0}, {ID: "z2", ClaimCount: 1}}
+	mZero.tasks = []task{{ID: 1, ClaimCount: 0}, {ID: 2, ClaimCount: 1}}
 	mZero.rebuildShown()
 	if mZero.cols.claims == 0 {
 		t.Fatalf("expected claims column visible when sorted by claims without retries")
@@ -395,9 +395,9 @@ func TestSortByID(t *testing.T) {
 		t.Fatalf("expected sortID, got %v", cfg.sortCol)
 	}
 
-	tA := task{ID: "task-a", Priority: 3}
-	tB := task{ID: "task-b", Priority: 1}
-	tC := task{ID: "task-c", Priority: 2}
+	tA := task{ID: 10, Priority: 3}
+	tB := task{ID: 20, Priority: 1}
+	tC := task{ID: 30, Priority: 2}
 
 	m := newModel(cfg, nil)
 	m.width = 120
@@ -408,8 +408,8 @@ func TestSortByID(t *testing.T) {
 	if len(m.shown) != 3 {
 		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
 	}
-	if m.tasks[m.shown[0]].ID != "task-a" || m.tasks[m.shown[1]].ID != "task-b" || m.tasks[m.shown[2]].ID != "task-c" {
-		t.Fatalf("expected tasks sorted ascending by ID [task-a, task-b, task-c], got [%s, %s, %s]",
+	if m.tasks[m.shown[0]].ID != 10 || m.tasks[m.shown[1]].ID != 20 || m.tasks[m.shown[2]].ID != 30 {
+		t.Fatalf("expected tasks sorted ascending by ID [10, 20, 30], got [%d, %d, %d]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 
@@ -463,7 +463,7 @@ func TestSortByID(t *testing.T) {
 func TestToggleSortDirection(t *testing.T) {
 	now := time.Now()
 	t1 := task{
-		ID:           "t1",
+		ID:           1,
 		Priority:     2,
 		Status:       "pending",
 		Project:      "proj-z",
@@ -472,7 +472,7 @@ func TestToggleSortDirection(t *testing.T) {
 		Body:         "pending task z",
 	}
 	t2 := task{
-		ID:           "t2",
+		ID:           2,
 		Priority:     0,
 		Status:       "leased",
 		Project:      "proj-a",
@@ -481,7 +481,7 @@ func TestToggleSortDirection(t *testing.T) {
 		Body:         "leased task a",
 	}
 	t3 := task{
-		ID:           "t3",
+		ID:           3,
 		Priority:     1,
 		Status:       "done",
 		Project:      "proj-m",
@@ -499,8 +499,8 @@ func TestToggleSortDirection(t *testing.T) {
 	if len(m.shown) != 3 {
 		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
-		t.Fatalf("initial ascending shown = [%s, %s, %s], want [t2, t3, t1]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 3 || m.tasks[m.shown[2]].ID != 1 {
+		t.Fatalf("initial ascending shown = [%d, %d, %d], want [2, 3, 1]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 
@@ -511,8 +511,8 @@ func TestToggleSortDirection(t *testing.T) {
 	if !m.sortDesc {
 		t.Fatalf("expected m.sortDesc to be true after clicking sorted priority header")
 	}
-	if m.tasks[m.shown[0]].ID != "t1" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t2" {
-		t.Fatalf("reverse priority shown = [%s, %s, %s], want [t1, t3, t2]",
+	if m.tasks[m.shown[0]].ID != 1 || m.tasks[m.shown[1]].ID != 3 || m.tasks[m.shown[2]].ID != 2 {
+		t.Fatalf("reverse priority shown = [%d, %d, %d], want [1, 3, 2]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 
@@ -526,8 +526,8 @@ func TestToggleSortDirection(t *testing.T) {
 	if m.sortDesc {
 		t.Fatalf("expected m.sortDesc to be false after second click")
 	}
-	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
-		t.Fatalf("ascending priority shown = [%s, %s, %s], want [t2, t3, t1]",
+	if m.tasks[m.shown[0]].ID != 2 || m.tasks[m.shown[1]].ID != 3 || m.tasks[m.shown[2]].ID != 1 {
+		t.Fatalf("ascending priority shown = [%d, %d, %d], want [2, 3, 1]",
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 	view = ansi.Strip(m.View().Content)
@@ -562,9 +562,9 @@ func TestToggleSortDirection(t *testing.T) {
 		t.Fatalf("expected sortDesc=true after pressing key i")
 	}
 
-	tTieA1 := task{ID: "tie-a1", Priority: 0, Project: "proj-a", CreatedAt: 100}
-	tTieA2 := task{ID: "tie-a2", Priority: 1, Project: "proj-a", CreatedAt: 200}
-	tTieB := task{ID: "tie-b", Priority: 0, Project: "proj-b", CreatedAt: 300}
+	tTieA1 := task{ID: 1, Priority: 0, Project: "proj-a", CreatedAt: 100}
+	tTieA2 := task{ID: 2, Priority: 1, Project: "proj-a", CreatedAt: 200}
+	tTieB := task{ID: 3, Priority: 0, Project: "proj-b", CreatedAt: 300}
 	mTie := newModel(config{icons: true, refresh: time.Hour}, nil)
 	mTie.sortCol = sortProject
 	mTie.sortDesc = true
@@ -573,8 +573,8 @@ func TestToggleSortDirection(t *testing.T) {
 	if len(mTie.shown) != 3 {
 		t.Fatalf("expected 3 tasks shown in tie-breaker test, got %d", len(mTie.shown))
 	}
-	if mTie.tasks[mTie.shown[0]].ID != "tie-b" || mTie.tasks[mTie.shown[1]].ID != "tie-a1" || mTie.tasks[mTie.shown[2]].ID != "tie-a2" {
-		t.Fatalf("expected primary descending with stable secondary tie-breaker [tie-b, tie-a1, tie-a2], got [%s, %s, %s]",
+	if mTie.tasks[mTie.shown[0]].ID != 3 || mTie.tasks[mTie.shown[1]].ID != 1 || mTie.tasks[mTie.shown[2]].ID != 2 {
+		t.Fatalf("expected primary descending with stable secondary tie-breaker [3, 1, 2], got [%d, %d, %d]",
 			mTie.tasks[mTie.shown[0]].ID, mTie.tasks[mTie.shown[1]].ID, mTie.tasks[mTie.shown[2]].ID)
 	}
 
@@ -589,8 +589,8 @@ func TestToggleSortDirection(t *testing.T) {
 	if !mAscii.sortDesc {
 		t.Fatalf("expected mAscii.sortDesc to be true")
 	}
-	if mAscii.tasks[mAscii.shown[0]].ID != "t1" || mAscii.tasks[mAscii.shown[1]].ID != "t3" || mAscii.tasks[mAscii.shown[2]].ID != "t2" {
-		t.Fatalf("expected reverse priority order in ascii mode, got [%s, %s, %s]",
+	if mAscii.tasks[mAscii.shown[0]].ID != 1 || mAscii.tasks[mAscii.shown[1]].ID != 3 || mAscii.tasks[mAscii.shown[2]].ID != 2 {
+		t.Fatalf("expected reverse priority order in ascii mode, got [%d, %d, %d]",
 			mAscii.tasks[mAscii.shown[0]].ID, mAscii.tasks[mAscii.shown[1]].ID, mAscii.tasks[mAscii.shown[2]].ID)
 	}
 	viewAscii := ansi.Strip(mAscii.View().Content)

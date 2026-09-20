@@ -16,7 +16,7 @@ func createTestModelWithTask(status string, width, height int) model {
 	m.width = width
 	m.height = height
 	t := task{
-		ID:           "test-task-1",
+		ID:           1,
 		Body:         "task body",
 		Status:       status,
 		Priority:     1,
@@ -167,7 +167,7 @@ func TestFooterLifecycleClicks(t *testing.T) {
 		lastPath = r.URL.Path
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"id":"test-task-1","status":"leased","worker":"w1"}`))
+		w.Write([]byte(`{"id":1,"status":"leased","worker":"w1"}`))
 	}))
 	defer ts.Close()
 
@@ -189,8 +189,8 @@ func TestFooterLifecycleClicks(t *testing.T) {
 		t.Fatal("expected command from clicking claim target")
 	}
 	_ = cmdClaim()
-	if lastMethod != "POST" || lastPath != "/tasks/test-task-1/claim" {
-		t.Fatalf("expected POST /tasks/test-task-1/claim, got %s %s", lastMethod, lastPath)
+	if lastMethod != "POST" || lastPath != "/tasks/1/claim" {
+		t.Fatalf("expected POST /tasks/1/claim, got %s %s", lastMethod, lastPath)
 	}
 
 	mTouch := createTestModelWithTask("leased", 80, 24)
@@ -211,8 +211,8 @@ func TestFooterLifecycleClicks(t *testing.T) {
 		t.Fatal("expected command from clicking touch target")
 	}
 	_ = cmdTouch()
-	if lastMethod != "POST" || lastPath != "/tasks/test-task-1/touch" {
-		t.Fatalf("expected POST /tasks/test-task-1/touch, got %s %s", lastMethod, lastPath)
+	if lastMethod != "POST" || lastPath != "/tasks/1/touch" {
+		t.Fatalf("expected POST /tasks/1/touch, got %s %s", lastMethod, lastPath)
 	}
 
 	mRelease := createTestModelWithTask("leased", 80, 24)
@@ -233,8 +233,8 @@ func TestFooterLifecycleClicks(t *testing.T) {
 		t.Fatal("expected command from clicking release target")
 	}
 	_ = cmdRelease()
-	if lastMethod != "POST" || lastPath != "/tasks/test-task-1/release" {
-		t.Fatalf("expected POST /tasks/test-task-1/release, got %s %s", lastMethod, lastPath)
+	if lastMethod != "POST" || lastPath != "/tasks/1/release" {
+		t.Fatalf("expected POST /tasks/1/release, got %s %s", lastMethod, lastPath)
 	}
 }
 func TestFooterSearch(t *testing.T) {

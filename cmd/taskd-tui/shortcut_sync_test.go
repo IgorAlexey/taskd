@@ -88,7 +88,7 @@ func TestShortcutDocsSync(t *testing.T) {
 	}
 
 	m.filter = ""
-	m.tasks = []task{{ID: "task-12345", Body: "sample body", Status: "pending"}}
+	m.tasks = []task{{ID: 12345, Body: "sample body", Status: "pending"}}
 	m.rebuildShown()
 	m.cursor = 0
 

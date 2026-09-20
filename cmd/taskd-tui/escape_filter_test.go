@@ -14,7 +14,7 @@ func TestEscapeClearsStatusFilterOnEmptyMatch(t *testing.T) {
 	m.mode = modeTable
 	m.project = "alpha"
 	m.projects = []string{"alpha"}
-	m.tasks = []task{{ID: "t1", Project: "alpha", Status: "pending", Body: "task"}}
+	m.tasks = []task{{ID: 1, Project: "alpha", Status: "pending", Body: "task"}}
 	m.filter = "done"
 	m.setError("notice")
 	m.rebuild()
@@ -33,7 +33,7 @@ func TestEscapeClearsStatusFilterOnEmptyMatch(t *testing.T) {
 	if m.filter != "" {
 		t.Fatalf("expected filter cleared to empty, got %q", m.filter)
 	}
-	if len(m.shown) != 1 || m.tasks[m.shown[0]].ID != "t1" {
+	if len(m.shown) != 1 || m.tasks[m.shown[0]].ID != 1 {
 		t.Fatalf("expected queue restored, got shown: %v", m.shown)
 	}
 }

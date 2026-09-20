@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -49,7 +50,7 @@ func TestTouchLease(t *testing.T) {
 	t.Run("UnleasedTask", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:      "task-unleased",
+			ID:      1,
 			Status:  "pending",
 			Project: "taskd",
 		}}
@@ -70,7 +71,7 @@ func TestTouchLease(t *testing.T) {
 	t.Run("ExpiredLease", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:           "task-expired",
+			ID:           2,
 			Status:       "leased",
 			Worker:       "worker-1",
 			LeaseExpires: time.Now().Add(-10 * time.Second).Unix(),
@@ -93,7 +94,7 @@ func TestTouchLease(t *testing.T) {
 	t.Run("AnotherWorker", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:           "task-foreign",
+			ID:           3,
 			Status:       "leased",
 			Worker:       "worker-2",
 			LeaseExpires: time.Now().Add(10 * time.Minute).Unix(),
@@ -114,7 +115,7 @@ func TestTouchLease(t *testing.T) {
 	})
 
 	t.Run("HeldLease", func(t *testing.T) {
-		taskID := "task-01"
+		taskID := int64(1)
 		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
 		m.tasks = []task{{
 			ID:           taskID,
@@ -144,8 +145,9 @@ func TestTouchLease(t *testing.T) {
 			t.Fatalf("expected 1 HTTP request, got %d", len(reqs)-before)
 		}
 		req := reqs[len(reqs)-1]
-		if req.method != http.MethodPost || req.path != "/tasks/"+taskID+"/touch" {
-			t.Fatalf("request = %s %s, want POST /tasks/%s/touch", req.method, req.path, taskID)
+		wantPath := "/tasks/" + strconv.FormatInt(taskID, 10) + "/touch"
+		if req.method != http.MethodPost || req.path != wantPath {
+			t.Fatalf("request = %s %s, want POST %s", req.method, req.path, wantPath)
 		}
 		if req.worker != "worker-1" {
 			t.Fatalf("worker = %q, want %q", req.worker, "worker-1")
@@ -153,8 +155,8 @@ func TestTouchLease(t *testing.T) {
 
 		up, _ = m.Update(act)
 		m = up.(model)
-		if !strings.Contains(m.msg, "touched task "+shortID(taskID)) {
-			t.Fatalf("msg = %q, want containing %q", m.msg, "touched task "+shortID(taskID))
+		if !strings.Contains(m.msg, "touched task "+strconv.FormatInt(taskID, 10)) {
+			t.Fatalf("msg = %q, want containing %q", m.msg, "touched task "+strconv.FormatInt(taskID, 10))
 		}
 	})
 }

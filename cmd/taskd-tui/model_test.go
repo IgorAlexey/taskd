@@ -22,7 +22,7 @@ func TestEmptyWorkerClaimGuard(t *testing.T) {
 	t.Run("ClaimWithoutWorker", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: ""}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:      "task-pending",
+			ID:      1,
 			Status:  "pending",
 			Project: "taskd",
 		}}
@@ -44,7 +44,7 @@ func TestEmptyWorkerClaimGuard(t *testing.T) {
 	t.Run("TouchWithoutWorker", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: ""}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:           "task-leased",
+			ID:           2,
 			Status:       "leased",
 			Worker:       "worker-1",
 			LeaseExpires: time.Now().Add(10 * time.Minute).Unix(),
@@ -75,7 +75,7 @@ func TestEditFormNoChanges(t *testing.T) {
 	defer ts.Close()
 
 	tOriginal := task{
-		ID:       "task-edit-clean",
+		ID:       3,
 		Project:  "proj-clean",
 		Priority: 1,
 		Body:     "clean body",
@@ -187,7 +187,7 @@ func TestPasteRouting(t *testing.T) {
 
 	t.Run("PasteInNote", func(t *testing.T) {
 		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
-		m.tasks = []task{{ID: "task-1", Status: "pending", Project: "p1"}}
+		m.tasks = []task{{ID: 1, Status: "pending", Project: "p1"}}
 		m.rebuildShown()
 		m.cursor = 0
 

@@ -14,7 +14,7 @@ import (
 func TestNoteMultilineEditing(t *testing.T) {
 	var submittedText string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/tasks/t1/notes") {
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/tasks/1/notes") {
 			var body map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				http.Error(w, err.Error(), http.StatusBadRequest)
@@ -33,7 +33,7 @@ func TestNoteMultilineEditing(t *testing.T) {
 	m.width = 100
 	m.height = 30
 	m.tasks = []task{
-		{ID: "t1", Project: "test", Status: "pending", Body: "sample task"},
+		{ID: 1, Project: "test", Status: "pending", Body: "sample task"},
 	}
 	m.rebuildShown()
 	m.syncDetail()
@@ -97,7 +97,7 @@ func TestNoteEmptyCtrlSError(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.tasks = []task{
-		{ID: "t1", Project: "test", Status: "pending", Body: "sample task"},
+		{ID: 1, Project: "test", Status: "pending", Body: "sample task"},
 	}
 	m.rebuildShown()
 
@@ -118,7 +118,7 @@ func TestNoteEmptyCtrlSError(t *testing.T) {
 }
 
 func TestNoteResizeSyncsHeight(t *testing.T) {
-	n, _ := newNoteModel("t1", "tester", modeTable, 80, 24, newTheme(true))
+	n, _ := newNoteModel(1, "tester", modeTable, 80, 24, newTheme(true))
 	if n.input.Height() < 3 {
 		t.Fatalf("expected input height >= 3, got %d", n.input.Height())
 	}

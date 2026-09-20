@@ -35,9 +35,9 @@ func TestModalMouseIsolation(t *testing.T) {
 			m.width = 80
 			m.height = 24
 			m.tasks = []task{
-				{ID: "task-0", Project: "test", Status: "pending", Body: "zero\nzero detail"},
-				{ID: "task-1", Project: "test", Status: "pending", Body: "one\none detail"},
-				{ID: "task-2", Project: "test", Status: "pending", Body: "two\ntwo detail"},
+				{ID: 1, Project: "test", Status: "pending", Body: "zero\nzero detail"},
+				{ID: 2, Project: "test", Status: "pending", Body: "one\none detail"},
+				{ID: 3, Project: "test", Status: "pending", Body: "two\ntwo detail"},
 			}
 			m.rebuildShown()
 			m.syncDetail()
@@ -57,8 +57,8 @@ func TestModalMouseIsolation(t *testing.T) {
 			if m.cursor != 0 {
 				t.Fatalf("cursor after click = %d, want 0", m.cursor)
 			}
-			if m.detailID != "task-0" {
-				t.Fatalf("detailID after click = %q, want task-0", m.detailID)
+			if m.detailID != 1 {
+				t.Fatalf("detailID after click = %d, want 1", m.detailID)
 			}
 
 			wheelDown := tea.MouseWheelMsg{Button: tea.MouseWheelDown, X: 10, Y: bandTop + 1}
@@ -73,8 +73,8 @@ func TestModalMouseIsolation(t *testing.T) {
 			if m.offset != 0 {
 				t.Fatalf("offset after wheel = %d, want 0", m.offset)
 			}
-			if m.detailID != "task-0" {
-				t.Fatalf("detailID after wheel = %q, want task-0", m.detailID)
+			if m.detailID != 1 {
+				t.Fatalf("detailID after wheel = %d, want 1", m.detailID)
 			}
 		})
 	}

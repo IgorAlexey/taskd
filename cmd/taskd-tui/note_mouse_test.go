@@ -12,7 +12,7 @@ func TestClickNoteModalButtons(t *testing.T) {
 	m.width = 80
 	m.height = 24
 	m.tasks = []task{
-		{ID: "task-note-1", Project: "test", Status: "pending", Body: "task body"},
+		{ID: 1, Project: "test", Status: "pending", Body: "task body"},
 	}
 	m.rebuildShown()
 	m.syncDetail()

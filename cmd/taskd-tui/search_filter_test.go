@@ -15,7 +15,7 @@ func TestSearchFilterIndicatorInTable(t *testing.T) {
 	m.height = 24
 	m.mode = modeTable
 	m.query = "alpha"
-	m.tasks = []task{{ID: "1", Status: "pending", Body: "hello"}}
+	m.tasks = []task{{ID: 1, Status: "pending", Body: "hello"}}
 	m.rebuildShown()
 
 	filtered := ansi.Strip(m.View().Content)
@@ -45,7 +45,7 @@ func TestSearchFilterIndicatorTruncation(t *testing.T) {
 	m.height = 10
 	m.mode = modeTable
 	m.query = strings.Repeat("x", 80)
-	m.tasks = []task{{ID: "1", Status: "pending", Body: "hello"}}
+	m.tasks = []task{{ID: 1, Status: "pending", Body: "hello"}}
 	m.rebuildShown()
 
 	view := ansi.Strip(m.View().Content)
@@ -68,9 +68,9 @@ func TestSearchNavigationKeys(t *testing.T) {
 	m.height = 24
 	m.mode = modeTable
 	m.tasks = []task{
-		{ID: "task-1", Body: "alpha first\nfirst detail"},
-		{ID: "task-2", Body: "alpha second\nsecond detail"},
-		{ID: "task-3", Body: "alpha third\nthird detail"},
+		{ID: 1, Body: "alpha first\nfirst detail"},
+		{ID: 2, Body: "alpha second\nsecond detail"},
+		{ID: 3, Body: "alpha third\nthird detail"},
 	}
 	m.query = "alpha"
 	m.rebuildShown()
@@ -84,7 +84,7 @@ func TestSearchNavigationKeys(t *testing.T) {
 		t.Fatalf("expected modeSearch, got %v", m.mode)
 	}
 
-	assertState := func(step string, wantCursor int, wantID, wantDetail string) {
+	assertState := func(step string, wantCursor int, wantID int64, wantDetail string) {
 		t.Helper()
 		if m.mode != modeSearch {
 			t.Fatalf("%s: expected modeSearch, got %v", step, m.mode)
@@ -93,28 +93,28 @@ func TestSearchNavigationKeys(t *testing.T) {
 			t.Fatalf("%s: expected cursor %d, got %d", step, wantCursor, m.cursor)
 		}
 		if sel, ok := m.selected(); !ok || sel.ID != wantID {
-			t.Fatalf("%s: expected %s selected, got %+v", step, wantID, sel)
+			t.Fatalf("%s: expected %d selected, got %+v", step, wantID, sel)
 		}
 		if m.detailID != wantID || !strings.Contains(m.detail.GetContent(), wantDetail) {
-			t.Fatalf("%s: expected detail %s (%q), got %q (%q)",
+			t.Fatalf("%s: expected detail %d (%q), got %d (%q)",
 				step, wantID, wantDetail, m.detailID, m.detail.GetContent())
 		}
 	}
 
-	assertState("initial", 0, "task-1", "first detail")
+	assertState("initial", 0, 1, "first detail")
 
-	press := func(step string, msg tea.Msg, wantCursor int, wantID, wantDetail string) {
+	press := func(step string, msg tea.Msg, wantCursor int, wantID int64, wantDetail string) {
 		up, _ = m.Update(msg)
 		m = up.(model)
 		assertState(step, wantCursor, wantID, wantDetail)
 	}
 
-	press("down", tea.KeyPressMsg{Code: tea.KeyDown}, 1, "task-2", "second detail")
-	press("ctrl-n", tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'n'}, 2, "task-3", "third detail")
-	press("down clamp", tea.KeyPressMsg{Code: tea.KeyDown}, 2, "task-3", "third detail")
-	press("up", tea.KeyPressMsg{Code: tea.KeyUp}, 1, "task-2", "second detail")
-	press("ctrl-p", tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'p'}, 0, "task-1", "first detail")
-	press("up clamp", tea.KeyPressMsg{Code: tea.KeyUp}, 0, "task-1", "first detail")
+	press("down", tea.KeyPressMsg{Code: tea.KeyDown}, 1, 2, "second detail")
+	press("ctrl-n", tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'n'}, 2, 3, "third detail")
+	press("down clamp", tea.KeyPressMsg{Code: tea.KeyDown}, 2, 3, "third detail")
+	press("up", tea.KeyPressMsg{Code: tea.KeyUp}, 1, 2, "second detail")
+	press("ctrl-p", tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'p'}, 0, 1, "first detail")
+	press("up clamp", tea.KeyPressMsg{Code: tea.KeyUp}, 0, 1, "first detail")
 
 	m.shown = nil
 	for _, msg := range []tea.Msg{
@@ -138,7 +138,7 @@ func TestClickClearSearchFooter(t *testing.T) {
 	m.mode = modeTable
 	m.query = "alpha"
 	m.tasks = []task{
-		{ID: "1", Status: "pending", Body: "alpha task"},
+		{ID: 1, Status: "pending", Body: "alpha task"},
 	}
 	m.rebuildShown()
 
@@ -178,7 +178,7 @@ func TestFilterTargetsDetailAndZoomPreserveShortcuts(t *testing.T) {
 	m.height = 24
 	m.query = "alpha"
 	m.tasks = []task{
-		{ID: "1", Status: "pending", Body: "alpha task"},
+		{ID: 1, Status: "pending", Body: "alpha task"},
 	}
 	m.rebuildShown()
 
@@ -205,9 +205,9 @@ func TestMouseClickSelectDuringSearch(t *testing.T) {
 	m.height = 24
 	m.mode = modeTable
 	m.tasks = []task{
-		{ID: "task-1", Body: "alpha first\nfirst detail"},
-		{ID: "task-2", Body: "alpha second\nsecond detail"},
-		{ID: "task-3", Body: "alpha third\nthird detail"},
+		{ID: 1, Body: "alpha first\nfirst detail"},
+		{ID: 2, Body: "alpha second\nsecond detail"},
+		{ID: 3, Body: "alpha third\nthird detail"},
 	}
 	m.query = "alpha"
 	m.rebuildShown()
@@ -241,11 +241,11 @@ func TestMouseClickSelectDuringSearch(t *testing.T) {
 	if m.searchSeq <= seqBefore {
 		t.Fatalf("expected commitQuery to bump searchSeq, was %d, now %d", seqBefore, m.searchSeq)
 	}
-	if sel, ok := m.selected(); !ok || sel.ID != "task-2" {
-		t.Fatalf("selected task = %+v (ok=%v), want task-2", sel, ok)
+	if sel, ok := m.selected(); !ok || sel.ID != 2 {
+		t.Fatalf("selected task = %+v (ok=%v), want 2", sel, ok)
 	}
-	if m.detailID != "task-2" || !strings.Contains(m.detail.GetContent(), "second detail") {
-		t.Fatalf("expected detail pane synced to task-2, got detailID=%q, content=%q",
+	if m.detailID != 2 || !strings.Contains(m.detail.GetContent(), "second detail") {
+		t.Fatalf("expected detail pane synced to task 2, got detailID=%d, content=%q",
 			m.detailID, m.detail.GetContent())
 	}
 }
@@ -255,7 +255,7 @@ func TestFooterWithSearchFilter(t *testing.T) {
 	m.height = 24
 	m.mode = modeTable
 	m.tasks = []task{
-		{ID: "task-1", Status: "pending", Body: "alpha task for testing search filter footer"},
+		{ID: 1, Status: "pending", Body: "alpha task for testing search filter footer"},
 	}
 	m.query = "test"
 	m.rebuildShown()

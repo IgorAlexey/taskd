@@ -42,7 +42,7 @@ func TestDetailPaneCreatedAt(t *testing.T) {
 
 	t.Run("renders age in chips line", func(t *testing.T) {
 		sampleTask := task{
-			ID:        "task123456",
+			ID:        123456,
 			Project:   "taskd",
 			Priority:  1,
 			CreatedAt: now.Unix() - 120,
@@ -83,7 +83,7 @@ func TestDetailPaneCreatedAt(t *testing.T) {
 
 	t.Run("omits creation age when created_at is zero", func(t *testing.T) {
 		sampleTask := task{
-			ID:        "task123456",
+			ID:        123456,
 			Project:   "taskd",
 			Priority:  1,
 			CreatedAt: 0,

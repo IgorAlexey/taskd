@@ -20,8 +20,8 @@ func TestLiveStatusTab(t *testing.T) {
 			requestedStatus.Store(r.URL.Query().Get("status"))
 			w.Header().Set("ETag", "test-etag")
 			_ = json.NewEncoder(w).Encode([]task{
-				{ID: "task-1", Status: "pending", Priority: 1},
-				{ID: "task-2", Status: "leased", Priority: 2},
+				{ID: 1, Status: "pending", Priority: 1},
+				{ID: 2, Status: "leased", Priority: 2},
 			})
 			return
 		}
@@ -122,10 +122,10 @@ func TestLiveStatusTab(t *testing.T) {
 		t.Fatalf("expected filter 'live' after clicking tab, got %q", m.filter)
 	}
 	m.tasks = []task{
-		{ID: "task-p", Status: "pending"},
-		{ID: "task-l", Status: "leased"},
-		{ID: "task-d", Status: "done"},
-		{ID: "task-b", Status: "buried"},
+		{ID: 1, Status: "pending"},
+		{ID: 2, Status: "leased"},
+		{ID: 3, Status: "done"},
+		{ID: 4, Status: "buried"},
 	}
 	m.rebuildShown()
 	if len(m.shown) != 2 {

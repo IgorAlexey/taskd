@@ -12,7 +12,7 @@ import (
 func TestTUIEditPassesIfVersion(t *testing.T) {
 	t.Run("FormSubmitEditIncludesIfVersion", func(t *testing.T) {
 		taskItem := task{
-			ID:       "task-test-1",
+			ID:       1,
 			Project:  "project-a",
 			Body:     "initial body",
 			Priority: 2,
@@ -27,8 +27,8 @@ func TestTUIEditPassesIfVersion(t *testing.T) {
 		if method != "PATCH" {
 			t.Fatalf("expected PATCH, got %s", method)
 		}
-		if path != "/tasks/task-test-1" {
-			t.Fatalf("expected path /tasks/task-test-1, got %s", path)
+		if path != "/tasks/1" {
+			t.Fatalf("expected path /tasks/1, got %s", path)
 		}
 		if body["if_version"] != 5 {
 			t.Fatalf("expected if_version to be 5, got %v", body["if_version"])
@@ -37,7 +37,7 @@ func TestTUIEditPassesIfVersion(t *testing.T) {
 
 	t.Run("FormSubmitEditUnchangedEmpty", func(t *testing.T) {
 		taskItem := task{
-			ID:       "task-test-2",
+			ID:       2,
 			Project:  "project-a",
 			Body:     "initial body",
 			Priority: 2,
@@ -59,7 +59,7 @@ func TestTUIEditPassesIfVersion(t *testing.T) {
 			if r.Method == http.MethodPatch {
 				_ = json.NewDecoder(r.Body).Decode(&gotPatch)
 				w.WriteHeader(http.StatusOK)
-				_ = json.NewEncoder(w).Encode(map[string]any{"id": "t-1"})
+				_ = json.NewEncoder(w).Encode(map[string]any{"id": 1})
 				return
 			}
 			w.WriteHeader(http.StatusOK)
@@ -68,7 +68,7 @@ func TestTUIEditPassesIfVersion(t *testing.T) {
 
 		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:       "t-1",
+			ID:       1,
 			Status:   "pending",
 			Priority: 3,
 			Version:  7,

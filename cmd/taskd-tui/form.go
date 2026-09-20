@@ -14,14 +14,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const maxTaskIDLen = 128
-
 type formField int
 
 const (
 	fieldProject formField = iota
 	fieldPriority
-	fieldID
 	fieldBody
 	fieldSave
 	fieldCancel
@@ -31,11 +28,10 @@ type formModel struct {
 	title           string
 	project         textinput.Model
 	priority        textinput.Model
-	customID        textinput.Model
 	body            textarea.Model
 	focus           formField
 	editing         bool
-	id              string
+	id              int64
 	version         int
 	errText         string
 	done            bool
@@ -64,9 +60,6 @@ func newCreateForm(project string) (formModel, tea.Cmd) {
 	f.priority.Prompt = ""
 	f.priority.Placeholder = "3 (1 is top, blank for default)"
 
-	f.customID = textinput.New()
-	f.customID.Prompt = ""
-	f.customID.Placeholder = "optional"
 	f.body = textarea.New()
 	f.body.Prompt = ""
 	f.body.Placeholder = "first line is the title"
@@ -103,9 +96,6 @@ func newEditForm(t task) (formModel, tea.Cmd) {
 	f.body.Prompt = ""
 	f.body.Placeholder = "first line is the title"
 	f.body.ShowLineNumbers = false
-	f.customID = textinput.New()
-	f.customID.Prompt = ""
-	f.customID.SetValue(t.ID)
 
 	f.body.SetValue(t.Body)
 
@@ -124,7 +114,6 @@ func boxSize(width, lo, hi int) (outer, inner int) {
 func (f *formModel) resize(inner int) {
 	f.project.SetWidth(max(1, inner-11))
 	f.priority.SetWidth(max(1, inner-11))
-	f.customID.SetWidth(max(1, inner-11))
 	f.body.SetWidth(inner)
 }
 
@@ -148,7 +137,6 @@ const (
 	rankHint      = 1
 	rankSeparator = 2
 	rankBodyLabel = 3
-	rankID        = 4
 	rankTitle     = 5
 	rankBody      = 6
 	rankPriority  = 7
@@ -159,10 +147,7 @@ const (
 )
 
 func (f formModel) focusOrder() []formField {
-	if f.editing {
-		return []formField{fieldProject, fieldPriority, fieldBody, fieldSave, fieldCancel}
-	}
-	return []formField{fieldProject, fieldPriority, fieldID, fieldBody, fieldSave, fieldCancel}
+	return []formField{fieldProject, fieldPriority, fieldBody, fieldSave, fieldCancel}
 }
 
 // rows is the whole form in reading order. Field rows take their rank
@@ -213,9 +198,6 @@ func (f formModel) rows(th theme) []formRow {
 		{rank: rankSeparator, field: -1},
 		field(fieldProject, rankProject, f.project.Value(), th.dim.Render("project:  ")+f.project.View()),
 		field(fieldPriority, rankPriority, f.priority.Value(), th.dim.Render("priority: ")+f.priority.View()),
-	}
-	if !f.editing {
-		rows = append(rows, field(fieldID, rankID, f.customID.Value(), th.dim.Render("ID:       ")+f.customID.View()))
 	}
 	rows = append(rows,
 		formRow{text: th.dim.Render("body:"), rank: rankBodyLabel, field: -1},
@@ -278,44 +260,16 @@ func (f *formModel) setFocus(target formField) tea.Cmd {
 	f.focus = target
 	f.project.Blur()
 	f.priority.Blur()
-	f.customID.Blur()
 	f.body.Blur()
 	switch f.focus {
 	case fieldProject:
 		return f.project.Focus()
 	case fieldPriority:
 		return f.priority.Focus()
-	case fieldID:
-		if !f.editing {
-			return f.customID.Focus()
-		}
 	case fieldBody:
 		return f.body.Focus()
 	}
 	return nil
-}
-
-func validTaskByte(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
-}
-
-func validateCustomID(id string) string {
-	if id == "" {
-		return ""
-	}
-	if len(id) > maxTaskIDLen {
-		return fmt.Sprintf("id must not exceed %d characters", maxTaskIDLen)
-	}
-	switch strings.ToLower(id) {
-	case ".", "..", "claim", "purge", "kick":
-		return fmt.Sprintf("id %q is reserved", id)
-	}
-	for i := range len(id) {
-		if !validTaskByte(id[i]) {
-			return "id may only contain [A-Za-z0-9._-]"
-		}
-	}
-	return ""
 }
 
 func (f formModel) validate() string {
@@ -344,12 +298,6 @@ func (f formModel) validate() string {
 		}
 	}
 
-	if !f.editing {
-		if idErr := validateCustomID(strings.TrimSpace(f.customID.Value())); idErr != "" {
-			return idErr
-		}
-	}
-
 	return ""
 }
 
@@ -358,9 +306,6 @@ func (f formModel) dirty() bool {
 		return true
 	}
 	if f.body.Value() != f.origBody {
-		return true
-	}
-	if !f.editing && f.customID.Value() != "" {
 		return true
 	}
 	if f.editing {
@@ -431,13 +376,6 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				cmd := f.setFocus(fieldPriority)
 				return f.refit(), cmd
 			case fieldPriority:
-				if f.editing {
-					cmd := f.setFocus(fieldBody)
-					return f.refit(), cmd
-				}
-				cmd := f.setFocus(fieldID)
-				return f.refit(), cmd
-			case fieldID:
 				cmd := f.setFocus(fieldBody)
 				return f.refit(), cmd
 			case fieldSave:
@@ -477,12 +415,6 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		if !f.editing {
-			f.customID, cmd = f.customID.Update(msg)
-			if cmd != nil {
-				cmds = append(cmds, cmd)
-			}
-		}
 		f.body, cmd = f.body.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
@@ -497,10 +429,6 @@ func (f formModel) updateFocused(msg tea.Msg) (formModel, tea.Cmd) {
 		f.project, cmd = f.project.Update(msg)
 	case fieldPriority:
 		f.priority, cmd = f.priority.Update(msg)
-	case fieldID:
-		if !f.editing {
-			f.customID, cmd = f.customID.Update(msg)
-		}
 	case fieldBody:
 		f.body, cmd = f.body.Update(msg)
 	}
@@ -522,11 +450,6 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 		body["project"] = strings.TrimSpace(f.project.Value())
 		body["body"] = f.body.Value()
 
-		customID := strings.TrimSpace(f.customID.Value())
-		if customID != "" {
-			body["id"] = customID
-		}
-
 		priStr := strings.TrimSpace(f.priority.Value())
 		if priStr != "" {
 			if p, err := strconv.Atoi(priStr); err == nil {
@@ -537,12 +460,8 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 	}
 
 	method = "PATCH"
-	path = "/tasks/" + f.id
-	id7 := f.id
-	if len(id7) > 7 {
-		id7 = id7[:7]
-	}
-	success = "updated task " + id7
+	path = "/tasks/" + strconv.FormatInt(f.id, 10)
+	success = "updated task " + strconv.FormatInt(f.id, 10)
 
 	if f.body.Value() != f.origBody {
 		body["body"] = f.body.Value()
@@ -679,7 +598,7 @@ func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 		rowLines := len(wrapped[i])
 		if lineIdx >= cur && lineIdx < cur+rowLines {
 			switch r.field {
-			case fieldProject, fieldPriority, fieldID, fieldBody:
+			case fieldProject, fieldPriority, fieldBody:
 				cmd := f.setFocus(r.field)
 				return f.refit(), cmd
 			case fieldSave:
@@ -878,7 +797,7 @@ func (c confirmModel) View(width, height int, th theme) string {
 }
 
 type noteModel struct {
-	taskID  string
+	taskID  int64
 	author  string
 	input   textarea.Model
 	prev    mode
@@ -890,7 +809,7 @@ type noteModel struct {
 	cancel  bool
 }
 
-func newNoteModel(taskID, author string, prev mode, width, height int, th theme) (noteModel, tea.Cmd) {
+func newNoteModel(taskID int64, author string, prev mode, width, height int, th theme) (noteModel, tea.Cmd) {
 	if author == "" {
 		author = os.Getenv("USER")
 	}
@@ -951,8 +870,8 @@ func (n noteModel) layout(width, height int, th theme) noteLayout {
 		return noteLayout{}
 	}
 	title := th.bold.Render("Add Note")
-	if len(n.taskID) > 0 {
-		title += " " + th.dim.Render("("+shortID(n.taskID)+")")
+	if n.taskID > 0 {
+		title += " " + th.dim.Render("("+strconv.FormatInt(n.taskID, 10)+")")
 	}
 	saveToken := "[ctrl+s] save"
 	cancelToken := "[esc] cancel"

@@ -17,7 +17,7 @@ func createNavigationTestModel(totalTasks int, bodyLines int) model {
 	body := strings.Repeat("line\n", bodyLines)
 	for i := range tasks {
 		tasks[i] = task{
-			ID:       fmt.Sprintf("task-%d", i),
+			ID:       int64(i + 1),
 			Body:     fmt.Sprintf("Task %d\n%s", i, body),
 			Status:   "pending",
 			Priority: 1,

@@ -57,8 +57,8 @@ func TestProjectFlagWildcard(t *testing.T) {
 			switch r.URL.Path {
 			case "/tasks":
 				tasks := []task{
-					{ID: "t-1", Project: "alpha", Status: "pending", Body: "task one"},
-					{ID: "t-2", Project: "beta", Status: "pending", Body: "task two"},
+					{ID: 1, Project: "alpha", Status: "pending", Body: "task one"},
+					{ID: 2, Project: "beta", Status: "pending", Body: "task two"},
 				}
 				w.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(w).Encode(tasks)

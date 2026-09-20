@@ -23,7 +23,7 @@ func TestFormValidateProjectLength(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var f formModel
 			if tc.editing {
-				f, _ = newEditForm(task{ID: "task-1", Body: "body", Priority: 1})
+				f, _ = newEditForm(task{ID: 1, Body: "body", Priority: 1})
 			} else {
 				f, _ = newCreateForm("")
 				f.body.SetValue("body")

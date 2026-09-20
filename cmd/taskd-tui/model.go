@@ -47,7 +47,7 @@ func newModel(cfg config, c *client) model {
 		query:       cfg.query,
 		priority:    cfg.priority,
 		hasPriority: cfg.hasPriority,
-		notesCache:  make(map[string][]taskNote),
+		notesCache:  make(map[int64][]taskNote),
 	}
 	m.detail.SetWidth(m.detailViewportWidth())
 	m.detail.SetHeight(m.detailViewportHeight())
@@ -234,13 +234,13 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 			seq := m.formSeq
 			val := strings.TrimSpace(m.note.input.Value())
 			taskID := m.note.taskID
-			id7 := shortID(taskID)
+			idStr := strconv.FormatInt(taskID, 10)
 			body := map[string]string{
 				"author": m.note.author,
 				"text":   val,
 			}
-			path := "/tasks/" + url.PathEscape(taskID) + "/notes"
-			return m, formActCmd(m.client, seq, "POST", path, body, "added note to "+id7)
+			path := "/tasks/" + idStr + "/notes"
+			return m, formActCmd(m.client, seq, "POST", path, body, "added note to "+idStr)
 		}
 		return m, cmd
 	}
@@ -248,17 +248,17 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	prevID := ""
+	var prevID int64
 	if t, ok := m.selected(); ok {
 		prevID = t.ID
 	}
 	resM, cmd := m.update(msg)
 	if mod, ok := resM.(model); ok {
-		newID := ""
+		var newID int64
 		if t, ok := mod.selected(); ok {
 			newID = t.ID
 		}
-		if newID != "" && newID != prevID {
+		if newID > 0 && newID != prevID {
 			cmd = tea.Batch(cmd, mod.queueFetchNotes())
 		}
 		return mod, cmd
@@ -358,14 +358,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.changed {
 			m.etag = msg.etag
 			m.total, m.more = msg.total, msg.more
-			selID := ""
+			var selID int64
 			curRow := m.cursor
 			if sel, ok := m.selected(); ok {
 				selID = sel.ID
 			}
 			m.tasks = msg.tasks
 			m.rebuildShown()
-			if selID != "" {
+			if selID > 0 {
 				found := false
 				for i, idx := range m.shown {
 					if m.tasks[idx].ID == selID {
@@ -378,7 +378,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if !found {
 					m.lastRow = curRow
 					m.cursor = -1
-					cmd = m.setMsg("selected task " + selID + " left the view")
+					cmd = m.setMsg("selected task " + strconv.FormatInt(selID, 10) + " left the view")
 				}
 			}
 			if m.endPages > 0 && msg.scope.pages >= m.endPages {
@@ -443,7 +443,7 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setError(msg.err.Error())
 		}
 		if m.notesCache == nil {
-			m.notesCache = make(map[string][]taskNote)
+			m.notesCache = make(map[int64][]taskNote)
 		}
 		m.notesCache[msg.id] = msg.notes
 		if t, ok := m.selected(); ok && t.ID == msg.id {
@@ -1174,18 +1174,24 @@ func intDigits(n int) int {
 }
 
 func (m *model) updateCols() {
-	maxScope, maxWorker, maxClaims, maxPri := 0, 0, 0, 1
+	maxScope, maxWorker, maxClaims, maxPri, maxID := 0, 0, 0, 1, 2
 	if m.sortCol == sortPriority {
 		maxPri = 2
 	}
 	if m.sortCol == sortClaims {
 		maxClaims = 2
 	}
+	if m.sortCol == sortID {
+		maxID = 3
+	}
 	for _, idx := range m.shown {
 		if idx >= 0 && idx < len(m.tasks) {
 			t := m.tasks[idx]
 			if d := intDigits(t.Priority); d > maxPri {
 				maxPri = d
+			}
+			if idStr := strconv.FormatInt(t.ID, 10); len(idStr) > maxID {
+				maxID = len(idStr)
 			}
 			sc, _ := m.displayScope(t)
 			if sc != "" {
@@ -1208,7 +1214,7 @@ func (m *model) updateCols() {
 	}
 	tRows, _ := m.layout()
 	sb := calcScrollbar(len(m.shown), m.offset, tRows)
-	m.cols = budgetColumns(m.width, maxPri, maxScope, maxWorker, maxClaims, sb.hasScrollbar)
+	m.cols = budgetColumns(m.width, maxPri, maxScope, maxWorker, maxClaims, maxID, sb.hasScrollbar)
 }
 
 func (m *model) setSortCol(col sortColumn) {
@@ -1290,13 +1296,13 @@ func (m *model) handleColHeadClick(x int) {
 }
 
 func (m *model) rebuild() {
-	selID := ""
+	var selID int64
 	curRow := m.cursor
 	if sel, ok := m.selected(); ok {
 		selID = sel.ID
 	}
 	m.rebuildShown()
-	if selID != "" {
+	if selID > 0 {
 		found := false
 		for i, idx := range m.shown {
 			if m.tasks[idx].ID == selID {
@@ -1442,16 +1448,16 @@ func (m *model) setError(s string) tea.Cmd {
 }
 
 func (m *model) confirmTask(action, past, method, path string, t task, body any) {
-	id7 := shortID(t.ID)
+	idStr := strconv.FormatInt(t.ID, 10)
 	_, title := titleOf(t)
 	title40 := truncateRunes(title, 40)
 	m.confirm = confirmModel{
-		text:    fmt.Sprintf("%s task %s %q?", action, id7, title40),
+		text:    fmt.Sprintf("%s task %s %q?", action, idStr, title40),
 		button:  strings.ToLower(action),
 		method:  method,
 		path:    path,
 		body:    body,
-		success: fmt.Sprintf("%s task %s", past, id7),
+		success: fmt.Sprintf("%s task %s", past, idStr),
 	}
 	m.mode = modeConfirm
 }
@@ -1504,7 +1510,7 @@ func (m *model) syncDetail() {
 	m.detail.SetHeight(m.detailViewportHeight())
 	t, ok := m.selected()
 	if !ok {
-		m.detailID = ""
+		m.detailID = 0
 		m.detail.SetContent("")
 		return
 	}
@@ -1596,13 +1602,6 @@ func (m *model) fetchNotes() tea.Cmd {
 		return nil
 	}
 	return taskNotesCmd(m.client, t.ID)
-}
-
-func shortID(id string) string {
-	if len(id) > 7 {
-		return id[:7]
-	}
-	return id
 }
 
 func truncateRunes(s string, n int) string {
@@ -1763,7 +1762,7 @@ func (m model) actionEdit() (model, tea.Cmd) {
 type editorFinishedMsg struct {
 	err      error
 	status   string
-	taskID   string
+	taskID   int64
 	version  int
 	body     string
 	tempPath string
@@ -1841,7 +1840,7 @@ func (m model) actionEditInEditor() (model, tea.Cmd) {
 	})
 }
 
-func editorPatchCmd(c *client, taskID string, version int, body, tempPath string) tea.Cmd {
+func editorPatchCmd(c *client, taskID int64, version int, body, tempPath string) tea.Cmd {
 	return func() tea.Msg {
 		if c == nil {
 			os.Remove(tempPath)
@@ -1853,7 +1852,7 @@ func editorPatchCmd(c *client, taskID string, version int, body, tempPath string
 		if version > 0 {
 			reqBody["if_version"] = version
 		}
-		if err := c.do("PATCH", "/tasks/"+taskID, reqBody); err != nil {
+		if err := c.do("PATCH", "/tasks/"+strconv.FormatInt(taskID, 10), reqBody); err != nil {
 			return actMsg{err: fmt.Errorf("%w (draft saved to %s)", err, tempPath)}
 		}
 		os.Remove(tempPath)
@@ -1908,7 +1907,7 @@ func (m model) actionPriAdjust(delta int) (model, tea.Cmd) {
 	if t.Version > 0 {
 		body["if_version"] = t.Version
 	}
-	return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, body, fmt.Sprintf("priority set to %d", pri))
+	return m, actCmd(m.client, "PATCH", "/tasks/"+strconv.FormatInt(t.ID, 10), body, fmt.Sprintf("priority set to %d", pri))
 }
 
 func (m model) actionPriRaise() (model, tea.Cmd) {
@@ -1965,7 +1964,7 @@ func (m model) actionDelete() (model, tea.Cmd) {
 		cmd := m.setMsg("cannot delete actively leased task")
 		return m, cmd
 	}
-	path := "/tasks/" + t.ID
+	path := "/tasks/" + strconv.FormatInt(t.ID, 10)
 	if t.Status == "done" {
 		path += "?force=1"
 	}
@@ -1990,10 +1989,10 @@ func (m model) actionComplete() (model, tea.Cmd) {
 			cmd := m.setMsg("task leased by another worker")
 			return m, cmd
 		}
-		m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/done", t, map[string]any{"worker": m.cfg.worker})
+		m.confirmTask("Complete", "completed", "POST", "/tasks/"+strconv.FormatInt(t.ID, 10)+"/done", t, map[string]any{"worker": m.cfg.worker})
 		return m, nil
 	}
-	m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
+	m.confirmTask("Complete", "completed", "POST", "/tasks/"+strconv.FormatInt(t.ID, 10)+"/close", t, nil)
 	return m, nil
 }
 
@@ -2009,9 +2008,9 @@ func (m model) actionClaim() (model, tea.Cmd) {
 		cmd := m.setMsg("task is not pending")
 		return m, cmd
 	}
-	id7 := shortID(t.ID)
+	idStr := strconv.FormatInt(t.ID, 10)
 	m.msg = ""
-	return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7)
+	return m, actCmd(m.client, "POST", "/tasks/"+idStr+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+idStr)
 }
 
 func (m model) actionRelease() (model, tea.Cmd) {
@@ -2030,9 +2029,9 @@ func (m model) actionRelease() (model, tea.Cmd) {
 		cmd := m.setMsg("cannot release lease held by another worker")
 		return m, cmd
 	}
-	id7 := shortID(t.ID)
+	idStr := strconv.FormatInt(t.ID, 10)
 	m.msg = ""
-	return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": m.cfg.worker}, "released task "+id7)
+	return m, actCmd(m.client, "POST", "/tasks/"+idStr+"/release", map[string]any{"worker": m.cfg.worker}, "released task "+idStr)
 }
 
 func (m model) actionTouch() (model, tea.Cmd) {
@@ -2059,9 +2058,9 @@ func (m model) actionTouch() (model, tea.Cmd) {
 		cmd := m.setMsg("lease has expired")
 		return m, cmd
 	}
-	id7 := shortID(t.ID)
+	idStr := strconv.FormatInt(t.ID, 10)
 	m.msg = ""
-	return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7)
+	return m, actCmd(m.client, "POST", "/tasks/"+idStr+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+idStr)
 }
 
 func (m model) actionBury() (model, tea.Cmd) {
@@ -2080,7 +2079,7 @@ func (m model) actionBury() (model, tea.Cmd) {
 		cmd := m.setMsg("task leased by another worker")
 		return m, cmd
 	}
-	m.confirmTask("Bury", "buried", "POST", "/tasks/"+t.ID+"/bury", t, map[string]any{"worker": m.cfg.worker})
+	m.confirmTask("Bury", "buried", "POST", "/tasks/"+strconv.FormatInt(t.ID, 10)+"/bury", t, map[string]any{"worker": m.cfg.worker})
 	return m, nil
 }
 
@@ -2093,7 +2092,7 @@ func (m model) actionKick() (model, tea.Cmd) {
 		cmd := m.setMsg("task is not buried")
 		return m, cmd
 	}
-	m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
+	m.confirmTask("Kick", "kicked", "POST", "/tasks/"+strconv.FormatInt(t.ID, 10)+"/kick", t, nil)
 	return m, nil
 }
 
@@ -2104,7 +2103,7 @@ func (m model) copyToClipboard(text, msg string) (model, tea.Cmd) {
 
 func (m model) actionCopyID() (model, tea.Cmd) {
 	if t, ok := m.selected(); ok {
-		return m.copyToClipboard(t.ID, "copied to clipboard")
+		return m.copyToClipboard(strconv.FormatInt(t.ID, 10), "copied to clipboard")
 	}
 	return m, nil
 }

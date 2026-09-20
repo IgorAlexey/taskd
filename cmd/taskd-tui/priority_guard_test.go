@@ -23,7 +23,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			gotPatch = body
 			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "t-1", "priority": body["priority"]})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 1, "priority": body["priority"]})
 			return
 		}
 		w.WriteHeader(http.StatusOK)
@@ -34,7 +34,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 		for _, key := range []string{"+", "-"} {
 			m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
 			m.tasks = []task{{
-				ID:       "t-done",
+				ID:       1,
 				Status:   "done",
 				Priority: 2,
 			}}
@@ -57,7 +57,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 		for _, key := range []string{"+", "-"} {
 			m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
 			m.tasks = []task{{
-				ID:           "t-leased",
+				ID:           2,
 				Status:       "leased",
 				LeaseExpires: time.Now().Add(10 * time.Minute).Unix(),
 				Priority:     2,
@@ -80,7 +80,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 	t.Run("PriorityOneRaisesToZero", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:       "t-pending-1",
+			ID:       3,
 			Status:   "pending",
 			Priority: 1,
 		}}
@@ -105,7 +105,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 	t.Run("PriorityZeroAlreadyHighest", func(t *testing.T) {
 		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:       "t-pending-0",
+			ID:       4,
 			Status:   "pending",
 			Priority: 0,
 		}}

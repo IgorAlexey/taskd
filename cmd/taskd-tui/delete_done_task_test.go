@@ -33,7 +33,7 @@ func TestDeleteDoneTaskWithForce(t *testing.T) {
 			defer ts.Close()
 
 			doneTask := task{
-				ID:      "task-done-123",
+				ID:      123,
 				Project: "taskd",
 				Status:  "done",
 				Body:    "finished task body",
@@ -54,7 +54,7 @@ func TestDeleteDoneTaskWithForce(t *testing.T) {
 			if m.mode != modeConfirm {
 				t.Fatalf("mode after pressing D = %v, want modeConfirm", m.mode)
 			}
-			wantPath := "/tasks/" + doneTask.ID + "?force=1"
+			wantPath := fmt.Sprintf("/tasks/%d?force=1", doneTask.ID)
 			if m.confirm.method != http.MethodDelete || m.confirm.path != wantPath {
 				t.Fatalf("unexpected confirm modal for D on done task: %+v, want method %s and path %s", m.confirm, http.MethodDelete, wantPath)
 			}

@@ -17,7 +17,7 @@ func TestFooterWidth80Columns(t *testing.T) {
 	m.projects = []string{"alpha", "beta"}
 	m.workers = []string{"worker-1", "worker-2"}
 	m.tasks = []task{
-		{ID: "task-1", Project: "alpha", Worker: "worker-1", Status: "pending", Body: "sample"},
+		{ID: 1, Project: "alpha", Worker: "worker-1", Status: "pending", Body: "sample"},
 	}
 	m.rebuildShown()
 	m.cursor = 0
@@ -174,7 +174,7 @@ func TestFooterWidth80Columns(t *testing.T) {
 	mWideRight.width = 80
 	mWideRight.height = 24
 	mWideRight.mode = modeTable
-	mWideRight.tasks = []task{{ID: "task-1", Status: "pending"}}
+	mWideRight.tasks = []task{{ID: 1, Status: "pending"}}
 	mWideRight.rebuildShown()
 	mWideRight.more = true
 	mWideRight.total = 1000

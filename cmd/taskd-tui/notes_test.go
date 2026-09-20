@@ -25,7 +25,7 @@ func TestNotes(t *testing.T) {
 	var posted []postRecord
 
 	t1List := task{
-		ID:        "task-with-notes",
+		ID:        1,
 		Project:   "infra",
 		Status:    "pending",
 		Priority:  2,
@@ -65,7 +65,7 @@ func TestNotes(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode([]string{"charlie"})
 	})
-	mux.HandleFunc("GET /tasks/task-with-notes", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /tasks/1", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		mu.Lock()
 		defer mu.Unlock()
@@ -78,7 +78,7 @@ func TestNotes(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	})
-	mux.HandleFunc("POST /tasks/task-with-notes/notes", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /tasks/1/notes", func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Author string `json:"author"`
 			Text   string `json:"text"`
@@ -122,7 +122,7 @@ func TestNotes(t *testing.T) {
 			t.Fatal("notes separator should not appear before notes are fetched")
 		}
 
-		up, fetchCmd := m.Update(noteFetchMsg{id: "task-with-notes", seq: m.noteSeq})
+		up, fetchCmd := m.Update(noteFetchMsg{id: 1, seq: m.noteSeq})
 		m = up.(model)
 		if fetchCmd == nil {
 			t.Fatal("expected noteFetchMsg to return taskNotesCmd")
@@ -224,11 +224,11 @@ func TestNotes(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		if len(posted) == 0 {
-			t.Fatal("expected POST /tasks/task-with-notes/notes request, none recorded")
+			t.Fatal("expected POST /tasks/1/notes request, none recorded")
 		}
 		last := posted[len(posted)-1]
-		if last.path != "/tasks/task-with-notes/notes" {
-			t.Fatalf("posted to %q, want /tasks/task-with-notes/notes", last.path)
+		if last.path != "/tasks/1/notes" {
+			t.Fatalf("posted to %q, want /tasks/1/notes", last.path)
 		}
 		if last.author != "charlie" {
 			t.Fatalf("posted author %q, want 'charlie'", last.author)
@@ -327,7 +327,7 @@ func TestNotes(t *testing.T) {
 	})
 
 	t.Run("navigation_debounces_notes_fetch", func(t *testing.T) {
-		t2 := task{ID: "task-2", Status: "pending", Body: "second task"}
+		t2 := task{ID: 2, Status: "pending", Body: "second task"}
 		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
 		m.width = 100
 		m.height = 30
@@ -351,7 +351,7 @@ func TestNoteFormSeqResetOnError(t *testing.T) {
 	m := newModel(config{worker: "charlie", icons: false}, nil)
 	m.width = 100
 	m.height = 30
-	m.tasks = []task{{ID: "task-1", Status: "pending", Body: "sample task"}}
+	m.tasks = []task{{ID: 1, Status: "pending", Body: "sample task"}}
 	m.rebuildShown()
 	m.cursor = 0
 	m.syncDetail()
@@ -394,7 +394,7 @@ func TestNoteFormSeqResetOnError(t *testing.T) {
 
 func TestNoteAddedRefreshesDetail(t *testing.T) {
 	t1 := task{
-		ID:        "task-refresh",
+		ID:        10,
 		Project:   "test",
 		Status:    "pending",
 		Priority:  1,
@@ -408,7 +408,7 @@ func TestNoteAddedRefreshesDetail(t *testing.T) {
 	m.tasks = []task{t1}
 	m.rebuildShown()
 	m.cursor = 0
-	m.notesCache["task-refresh"] = []taskNote{
+	m.notesCache[10] = []taskNote{
 		{Author: "alice", Text: "existing cached note"},
 	}
 	m.syncDetail()
@@ -435,7 +435,7 @@ func TestNoteAddedRefreshesDetail(t *testing.T) {
 		t.Errorf("expected detail content to contain newly submitted note, got:\n%s", content)
 	}
 
-	notes := m.notesCache["task-refresh"]
+	notes := m.notesCache[10]
 	found := false
 	for _, n := range notes {
 		if n.Text == "newly submitted note" {
@@ -449,7 +449,7 @@ func TestNoteAddedRefreshesDetail(t *testing.T) {
 
 	up, _ = m.Update(tea.KeyPressMsg{Text: "r"})
 	m = up.(model)
-	if _, cached := m.notesCache["task-refresh"]; cached {
+	if _, cached := m.notesCache[10]; cached {
 		t.Errorf("expected r refresh to invalidate selected task notesCache")
 	}
 }

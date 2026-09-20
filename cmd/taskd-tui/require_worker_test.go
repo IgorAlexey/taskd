@@ -24,7 +24,7 @@ func TestTUIRequireWorkerConsistent(t *testing.T) {
 			m := newModel(config{}, newClient("http://localhost:8080"))
 			m.now = time.Now()
 			m.tasks = []task{{
-				ID:           "t-1",
+				ID:           1,
 				Status:       "leased",
 				Worker:       "worker-held",
 				LeaseExpires: m.now.Unix() + 300,
@@ -45,7 +45,7 @@ func TestTUIRequireWorkerConsistent(t *testing.T) {
 		for _, key := range []string{"u", "b"} {
 			m := newModel(config{}, newClient("http://localhost:8080"))
 			m.tasks = []task{{
-				ID:     "t-1",
+				ID:     1,
 				Status: "pending",
 			}}
 			m.rebuildShown()

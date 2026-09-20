@@ -45,7 +45,7 @@ func TestCtrlCCancelSearchAndModal(t *testing.T) {
 			m.width = 80
 			m.height = 24
 			m.tasks = []task{
-				{ID: "task-0", Project: "test", Status: "pending", Body: "zero\nzero detail"},
+				{ID: 1, Project: "test", Status: "pending", Body: "zero\nzero detail"},
 			}
 			m.rebuildShown()
 			m.syncDetail()

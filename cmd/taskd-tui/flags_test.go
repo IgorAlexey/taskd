@@ -424,7 +424,7 @@ func TestQueryFlagAndEnv(t *testing.T) {
 		m.height = 24
 		m.mode = modeTable
 		m.tasks = []task{
-			{ID: "1", Status: "pending", Body: "alpha task"},
+			{ID: 1, Status: "pending", Body: "alpha task"},
 		}
 		m.rebuildShown()
 		rendered := ansi.Strip(m.View().Content)
@@ -589,8 +589,8 @@ func TestStatusFlagAndEnv(t *testing.T) {
 		m.hasStats = true
 		m.stats = stats{Pending: 2, Leased: 1, Total: 3}
 		m.tasks = []task{
-			{ID: "1", Status: "pending", Body: "pending task"},
-			{ID: "2", Status: "leased", Body: "leased task"},
+			{ID: 1, Status: "pending", Body: "pending task"},
+			{ID: 2, Status: "leased", Body: "leased task"},
 		}
 		m.rebuildShown()
 		rendered := ansi.Strip(m.View().Content)

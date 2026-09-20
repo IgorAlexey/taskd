@@ -14,21 +14,21 @@ func TestPriorityColumnMultiDigit(t *testing.T) {
 	m.height = 24
 	m.tasks = []task{
 		{
-			ID:       "id-a",
+			ID:       1,
 			Priority: 10,
 			Status:   "pending",
 			Project:  "test",
 			Body:     "task alpha",
 		},
 		{
-			ID:       "id-b",
+			ID:       2,
 			Priority: 25,
 			Status:   "pending",
 			Project:  "test",
 			Body:     "task beta",
 		},
 		{
-			ID:       "id-c",
+			ID:       3,
 			Priority: 3,
 			Status:   "pending",
 			Project:  "test",
@@ -90,7 +90,7 @@ func TestHeaderAlignmentAcrossSortModes(t *testing.T) {
 		m.sortCol = sortMode
 		m.tasks = []task{
 			{
-				ID:       "id-a",
+				ID:       1,
 				Priority: 10,
 				Status:   "pending",
 				Project:  "test",

@@ -10,7 +10,6 @@ func TestFormCtrlEnterSubmits(t *testing.T) {
 	fields := []formField{
 		fieldProject,
 		fieldPriority,
-		fieldID,
 		fieldBody,
 	}
 
@@ -43,7 +42,7 @@ func TestFormCtrlEnterSubmits(t *testing.T) {
 }
 
 func TestEditFormCtrlEnterSubmits(t *testing.T) {
-	tsk := task{ID: "task-edit-1", Project: "test", Priority: 2, Body: "initial body"}
+	tsk := task{ID: 1, Project: "test", Priority: 2, Body: "initial body"}
 	f, _ := newEditForm(tsk)
 	f.body.SetValue("updated body")
 

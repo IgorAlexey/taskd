@@ -17,10 +17,10 @@ func TestEditBodyInEditor(t *testing.T) {
 	t.Run("SuccessModifiesAndPatches", func(t *testing.T) {
 		var gotPatch map[string]any
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method == "PATCH" && r.URL.Path == "/tasks/task-editor-1" {
+			if r.Method == "PATCH" && r.URL.Path == "/tasks/1" {
 				json.NewDecoder(r.Body).Decode(&gotPatch)
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"id":"task-editor-1","version":5,"status":"pending","body":"new content"}`))
+				w.Write([]byte(`{"id":1,"version":5,"status":"pending","body":"new content"}`))
 				return
 			}
 			http.NotFound(w, r)
@@ -32,7 +32,7 @@ func TestEditBodyInEditor(t *testing.T) {
 
 		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
 		m.tasks = []task{{
-			ID:      "task-editor-1",
+			ID:      1,
 			Status:  "pending",
 			Version: 4,
 			Body:    "old content",
@@ -54,7 +54,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		tmpFile.WriteString("new content")
 		tmpFile.Close()
 
-		patchCmd := editorPatchCmd(m.client, "task-editor-1", 4, "new content", tmpPath)
+		patchCmd := editorPatchCmd(m.client, 1, 4, "new content", tmpPath)
 		resMsg := patchCmd()
 		act, ok := resMsg.(actMsg)
 		if !ok || act.err != nil || act.msg != "task body updated" {
@@ -92,7 +92,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		tmpFile.WriteString("content")
 		tmpFile.Close()
 
-		patchCmd := editorPatchCmd(newClient(ts.URL), "task-zero-ver", 0, "content", tmpPath)
+		patchCmd := editorPatchCmd(newClient(ts.URL), 10, 0, "content", tmpPath)
 		resMsg := patchCmd()
 		act, ok := resMsg.(actMsg)
 		if !ok || act.err != nil {
@@ -127,7 +127,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		tmpFile.WriteString("precious user text")
 		tmpFile.Close()
 
-		patchCmd := editorPatchCmd(m.client, "task-editor-fail", 2, "precious user text", tmpPath)
+		patchCmd := editorPatchCmd(m.client, 11, 2, "precious user text", tmpPath)
 		resMsg := patchCmd()
 		act, ok := resMsg.(actMsg)
 		if !ok || act.err == nil {
@@ -181,7 +181,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		m := newModel(config{}, nil)
 		m.now = time.Now()
 
-		m.tasks = []task{{ID: "t-done", Status: "done"}}
+		m.tasks = []task{{ID: 2, Status: "done"}}
 		m.rebuildShown()
 		m.cursor = 0
 		up, _ := m.Update(tea.KeyPressMsg{Text: "E"})
@@ -190,7 +190,7 @@ func TestEditBodyInEditor(t *testing.T) {
 			t.Errorf("expected 'cannot edit done task', got %q", m.msg)
 		}
 
-		m.tasks = []task{{ID: "t-leased", Status: "leased", LeaseExpires: m.now.Unix() + 60}}
+		m.tasks = []task{{ID: 3, Status: "leased", LeaseExpires: m.now.Unix() + 60}}
 		m.rebuildShown()
 		m.cursor = 0
 		up, _ = m.Update(tea.KeyPressMsg{Text: "E"})

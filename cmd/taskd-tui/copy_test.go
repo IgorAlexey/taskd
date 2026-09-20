@@ -13,7 +13,7 @@ func TestCopyBodyEmpty(t *testing.T) {
 	t.Run("BodyCopiedToClipboardWhenPresent", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:     "t-body",
+			ID:     1,
 			Body:   "important task body",
 			Status: "pending",
 		}}
@@ -45,7 +45,7 @@ func TestCopyBodyEmpty(t *testing.T) {
 	t.Run("EmptyBodyDisplaysNothingToCopy", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:     "t-empty",
+			ID:     2,
 			Body:   "",
 			Status: "pending",
 		}}
@@ -66,7 +66,7 @@ func TestCopyPrimitives(t *testing.T) {
 	t.Run("CtrlYCopiesPrimitives", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:         "t-prim",
+			ID:         3,
 			Primitives: json.RawMessage(`{"status":"success","exit":0}`),
 			Status:     "done",
 		}}
@@ -98,7 +98,7 @@ func TestCopyPrimitives(t *testing.T) {
 	t.Run("CtrlYEmptyPrimitivesDisplaysNothingToCopy", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:     "t-no-prim",
+			ID:     4,
 			Status: "done",
 		}}
 		m.rebuildShown()
@@ -116,7 +116,7 @@ func TestCopyPrimitives(t *testing.T) {
 	t.Run("CtrlYPreservesPrimitivesWhenBodyPresent", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:         "t-both",
+			ID:         5,
 			Body:       "task description body",
 			Primitives: json.RawMessage(`{"output":"only primitives"}`),
 			Status:     "done",
