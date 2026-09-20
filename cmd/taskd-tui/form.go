@@ -833,7 +833,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 	}
 
 	col2 := []keyRef{
-		{"[0-4]", "filter (status)"},
+		{"[0-5]", "filter (status)"},
 		{"+/-", "priority"},
 		{"[c]", "claim"},
 		{"[u]", "release"},

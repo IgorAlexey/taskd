@@ -136,7 +136,7 @@ type model struct {
 	cursor    int    // index into shown; 0 <= cursor < len(shown) or 0
 	lastRow   int
 	offset    int    // first index of shown drawn in the table
-	filter    string // "", "pending", "leased", "done", "buried" (keys 0-4)
+	filter    string // "", "pending", "leased", "done", "buried", "live" (keys 0-5)
 	project   string // "" means all projects
 	worker    string
 	query     string // / substring filter, case-insensitive

@@ -14,7 +14,7 @@ func TestShortcutDocsSync(t *testing.T) {
 	printUsage(&buf)
 	usage := buf.String()
 
-	const wantFilter = "0-4                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried)"
+	const wantFilter = "0-5                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)"
 	if !strings.Contains(usage, wantFilter) {
 		t.Fatalf("printUsage missing complete status filter enumeration; want substring %q", wantFilter)
 	}
@@ -45,8 +45,8 @@ func TestShortcutDocsSync(t *testing.T) {
 	if !strings.Contains(helpContent, "[y/Y]") || !strings.Contains(helpContent, "copy id/body") {
 		t.Errorf("help modal missing [y/Y] copy id/body; got:\n%s", helpContent)
 	}
-	if !strings.Contains(helpContent, "[0-4]") || !strings.Contains(helpContent, "filter (status)") {
-		t.Errorf("help modal missing [0-4] filter (status); got:\n%s", helpContent)
+	if !strings.Contains(helpContent, "[0-5]") || !strings.Contains(helpContent, "filter (status)") {
+		t.Errorf("help modal missing [0-5] filter (status); got:\n%s", helpContent)
 	}
 
 	m.mode = modeTable

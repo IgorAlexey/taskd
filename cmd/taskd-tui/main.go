@@ -240,7 +240,7 @@ Keyboard shortcuts:
   g/G                 jump to first / last row
   ctrl-d/ctrl-u       move half page down / up
   PgUp/PgDn           move page down / up
-  0-4                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried)
+  0-5                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)
   s                   cycle sort (lower case 's': priority, status, project, worker, lease)
   p                   cycle project filter
   w, W                cycle worker filter forward / backward

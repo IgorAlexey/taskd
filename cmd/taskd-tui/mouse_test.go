@@ -635,10 +635,10 @@ func TestClickFooterShortcuts(t *testing.T) {
 		t.Fatal("expected no action when clicking 'j/k move' shortcut")
 	}
 
-	idxFilt := strings.Index(footerLine, "0-4 filter")
+	idxFilt := strings.Index(footerLine, "0-5 filter")
 	_, cmdFilt := clickAt(m, idxFilt)
 	if cmdFilt != nil {
-		t.Fatal("expected no action when clicking '0-4 filter' shortcut")
+		t.Fatal("expected no action when clicking '0-5 filter' shortcut")
 	}
 
 	idxQ := strings.Index(footerLine, "q quit")

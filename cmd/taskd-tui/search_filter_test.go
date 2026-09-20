@@ -34,7 +34,7 @@ func TestSearchFilterIndicatorInTable(t *testing.T) {
 	if strings.Contains(restored, want) {
 		t.Fatalf("unexpected filter indicator in restored view:\n%s", restored)
 	}
-	if !strings.Contains(restored, "0-4") || !strings.Contains(restored, "j/k") {
+	if !strings.Contains(restored, "0-5") || !strings.Contains(restored, "j/k") {
 		t.Fatalf("expected default table legend restored, got:\n%s", restored)
 	}
 }

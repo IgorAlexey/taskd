@@ -211,16 +211,14 @@ func highlightCode(s string, th theme) string {
 }
 func (m model) tabDefs() []tabDef {
 	st := m.stats
-	defs := []tabDef{
+	return []tabDef{
 		{"0", "all", st.Total, ""},
 		{"1", "pending", st.Pending, "pending"},
 		{"2", "leased", st.Leased, "leased"},
 		{"3", "done", st.Done, "done"},
+		{"4", "buried", st.Buried, "buried"},
+		{"5", "live", st.Pending + st.Leased, "live"},
 	}
-	if st.Buried > 0 || m.filter == "buried" {
-		defs = append(defs, tabDef{"4", "buried", st.Buried, "buried"})
-	}
-	return defs
 }
 
 func (m model) renderTab(tab tabDef) string {
@@ -823,6 +821,8 @@ func (m model) corpusCount() int {
 		return m.stats.Done
 	case "buried":
 		return m.stats.Buried
+	case "live":
+		return m.stats.Pending + m.stats.Leased
 	default:
 		return m.stats.Total
 	}
@@ -880,7 +880,7 @@ func (m model) footerItems() [][2]string {
 	}
 	items = append(items,
 		[2]string{"n", "new"},
-		[2]string{"0-4", "filter"},
+		[2]string{"0-5", "filter"},
 		[2]string{"j/k", "move"},
 		[2]string{"e", "edit"},
 		[2]string{"y/Y", "copy"},

@@ -628,6 +628,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.setFilter("done")
 			case msg.Text == "4":
 				return m.setFilter("buried")
+			case msg.Text == "5":
+				return m.setFilter("live")
 			case msg.Text == "p":
 				return m.cycleProject(1)
 			case msg.Text == "P":
@@ -824,6 +826,16 @@ func (m model) row1Bounds() row1Bounds {
 	return b
 }
 
+func statusMatches(taskStatus, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	if filter == "live" {
+		return taskStatus == "pending" || taskStatus == "leased"
+	}
+	return taskStatus == filter
+}
+
 func (m *model) rebuildShown() {
 	var indices []int
 	for i, t := range m.tasks {
@@ -833,7 +845,7 @@ func (m *model) rebuildShown() {
 		if m.worker != "" && t.Worker != m.worker {
 			continue
 		}
-		if m.filter != "" && t.Status != m.filter {
+		if !statusMatches(t.Status, m.filter) {
 			continue
 		}
 		indices = append(indices, i)
