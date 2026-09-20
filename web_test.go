@@ -134,3 +134,12 @@ func TestWebUIExpiredLeaseActions(t *testing.T) {
 		t.Error("task edit handlers should guard on active lease expiration")
 	}
 }
+func TestWebUIConfirmActions(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, "confirm('Complete this task as done?')") {
+		t.Error("expected completeTask to require confirmation before completion")
+	}
+	if !strings.Contains(ui, "confirm('Close this task as done without a result?')") {
+		t.Error("expected closeTask to require confirmation before closing")
+	}
+}

@@ -1553,6 +1553,7 @@
 
     async function completeTask(id, worker) {
       if (!id || !worker) return;
+      if (!confirm('Complete this task as done?')) return;
       await withButton('complete-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
           method: 'POST',
