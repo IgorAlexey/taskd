@@ -203,12 +203,18 @@
     letter-spacing: 0.5px;
   }
   .layout {
-    display: grid;
-    grid-template-columns: 1fr 380px;
+    display: flex;
+    flex-wrap: wrap;
     gap: 16px;
+    align-items: flex-start;
   }
-  @media (max-width: 900px) {
-    .layout { grid-template-columns: 1fr; }
+  .layout > :first-child {
+    flex: 1 1 32rem;
+    min-inline-size: min(100%, 32rem);
+  }
+  .layout > :last-child {
+    flex: 1 1 20rem;
+    min-inline-size: 0;
   }
   .panel {
     background: var(--surface);
@@ -359,7 +365,7 @@
   }
   .field textarea {
     resize: vertical;
-    min-height: 80px;
+    min-height: 5rem;
   }
   .notes-section {
     margin-top: 16px;
@@ -376,7 +382,7 @@
   #note-text {
     font-size: 12px;
     padding: 6px 8px;
-    min-height: 50px;
+    min-height: 3.5rem;
   }
   #add-note-btn {
     font-size: 12px;
