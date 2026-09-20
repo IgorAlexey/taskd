@@ -329,6 +329,7 @@ func TestWebUITaskActions(t *testing.T) {
 		{"complete-task-btn", "Complete Task"},
 		{"claim-task-btn", "Claim Task"},
 		{"close-task-btn", "Close Task"},
+		{"kick-task-btn", "Kick Task"},
 	} {
 		if !strings.Contains(ui, `id="`+check.id+`"`) {
 			t.Fatalf("expected button with id=%q in web/index.html", check.id)
@@ -360,6 +361,7 @@ func TestWebUITaskActions(t *testing.T) {
 		PendingHasClaim         bool
 		PendingHasClose         bool
 		PendingHasTouch         bool
+		PendingHasKick          bool
 		PendingHasCopy          bool
 		CopySuccess             bool
 		CopyFailure             bool
@@ -380,6 +382,21 @@ func TestWebUITaskActions(t *testing.T) {
 		LeasedHasRelease        bool
 		LeasedHasClaim          bool
 		LeasedHasClose          bool
+		LeasedHasKick           bool
+		BuriedHasKick           bool
+		BuriedHasDelete         bool
+		BuriedDeleteDisabled    bool
+		BuriedHasComplete       bool
+		BuriedHasTouch          bool
+		BuriedHasRelease        bool
+		BuriedHasClaim          bool
+		BuriedHasClose          bool
+		KickCall                *struct{ URL, Method string }
+		KickSelected            bool
+		KickURLPreserved        bool
+		KickPaneHasBadge        bool
+		KickPaneNotReset        bool
+		KickRowSelected         bool
 		LeasedDeletePaneKept    bool
 		ErrorBannerSurvivesPoll bool
 		TouchCall               *struct {
@@ -475,8 +492,8 @@ func TestWebUITaskActions(t *testing.T) {
 	if !got.LeasedHasDelete || !got.LeasedDeleteDisabled || !got.LeasedDeleteTitle {
 		t.Errorf("leased delete button mismatch: %+v", got)
 	}
-	if got.LeasedHasClaim || got.LeasedHasClose {
-		t.Errorf("leased must not offer claim or close: %+v", got)
+	if got.LeasedHasClaim || got.LeasedHasClose || got.LeasedHasKick {
+		t.Errorf("leased must not offer claim, close, or kick: %+v", got)
 	}
 	if got.LeasedDeleteAsked || got.LeasedDeleteCalls != 0 || !got.LeasedDeletePaneKept {
 		t.Errorf("leased delete should not trigger confirm or call DELETE: asked=%v calls=%d paneKept=%v", got.LeasedDeleteAsked, got.LeasedDeleteCalls, got.LeasedDeletePaneKept)
@@ -484,8 +501,8 @@ func TestWebUITaskActions(t *testing.T) {
 	if !got.LeasedHasComplete || !got.LeasedHasRelease || !got.LeasedHasTouch {
 		t.Errorf("leased buttons mismatch: %+v", got)
 	}
-	if got.PendingHasTouch {
-		t.Errorf("pending tasks should not offer touch lease: %+v", got)
+	if got.PendingHasTouch || got.PendingHasKick {
+		t.Errorf("pending tasks should not offer touch lease or kick: %+v", got)
 	}
 	if got.TouchCall == nil || got.TouchCall.URL != "/tasks/t-leased/touch" || got.TouchCall.Method != "POST" || got.TouchCall.Body["worker"] != "w-1" {
 		t.Errorf("touch call mismatch: %+v", got.TouchCall)
@@ -584,6 +601,19 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.DoneDeletedPaneReset {
 		t.Errorf("pane not reset after done delete")
+	}
+
+	if !got.BuriedHasKick || !got.BuriedHasDelete || got.BuriedDeleteDisabled {
+		t.Errorf("buried buttons mismatch: %+v", got)
+	}
+	if got.BuriedHasComplete || got.BuriedHasTouch || got.BuriedHasRelease || got.BuriedHasClaim || got.BuriedHasClose {
+		t.Errorf("buried task has invalid buttons: %+v", got)
+	}
+	if got.KickCall == nil || got.KickCall.URL != "/tasks/t-buried/kick" || got.KickCall.Method != "POST" {
+		t.Errorf("kick call mismatch: %+v", got.KickCall)
+	}
+	if !got.KickSelected || !got.KickURLPreserved || !got.KickPaneHasBadge || !got.KickPaneNotReset || !got.KickRowSelected {
+		t.Errorf("kick transition mismatch: %+v", got)
 	}
 }
 func TestWebUIPagination(t *testing.T) {

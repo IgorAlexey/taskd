@@ -46,6 +46,7 @@ const tasks = [
   { id: 't-pending', project: 'p1', status: 'pending', priority: 1, body: 'pending task' },
   { id: 't-leased', project: 'p1', status: 'leased', worker: 'w-1', lease_expires: 1999999999, priority: 1, body: 'leased task' },
   { id: 't-done', project: 'p1', status: 'done', priority: 1, body: 'done task' },
+  { id: 't-buried', project: 'p1', status: 'buried', priority: 1, body: 'buried task' },
 ];
 
 const rows = tasks.map(t => {
@@ -84,6 +85,7 @@ const els = {
   'stat-pending': element(),
   'stat-leased': element(),
   'stat-done': element(),
+  'stat-buried': element(),
   'stat-total': element(),
 };
 
@@ -136,6 +138,17 @@ const fetchStub = async (url, opts = {}) => {
     }
     return response(204, null);
   }
+  if (url.endsWith('/kick')) {
+    const raw = url.slice('/tasks/'.length);
+    const id = decodeURIComponent(raw.split('/kick')[0]);
+    const t = tasks.find(x => x.id === id);
+    if (!t) return response(404, 'task not found');
+    if (t.status !== 'buried') return response(409, 'task is ' + t.status);
+    t.status = 'pending';
+    delete t.worker;
+    delete t.lease_expires;
+    return response(204, null);
+  }
   if (url.endsWith('/close')) {
     const raw = url.slice('/tasks/'.length);
     const id = decodeURIComponent(raw.split('/close')[0]);
@@ -185,7 +198,7 @@ const fetchStub = async (url, opts = {}) => {
 const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setInterval', 'clearInterval',
-  script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, touchTask, releaseTask, claimTask,' +
+  script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, touchTask, releaseTask, claimTask, kickTask,' +
   ' closeTask, clearSelectedTask, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
@@ -200,6 +213,7 @@ const api = new Function(
   results.pendingHasClaim = pendingHTML.includes('id="claim-task-btn"');
   results.pendingHasClose = pendingHTML.includes('id="close-task-btn"');
   results.pendingHasTouch = pendingHTML.includes('id="touch-task-btn"');
+  results.pendingHasKick = pendingHTML.includes('id="kick-task-btn"');
   let clipboardText = '';
   Object.defineProperty(global.navigator, 'clipboard', {
     value: { writeText: async (txt) => { clipboardText = txt; } },
@@ -259,6 +273,7 @@ const api = new Function(
   results.leasedHasRelease = leasedHTML.includes('id="release-task-btn"');
   results.leasedHasClaim = leasedHTML.includes('id="claim-task-btn"');
   results.leasedHasClose = leasedHTML.includes('id="close-task-btn"');
+  results.leasedHasKick = leasedHTML.includes('id="kick-task-btn"');
 
   confirmAnswer = true;
   confirmAsked = 0;
@@ -351,6 +366,30 @@ const api = new Function(
   results.closeCall = calls.find(c => c.url.endsWith('/close'));
   results.closePaneKept = els['task-details-content'].innerHTML.includes('badge badge-done') &&
     !els['task-details-content'].innerHTML.includes('Select a task');
+
+  await api.selectTask('t-buried');
+  const buriedHTML = els['task-details-content'].innerHTML;
+  results.buriedHasKick = buriedHTML.includes('id="kick-task-btn"');
+  results.buriedHasDelete = buriedHTML.includes('id="delete-task-btn"');
+  results.buriedDeleteDisabled = /id="delete-task-btn"[^>]*disabled/.test(buriedHTML);
+  results.buriedHasComplete = buriedHTML.includes('id="complete-task-btn"');
+  results.buriedHasTouch = buriedHTML.includes('id="touch-task-btn"');
+  results.buriedHasRelease = buriedHTML.includes('id="release-task-btn"');
+  results.buriedHasClaim = buriedHTML.includes('id="claim-task-btn"');
+  results.buriedHasClose = buriedHTML.includes('id="close-task-btn"');
+
+  calls.length = 0;
+  if (els['kick-task-btn'] && els['kick-task-btn'].onclick) {
+    await els['kick-task-btn'].onclick();
+  }
+  results.kickCall = calls.find(c => c.url.endsWith('/kick'));
+  results.kickSelected = (api.selected === 't-buried');
+  results.kickURLPreserved = location.search.includes('task=t-buried');
+  const kickPaneHTML = els['task-details-content'].innerHTML;
+  results.kickPaneHasBadge = kickPaneHTML.includes('badge badge-pending') && kickPaneHTML.includes('pending');
+  results.kickPaneNotReset = !kickPaneHTML.includes('Select a task');
+  const buriedRowAfterKick = rows.find(r => r.dataset.taskId === 't-buried');
+  results.kickRowSelected = !!buriedRowAfterKick && buriedRowAfterKick.getAttribute('aria-selected') === 'true';
 
   await api.selectTask('t-done');
   calls.length = 0;

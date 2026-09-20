@@ -17,6 +17,7 @@
     --leased: #1f6feb;
     --done: #238636;
     --danger: #f85149;
+    --buried: #a371f7;
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
@@ -242,6 +243,7 @@
   .badge-pending { background: rgba(210,153,34,0.15); color: var(--pending); border: 1px solid var(--pending); }
   .badge-leased { background: rgba(31,111,235,0.15); color: var(--leased); border: 1px solid var(--leased); }
   .badge-done { background: rgba(35,134,54,0.15); color: var(--done); border: 1px solid var(--done); }
+  .badge-buried { background: rgba(163,113,247,0.15); color: var(--buried); border: 1px solid var(--buried); }
   .mono { font-family: var(--mono); font-size: 12px; }
   .sidebar-section {
     padding: 14px;
@@ -411,6 +413,10 @@
       <div class="stat-label">Done</div>
       <div class="stat-val" id="stat-done">0</div>
     </button>
+    <button type="button" class="card" data-status-filter="buried">
+      <div class="stat-label">Buried</div>
+      <div class="stat-val" id="stat-buried">0</div>
+    </button>
     <button type="button" class="card" data-status-filter="">
       <div class="stat-label">Total</div>
       <div class="stat-val" id="stat-total">0</div>
@@ -439,6 +445,7 @@
           <option value="pending">Pending</option>
           <option value="leased">Leased</option>
           <option value="done">Done</option>
+          <option value="buried">Buried</option>
         </select>
         <label for="filter-priority" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Priority:</label>
         <select id="filter-priority" onchange="onFilterChange()">
@@ -850,6 +857,7 @@
         setVal('stat-pending', stats.pending);
         setVal('stat-leased', stats.leased);
         setVal('stat-done', stats.done);
+        setVal('stat-buried', stats.buried);
         setVal('stat-total', stats.total);
       } catch (e) {
         logFailure('Failed to load stats:', e);
@@ -1249,6 +1257,9 @@
             <button type="button" id="claim-task-btn" class="primary">Claim Task</button>
             <button type="button" id="close-task-btn">Close Task</button>
           ` : ''}
+          ${t.status === 'buried' ? `
+            <button type="button" id="kick-task-btn" class="primary">Kick Task</button>
+          ` : ''}
           <button type="button" id="delete-task-btn" class="danger"${t.status === 'leased' ? ' disabled aria-disabled="true" title="Leased tasks cannot be deleted"' : ''}>Delete Task</button>
         </div>
       `;
@@ -1265,6 +1276,8 @@
       if (claimBtn) claimBtn.onclick = () => claimTask(t.id);
       const closeBtn = document.getElementById('close-task-btn');
       if (closeBtn) closeBtn.onclick = () => closeTask(t.id);
+      const kickBtn = document.getElementById('kick-task-btn');
+      if (kickBtn) kickBtn.onclick = () => kickTask(t.id);
       const delBtn = document.getElementById('delete-task-btn');
       if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status);
       const copyBtn = document.getElementById('copy-id-btn');
@@ -1361,6 +1374,14 @@
           renderTaskDetails(t, true);
         }
         await Promise.all([loadStats(), loadTasks()]);
+      } catch (_) {}
+    }
+
+    async function kickTask(id) {
+      if (!id) return;
+      try {
+        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/kick', { method: 'POST' });
+        await finishTaskTransition(id);
       } catch (_) {}
     }
 
