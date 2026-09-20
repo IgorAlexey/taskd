@@ -723,7 +723,7 @@ func (m model) View() tea.View {
 
 	// 8. Footer (1 row)
 	pos := 0
-	if len(m.shown) > 0 {
+	if len(m.shown) > 0 && m.cursor >= 0 {
 		pos = m.cursor + 1
 	}
 	posStr := fmt.Sprintf("%d/%d", pos, len(m.shown))

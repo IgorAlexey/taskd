@@ -158,27 +158,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// since changed; its rows would answer nothing on screen.
 			return m, nil
 		}
+		var cmd tea.Cmd
 		if msg.changed {
 			m.etag = msg.etag
 			m.total, m.more = msg.total, msg.more
 			selID := ""
+			curRow := m.cursor
 			if sel, ok := m.selected(); ok {
 				selID = sel.ID
 			}
 			m.tasks = msg.tasks
-			m.rebuild()
+			m.rebuildShown()
 			if selID != "" {
+				found := false
 				for i, idx := range m.shown {
 					if m.tasks[idx].ID == selID {
 						m.cursor = i
+						m.lastRow = i
+						found = true
 						break
 					}
+				}
+				if !found {
+					m.lastRow = curRow
+					m.cursor = -1
+					cmd = m.setMsg("selected task " + selID + " left the view")
 				}
 			}
 			if m.endPages > 0 && msg.scope.pages >= m.endPages {
 				m.endPages = 0
 				if len(m.shown) > 0 {
 					m.cursor = len(m.shown) - 1
+					m.lastRow = m.cursor
 				}
 			}
 			m.clamp()
@@ -187,7 +198,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.connected = false
 			m.lastErr = msg.err.Error()
-			return m, nil
+			return m, cmd
 		}
 		m.connected = true
 		m.lastErr = ""
@@ -196,7 +207,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.projects != nil {
 			m.projects = msg.projects
 		}
-		return m, nil
+		return m, cmd
 
 	case actMsg:
 		var cmd tea.Cmd
@@ -238,17 +249,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.mode == modeDetail || m.mode == modeZoom {
 				m.detail.ScrollUp(3)
 			} else {
-				m.cursor -= 3
-				m.clamp()
-				m.syncDetail()
+				m.move(-3)
 			}
 		case tea.MouseWheelDown:
 			if m.mode == modeDetail || m.mode == modeZoom {
 				m.detail.ScrollDown(3)
 			} else {
-				m.cursor += 3
-				m.clamp()
-				m.syncDetail()
+				m.move(3)
 			}
 		}
 		return m, nil
@@ -261,6 +268,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				idx := m.offset + (msg.Y - bandTop)
 				if idx >= 0 && idx < len(m.shown) {
 					m.cursor = idx
+					m.lastRow = idx
 					m.clamp()
 					m.syncDetail()
 				}
@@ -409,21 +417,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "q":
 				return m, tea.Quit
 			case msg.Text == "j" || msg.Code == tea.KeyDown:
-				if len(m.shown) > 0 && m.cursor < len(m.shown)-1 {
-					m.cursor++
-					m.clamp()
-					m.syncDetail()
-				}
+				m.move(1)
 				return m, nil
 			case msg.Text == "k" || msg.Code == tea.KeyUp:
-				if m.cursor > 0 {
-					m.cursor--
-					m.clamp()
-					m.syncDetail()
-				}
+				m.move(-1)
 				return m, nil
 			case msg.Text == "g" || msg.Code == tea.KeyHome:
 				m.cursor = 0
+				m.lastRow = 0
 				m.clamp()
 				m.syncDetail()
 				// The jump to the head is the key the footer names for
@@ -436,6 +437,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "G" || msg.Code == tea.KeyEnd:
 				if len(m.shown) > 0 {
 					m.cursor = len(m.shown) - 1
+					m.lastRow = m.cursor
 					m.clamp()
 					m.syncDetail()
 				}
@@ -453,18 +455,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if step < 1 {
 					step = 1
 				}
-				m.cursor += step
-				m.clamp()
-				m.syncDetail()
+				m.move(step)
 				return m, nil
 			case (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u') || msg.Code == tea.KeyPgUp:
 				step := m.tableRows() / 2
 				if step < 1 {
 					step = 1
 				}
-				m.cursor -= step
-				m.clamp()
-				m.syncDetail()
+				m.move(-step)
 				return m, nil
 			case msg.Text == "0":
 				return m.setFilter("")
@@ -672,7 +670,7 @@ func (m model) setFilter(f string) (model, tea.Cmd) {
 	return m, m.rescope()
 }
 
-func (m *model) rebuild() {
+func (m *model) rebuildShown() {
 	shown := make([]int, 0, len(m.tasks))
 	for i, t := range m.tasks {
 		if m.project != "" && t.Project != m.project {
@@ -684,29 +682,70 @@ func (m *model) rebuild() {
 		shown = append(shown, i)
 	}
 	m.shown = shown
+}
+
+func (m *model) rebuild() {
+	m.rebuildShown()
+	m.clamp()
+	m.syncDetail()
+}
+
+func (m *model) move(delta int) {
+	if len(m.shown) == 0 {
+		return
+	}
+	if m.cursor == -1 {
+		if m.lastRow < len(m.shown) {
+			if delta > 0 {
+				m.cursor = m.lastRow + delta - 1
+			} else {
+				m.cursor = m.lastRow + delta
+			}
+		} else {
+			lastIdx := len(m.shown) - 1
+			if delta > 0 {
+				m.cursor = lastIdx + delta - 1
+			} else {
+				m.cursor = lastIdx + delta + 1
+			}
+		}
+	} else {
+		m.cursor += delta
+	}
+	if m.cursor < 0 {
+		m.cursor = 0
+	}
+	if m.cursor >= len(m.shown) {
+		m.cursor = len(m.shown) - 1
+	}
+	m.lastRow = m.cursor
 	m.clamp()
 	m.syncDetail()
 }
 
 func (m *model) clamp() {
 	if len(m.shown) == 0 {
-		m.cursor = 0
+		if m.cursor > 0 {
+			m.cursor = 0
+		}
 		m.offset = 0
 		return
 	}
 	if m.cursor >= len(m.shown) {
 		m.cursor = len(m.shown) - 1
 	}
-	if m.cursor < 0 {
+	if m.cursor < -1 {
 		m.cursor = 0
 	}
 	tr := m.tableRows()
 	if tr > 0 {
-		if m.cursor < m.offset {
-			m.offset = m.cursor
-		}
-		if m.cursor >= m.offset+tr {
-			m.offset = m.cursor - tr + 1
+		if m.cursor >= 0 {
+			if m.cursor < m.offset {
+				m.offset = m.cursor
+			}
+			if m.cursor >= m.offset+tr {
+				m.offset = m.cursor - tr + 1
+			}
 		}
 		maxOffset := len(m.shown) - tr
 		if maxOffset < 0 {
@@ -718,7 +757,7 @@ func (m *model) clamp() {
 		if m.offset < 0 {
 			m.offset = 0
 		}
-		if m.cursor < m.offset {
+		if m.cursor >= 0 && m.cursor < m.offset {
 			m.offset = m.cursor
 		}
 	} else {

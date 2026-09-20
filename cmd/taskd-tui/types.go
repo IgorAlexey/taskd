@@ -123,6 +123,7 @@ type model struct {
 	tasks     []task // last full list from the daemon, daemon order
 	shown     []int  // indices into tasks after project, status, query
 	cursor    int    // index into shown; 0 <= cursor < len(shown) or 0
+	lastRow   int
 	offset    int    // first index of shown drawn in the table
 	filter    string // "", "pending", "leased", "done", "buried" (keys 0-4)
 	project   string // "" means all projects
