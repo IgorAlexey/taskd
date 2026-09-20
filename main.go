@@ -74,7 +74,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11}
 
 const schemaVersion = len(migrations) + 1
 
@@ -120,6 +120,7 @@ func openDBConn(path string, readOnly bool) (*sql.DB, error) {
 	}
 	q.Add("_pragma", "busy_timeout(5000)")
 	q.Add("_pragma", fmt.Sprintf("journal_size_limit(%d)", walJournalSizeLimit))
+	q.Add("_pragma", "foreign_keys(1)")
 	u.RawQuery = q.Encode()
 	return sql.Open("sqlite", u.String())
 }
@@ -334,7 +335,15 @@ CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority
 CREATE INDEX IF NOT EXISTS idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);
 CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;
-CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (project) WHERE status = 'done';`
+CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (project) WHERE status = 'done';
+CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_task_id ON notes (task_id);`
 	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
 	if err != nil {
 		db.Close()
@@ -663,6 +672,32 @@ func migrateV10(db *sql.DB) error {
 		"CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';",
 		"CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';",
 		"PRAGMA user_version = 10;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func migrateV11(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS notes (
+  id INTEGER PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  text TEXT NOT NULL
+);`,
+		"CREATE INDEX IF NOT EXISTS idx_notes_task_id ON notes (task_id);",
+		"PRAGMA user_version = 11;",
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.Exec(stmt); err != nil {
@@ -1095,6 +1130,18 @@ type taskItem struct {
 	CreatedAt    int64           `json:"created_at"`
 
 	summaryPrefix string
+}
+
+type taskNote struct {
+	ID        int64  `json:"id"`
+	CreatedAt int64  `json:"created_at"`
+	Author    string `json:"author"`
+	Text      string `json:"text"`
+}
+
+type taskDetail struct {
+	taskItem
+	Notes []taskNote `json:"notes"`
 }
 
 const summaryRunes = 50
@@ -2040,8 +2087,59 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
 
+		notes := make([]taskNote, 0)
+		noteRows, err := db.ro.Query("SELECT id, created_at, author, text FROM notes WHERE task_id = ? ORDER BY id ASC", item.ID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer noteRows.Close()
+		for noteRows.Next() {
+			var n taskNote
+			if err := noteRows.Scan(&n.ID, &n.CreatedAt, &n.Author, &n.Text); err != nil {
+				internalError(w, err)
+				return
+			}
+			notes = append(notes, n)
+		}
+		if err := noteRows.Err(); err != nil {
+			internalError(w, err)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(item)
+		json.NewEncoder(w).Encode(taskDetail{taskItem: item, Notes: notes})
+	}
+	createNoteHandler := func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Author string `json:"author"`
+			Text   string `json:"text"`
+		}
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		if strings.TrimSpace(req.Author) == "" || strings.TrimSpace(req.Text) == "" {
+			writeError(w, http.StatusBadRequest, "missing author or text")
+			return
+		}
+		if len(req.Author) > maxWorkerLen {
+			writeError(w, http.StatusBadRequest, "author too long")
+			return
+		}
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		var note taskNote
+		err := db.rw.QueryRow("INSERT INTO notes (task_id, created_at, author, text) VALUES (?, unixepoch(), ?, ?) RETURNING id, created_at, author, text", id, req.Author, req.Text).
+			Scan(&note.ID, &note.CreatedAt, &note.Author, &note.Text)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(note)
 	}
 	projectsHandler := func(w http.ResponseWriter, r *http.Request) {
 		rows, err := db.ro.Query("SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC")
@@ -2305,6 +2403,9 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 	handleMethods(mux, "/tasks/{id}/kick", map[string]route{
 		http.MethodPost: {handler: kickIDHandler},
 	})
+	handleMethods(mux, "/tasks/{id}/notes", map[string]route{
+		http.MethodPost: {handler: createNoteHandler},
+	})
 	handleMethods(mux, "/tasks/{id}", map[string]route{
 		http.MethodGet:    {handler: getTaskHandler},
 		http.MethodPatch:  {handler: patchTaskHandler},
@@ -2415,6 +2516,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority, optional claim_count)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task (?force=1 to delete done task)
+  POST   /tasks/{id}/notes   append a note (requires author, text)
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   GET    /projects           list active projects
   GET    /workers            list active workers

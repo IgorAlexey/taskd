@@ -18,6 +18,8 @@ When a lease expires, the daemon transitions the task back to pending in the
 database via an explicit sweep. All read paths (`GET /tasks`,
 `GET /tasks/{id}`, and `/stats`) and the claim predicate agree on the stored
 state; `?status=pending` and `/stats` pending count all available pending tasks.
+Append-only notes (`POST /tasks/{id}/notes`) record history inline on
+`GET /tasks/{id}` without mutating the task specification.
 Just simple SQL and UI that works.
 
 By default, taskd listens on 127.0.0.1:8080 with no authentication. To expose
