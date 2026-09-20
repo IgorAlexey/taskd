@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -538,6 +540,51 @@ func requestQuery(r *http.Request) url.Values {
 		return url.Values{}
 	}
 	return r.URL.Query()
+}
+
+type listCursor struct {
+	Priority int    `json:"p"`
+	Rowid    int64  `json:"r"`
+	Filters  string `json:"f"`
+}
+
+func listFilterFingerprint(q url.Values) string {
+	var b strings.Builder
+	for _, k := range []string{"status", "project", "worker", "priority", "asset_path", "q"} {
+		if q.Has(k) {
+			b.WriteString(k)
+			b.WriteByte('=')
+			b.WriteString(q.Get(k))
+		}
+		b.WriteByte(0)
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return base64.RawURLEncoding.EncodeToString(sum[:9])
+}
+
+func encodeListCursor(c listCursor) string {
+	b, _ := json.Marshal(c)
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+func decodeListCursor(s, fingerprint string) (listCursor, bool) {
+	var c listCursor
+	raw, err := base64.RawURLEncoding.DecodeString(s)
+	if err != nil {
+		return c, false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return c, false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return c, false
+	}
+	if c.Priority < 0 || c.Rowid < 1 || c.Filters != fingerprint {
+		return c, false
+	}
+	return c, true
 }
 
 func internalError(w http.ResponseWriter, err error) {
@@ -1249,6 +1296,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			}
 			limit = v
 		}
+		if q.Has("after") && q.Has("offset") {
+			writeError(w, http.StatusBadRequest, "after and offset are mutually exclusive")
+			return
+		}
 		offset := 0
 		if q.Has("offset") {
 			v, err := strconv.Atoi(q.Get("offset"))
@@ -1257,6 +1308,15 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				return
 			}
 			offset = v
+		}
+		var after *listCursor
+		if q.Has("after") {
+			c, ok := decodeListCursor(q.Get("after"), listFilterFingerprint(q))
+			if !ok {
+				writeError(w, http.StatusBadRequest, "invalid after")
+				return
+			}
+			after = &c
 		}
 		now := time.Now().Unix()
 		var requestedFields []string
@@ -1299,7 +1359,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				primCol = "NULL"
 			}
 		}
-		query := fmt.Sprintf("SELECT id, asset_path, status, worker, lease_expires, priority, %s, %s, project, claim_count FROM tasks", bodyCol, primCol)
+		query := fmt.Sprintf("SELECT id, asset_path, status, worker, lease_expires, priority, %s, %s, project, claim_count, rowid FROM tasks", bodyCol, primCol)
 		var where []string
 		var args []any
 		if status == "pending" {
@@ -1349,7 +1409,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			whereSQL = " WHERE " + strings.Join(where, " AND ")
 		}
 		countArgs := slices.Clone(args)
-		query += whereSQL
+		dataWhereSQL := whereSQL
+		if after != nil {
+			dataWhere := append(slices.Clone(where), "(priority, rowid) > (?, ?)")
+			dataWhereSQL = " WHERE " + strings.Join(dataWhere, " AND ")
+			args = append(args, after.Priority, after.Rowid)
+		}
+		query += dataWhereSQL
 		query += " ORDER BY priority ASC, rowid ASC LIMIT ?"
 		args = append(args, limit)
 		if offset > 0 {
@@ -1364,20 +1430,23 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		defer rows.Close()
 
 		tasks := make([]taskItem, 0)
+		var next listCursor
 		for rows.Next() {
 			var (
 				item         taskItem
 				worker       sql.NullString
 				leaseExpires sql.NullInt64
 				prim         []byte
+				rowid        int64
 			)
-			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount); err != nil {
+			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &rowid); err != nil {
 				internalError(w, err)
 				return
 			}
 			item.Worker = worker.String
 			item.LeaseExpires = leaseExpires.Int64
 			item.Primitives = prim
+			next = listCursor{Priority: item.Priority, Rowid: rowid}
 			item.normalize(now)
 			tasks = append(tasks, item)
 		}
@@ -1391,7 +1460,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		// more. An empty page behind an offset says nothing about what it
 		// skipped, so that case still has to count.
 		total := offset + len(tasks)
-		if len(tasks) == limit || (offset > 0 && len(tasks) == 0) {
+		if after == nil && (len(tasks) == limit || (offset > 0 && len(tasks) == 0)) {
 			if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks"+whereSQL, countArgs...).Scan(&total); err != nil {
 				internalError(w, err)
 				return
@@ -1399,7 +1468,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("X-Total-Count", strconv.Itoa(total))
+		if after == nil {
+			w.Header().Set("X-Total-Count", strconv.Itoa(total))
+		}
+		if len(tasks) == limit {
+			next.Filters = listFilterFingerprint(q)
+			w.Header().Set("X-Next-Cursor", encodeListCursor(next))
+		}
 		if requestedFields == nil {
 			json.NewEncoder(w).Encode(tasks)
 		} else {
@@ -1667,7 +1742,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 	handleMethods(mux, "/tasks", map[string]route{
 		http.MethodGet: {handler: listTasksHandler, params: []string{
 			"status", "project", "worker", "priority", "limit", "offset",
-			"asset_path", "q", "fields", "columns",
+			"asset_path", "q", "fields", "columns", "after",
 		}},
 		http.MethodPost: {handler: createTaskHandler},
 	})

@@ -100,6 +100,48 @@ tasks of another. A buried task is out of the pool until
 count reset to zero. The default `0` means no limit and keeps the old
 behaviour.
 
+## Paging
+
+`GET /tasks` is ordered by priority, then insertion order. A full page, one
+holding as many rows as `limit` asked for, sets an `X-Next-Cursor` header
+with an opaque token for its last row. A short page sets no header, and
+that absence is how a walk ends; no trailing empty request is needed. Pass
+the token back as `?after=<cursor>` for the rows after that point. Unlike
+`&offset=`, a cursor does not skip rows when workers claim tasks in the
+middle of a walk. It does not fix everything: a row that enters the
+filtered set behind the cursor is missed. A release, a kick or a lease
+expiring puts a task back in `pending` at its old place, and a priority
+edit moves a task outright, so either can be skipped or repeated.
+
+A token is bound to the filters that produced it, which catches a cursor
+replayed against the wrong query, not a forged one: it is an unkeyed
+digest of public inputs, so treat it as a typo detector. Replaying one
+under a different `status`, `project`, `worker`, `priority`,
+`asset_path` or `q` answers `400 Bad Request` with
+`{"error":"invalid after"}`, as does an unparseable one. A different
+`limit` is fine. `offset` still works when `after` is omitted, but the two
+cannot be combined. With `after` the response has no `X-Total-Count`: the
+first call, the one without a cursor, is where the size of the set comes
+from. Paging this way buys correctness, not speed.
+
+```sh
+# First page: the set size, and a cursor because the page is full
+curl -si 'http://localhost:8080/tasks?project=demo&limit=2'
+# Output:
+# X-Total-Count: 5
+# X-Next-Cursor: eyJwIjozLCJyIjoyLCJmIjoiOWYyYTFjN2QifQ
+
+# Second page: full again, so another cursor, and no X-Total-Count
+curl -si 'http://localhost:8080/tasks?project=demo&limit=2&after=eyJwIjozLCJyIjoyLCJmIjoiOWYyYTFjN2QifQ'
+# Output:
+# X-Next-Cursor: eyJwIjozLCJyIjo0LCJmIjoiOWYyYTFjN2QifQ
+
+# Last page: one row, no X-Next-Cursor, the walk is done
+curl -si 'http://localhost:8080/tasks?project=demo&limit=2&after=eyJwIjozLCJyIjo0LCJmIjoiOWYyYTFjN2QifQ'
+# Output:
+# X-Total-Count and X-Next-Cursor both absent
+```
+
 ## Backup
 
 A plain cp of the .db is not a backup: WAL mode leaves data in the wal file.
