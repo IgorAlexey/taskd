@@ -130,3 +130,61 @@ func TestHeaderAlignmentAcrossSortModes(t *testing.T) {
 		}
 	}
 }
+
+func TestHeaderRendersActiveWorker(t *testing.T) {
+	t.Run("FitAt80Columns", func(t *testing.T) {
+		m := newModel(config{
+			url:     "http://localhost:8080",
+			worker:  "worker-1",
+			refresh: 2 * time.Second,
+		}, nil)
+		m.width = 80
+		m.height = 24
+		m.connected = true
+		m.stats.DB = "taskd.db"
+
+		content := ansi.Strip(m.View().Content)
+		lines := strings.Split(content, "\n")
+		if len(lines) == 0 {
+			t.Fatal("expected rendered view lines, got none")
+		}
+		headerLine := lines[0]
+		if !strings.Contains(headerLine, "as: worker-1") {
+			t.Fatalf("expected header line to contain %q, got: %q", "as: worker-1", headerLine)
+		}
+		if !strings.Contains(headerLine, "taskd.db") {
+			t.Fatalf("expected header line to retain database info at width 80, got: %q", headerLine)
+		}
+		if !strings.Contains(headerLine, "every 2s") {
+			t.Fatalf("expected header line to retain refresh interval at width 80, got: %q", headerLine)
+		}
+		if ansi.StringWidth(headerLine) > 80 {
+			t.Fatalf("header line width %d exceeds 80 columns: %q", ansi.StringWidth(headerLine), headerLine)
+		}
+	})
+
+	t.Run("TruncatesLongWorkerAt80Columns", func(t *testing.T) {
+		m := newModel(config{
+			url:     "http://localhost:8080",
+			worker:  "worker-very-long-hostname-and-path",
+			refresh: 2 * time.Second,
+		}, nil)
+		m.width = 80
+		m.height = 24
+		m.connected = true
+		m.stats.DB = "taskd.db"
+
+		content := ansi.Strip(m.View().Content)
+		lines := strings.Split(content, "\n")
+		headerLine := lines[0]
+		if !strings.Contains(headerLine, "as: work") || !strings.Contains(headerLine, m.glyph.ellipsis) {
+			t.Fatalf("expected truncated worker with ellipsis in header line, got: %q", headerLine)
+		}
+		if !strings.Contains(headerLine, "taskd.db") {
+			t.Fatalf("expected header line to retain database info at width 80, got: %q", headerLine)
+		}
+		if ansi.StringWidth(headerLine) > 80 {
+			t.Fatalf("header line width %d exceeds 80 columns: %q", ansi.StringWidth(headerLine), headerLine)
+		}
+	})
+}

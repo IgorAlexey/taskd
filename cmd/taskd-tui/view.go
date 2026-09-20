@@ -302,11 +302,12 @@ func (m model) View() tea.View {
 			connPart += " " + m.theme.dim.Render(m.lastErr)
 		}
 	}
-	headLeft := pill + urlPart + connPart
+	fixedLeft := pill + urlPart + connPart
+	fixW := lipgloss.Width(fixedLeft)
 
 	var dbPart string
 	if m.stats.DB != "" {
-		dbPart = m.glyph.db + " " + m.stats.DB + "   "
+		dbPart = m.glyph.db + " " + m.stats.DB + "  "
 	}
 	refreshDur := m.cfg.refresh
 	if refreshDur == 0 {
@@ -314,9 +315,20 @@ func (m model) View() tea.View {
 	}
 	refreshPart := m.glyph.refresh + " every " + refreshDur.String()
 	headRight := m.theme.dim.Render(dbPart + refreshPart)
+	hrw := lipgloss.Width(headRight)
+
+	headLeft := fixedLeft
+	if m.cfg.worker != "" {
+		avail := w - fixW - hrw - 2
+		prefix := "as: "
+		pw := ansi.StringWidth(prefix)
+		if avail >= pw+3 {
+			wName := trunc(m.cfg.worker, avail-pw, m.glyph.ellipsis)
+			headLeft += " " + m.theme.dim.Render(prefix+wName)
+		}
+	}
 
 	hlw := lipgloss.Width(headLeft)
-	hrw := lipgloss.Width(headRight)
 	var headerLine string
 	if hlw+hrw+1 <= w {
 		spaces := w - hlw - hrw
