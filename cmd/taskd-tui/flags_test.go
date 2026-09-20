@@ -246,6 +246,99 @@ func TestFlagsInvalidProject(t *testing.T) {
 	})
 }
 
+func TestFlagsInvalidWorker(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		env     map[string]string
+		wantErr string
+	}{
+		{
+			name:    "invalid flag characters",
+			args:    []string{"-worker", "invalid worker!"},
+			wantErr: "taskd-tui: invalid worker \"invalid worker!\": must contain only [A-Za-z0-9._-:/]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "invalid flag chars with equal",
+			args:    []string{"-worker=bad worker?"},
+			wantErr: "taskd-tui: invalid worker \"bad worker?\": must contain only [A-Za-z0-9._-:/]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "invalid alias flag characters",
+			args:    []string{"-w", "bad worker@"},
+			wantErr: "taskd-tui: invalid worker \"bad worker@\": must contain only [A-Za-z0-9._-:/]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "invalid env characters",
+			env:     map[string]string{"TASKD_WORKER": "invalid worker!"},
+			wantErr: "taskd-tui: invalid worker \"invalid worker!\": must contain only [A-Za-z0-9._-:/]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "empty worker flag",
+			args:    []string{"-worker", ""},
+			wantErr: "taskd-tui: invalid worker \"\": must not be empty\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "worker exceeds 128 chars",
+			args:    []string{"-worker", strings.Repeat("a", 129)},
+			wantErr: "taskd-tui: invalid worker \"" + strings.Repeat("a", 129) + "\": must not exceed 128 characters\ntry 'taskd-tui -h' for usage\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			_, err := parseFlags(tc.args)
+			if err == nil {
+				t.Fatalf("expected error for %v, got nil", tc.args)
+			}
+			var stderr bytes.Buffer
+			if code := reportError(&stderr, err); code != 2 {
+				t.Fatalf("exit = %d, want 2 (err %v)", code, err)
+			}
+			if stderr.String() != tc.wantErr {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.wantErr)
+			}
+		})
+	}
+
+	t.Run("valid worker flag with slashes and colons", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-worker", "host.domain.com:/path/to/worktree-1"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.worker != "host.domain.com:/path/to/worktree-1" {
+			t.Fatalf("worker = %q, want host.domain.com:/path/to/worktree-1", cfg.worker)
+		}
+	})
+
+	t.Run("valid flag overrides invalid env", func(t *testing.T) {
+		t.Setenv("TASKD_WORKER", "invalid worker!")
+		cfg, err := parseFlags([]string{"-worker", "override-valid"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.worker != "override-valid" {
+			t.Fatalf("worker = %q, want override-valid", cfg.worker)
+		}
+	})
+
+	t.Run("zero flags uses valid default worker", func(t *testing.T) {
+		t.Setenv("TASKD_WORKER", "")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error with zero flags: %v", err)
+		}
+		if cfg.worker == "" {
+			t.Fatalf("expected non-empty default worker")
+		}
+		if err := validateWorker(cfg.worker); err != nil {
+			t.Fatalf("default worker %q failed validation: %v", cfg.worker, err)
+		}
+	})
+}
+
 func TestQueryFlagAndEnv(t *testing.T) {
 	t.Setenv("TASKD_PROJECT", "")
 	t.Setenv("TASKD_QUERY", "")

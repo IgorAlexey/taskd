@@ -80,6 +80,34 @@ func validateProject(p string) error {
 	return nil
 }
 
+const maxWorkerLen = 128
+
+func validWorkerByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-' || c == '/' || c == ':'
+}
+
+func validWorkerChars(w string) bool {
+	for i := 0; i < len(w); i++ {
+		if !validWorkerByte(w[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateWorker(w string) error {
+	if w == "" {
+		return fmt.Errorf("invalid worker %q: must not be empty", w)
+	}
+	if len(w) > maxWorkerLen {
+		return fmt.Errorf("invalid worker %q: must not exceed %d characters", w, maxWorkerLen)
+	}
+	if !validWorkerChars(w) {
+		return fmt.Errorf("invalid worker %q: must contain only [A-Za-z0-9._-:/]", w)
+	}
+	return nil
+}
+
 func parseFlags(args []string) (config, error) {
 	defaultURL := os.Getenv("TASKD_URL")
 	if defaultURL == "" {
@@ -300,6 +328,9 @@ func parseFlags(args []string) (config, error) {
 			return cfg, usagef("%w", err)
 		}
 	}
+	if err := validateWorker(cfg.worker); err != nil {
+		return cfg, usagef("%w", err)
+	}
 	return cfg, nil
 }
 
@@ -454,7 +485,20 @@ func defaultWorker() string {
 	if checkout == "" {
 		checkout = "tui"
 	}
-	return host + ":" + checkout
+	raw := host + ":" + checkout
+	var b strings.Builder
+	for i := 0; i < len(raw); i++ {
+		if validWorkerByte(raw[i]) {
+			b.WriteByte(raw[i])
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	res := b.String()
+	if len(res) > maxWorkerLen {
+		res = res[:maxWorkerLen]
+	}
+	return res
 }
 
 func gitCheckoutName() string {
