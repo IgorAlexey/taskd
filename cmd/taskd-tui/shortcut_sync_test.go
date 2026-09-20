@@ -36,6 +36,11 @@ func TestShortcutDocsSync(t *testing.T) {
 		}
 	}
 
+	const wantSort = "s                   cycle sort"
+	if !strings.Contains(usage, wantSort) {
+		t.Fatalf("printUsage missing sort shortcut; want substring %q", wantSort)
+	}
+
 	m := newModel(config{icons: true}, nil)
 	m.width = 100
 	m.height = 24
@@ -65,6 +70,12 @@ func TestShortcutDocsSync(t *testing.T) {
 			t.Errorf("help modal missing %s; got:\n%s", key, helpContent)
 		}
 	}
+	if !strings.Contains(helpContent, "[a]") || !strings.Contains(helpContent, "note") {
+		t.Errorf("help modal missing [a] note; got:\n%s", helpContent)
+	}
+	if !strings.Contains(helpContent, "[p/P]") || !strings.Contains(helpContent, "project") {
+		t.Errorf("help modal missing [p/P] project; got:\n%s", helpContent)
+	}
 
 	m.mode = modeTable
 	up, _ := m.Update(tea.KeyPressMsg{Text: "4"})
@@ -87,4 +98,8 @@ func TestShortcutDocsSync(t *testing.T) {
 	if cmdUpperY == nil {
 		t.Fatal("key 'Y' did not return command")
 	}
+}
+
+func TestHelpSync(t *testing.T) {
+	TestShortcutDocsSync(t)
 }
