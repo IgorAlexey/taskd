@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/IgorAlexey/taskd/internal/version"
 )
 
 func TestCORSHeaders(t *testing.T) {
@@ -111,7 +113,7 @@ func TestBackupDestinationDirectory(t *testing.T) {
 }
 
 func TestStatsWorkerFilter(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 5)
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
@@ -175,6 +177,12 @@ func TestStatsWorkerFilter(t *testing.T) {
 	sW1 := getStats("?worker=w1")
 	if sW1.Pending != 0 || sW1.Leased != 2 || sW1.Done != 1 || sW1.Buried != 0 || sW1.Total != 3 {
 		t.Fatalf("stats ?worker=w1: got %+v, want pending:0 leased:2 done:1 buried:0 total:3", sW1)
+	}
+	if sW1.Version != version.Version {
+		t.Fatalf("version: got %q, want %q", sW1.Version, version.Version)
+	}
+	if sW1.MaxClaims != 5 {
+		t.Fatalf("max_claims: got %d, want 5", sW1.MaxClaims)
 	}
 
 	sP1W1 := getStats("?project=p1&worker=w1")

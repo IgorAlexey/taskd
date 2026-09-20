@@ -1347,6 +1347,8 @@ type statsResponse struct {
 	Total        int    `json:"total"`
 	LeaseSeconds int    `json:"lease_seconds"`
 	DB           string `json:"db"`
+	Version      string `json:"version"`
+	MaxClaims    int    `json:"max_claims"`
 }
 
 // mainDBName returns the basename of the file behind the main schema,
@@ -1517,6 +1519,7 @@ FROM tasks`
 		json.NewEncoder(w).Encode(statsResponse{
 			Pending: pending, Leased: leased, Done: done, Buried: buried,
 			Total: total, LeaseSeconds: lease, DB: dbName,
+			Version: version.Version, MaxClaims: db.maxClaims,
 		})
 	}
 	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {
