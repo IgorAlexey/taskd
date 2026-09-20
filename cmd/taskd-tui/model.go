@@ -84,7 +84,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.now = time.Time(msg)
-		return m, tea.Batch(tickCmd(m.cfg.refresh), m.startPoll())
+		poll := m.startPoll()
+		return m, tea.Batch(tickCmd(m.cfg.refresh), poll)
 
 	case pollMsg:
 		m.polling = false
@@ -115,7 +116,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connected = true
 		m.lastErr = ""
 		m.stats = msg.stats
-		m.hasStats = true
 		if msg.projects != nil {
 			m.projects = msg.projects
 		}
@@ -128,7 +128,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.msg != "" {
 			cmd = m.setMsg(msg.msg)
 		}
-		return m, tea.Batch(cmd, m.startPoll())
+		poll := m.startPoll()
+		return m, tea.Batch(cmd, poll)
 
 	case clearMsgMsg:
 		if msg.id == m.msgID {
@@ -237,7 +238,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.rebuild()
 				}
 			default:
-				if msg.Text != "" && (msg.Mod == 0 || msg.Mod == tea.ModShift) {
+				if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
 					m.query += msg.Text
 					m.rebuild()
 				}
@@ -389,8 +390,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.project = next
 				}
+				m.etag = "" // the tag names the previous project's list
 				m.rebuild()
-				return m, m.startPoll()
+				poll := m.startPoll()
+				return m, poll
 			case msg.Text == "/":
 				m.mode = modeSearch
 				return m, nil
@@ -526,7 +529,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case msg.Text == "r":
-				return m, m.startPoll()
+				poll := m.startPoll()
+				return m, poll
 			case msg.Text == "?":
 				m.mode = modeHelp
 				return m, nil

@@ -103,10 +103,9 @@ type model struct {
 	project  string // "" means all projects
 	query    string // / substring filter, case-insensitive
 	mode     mode
-	etag     string // tag of m.tasks, sent as If-None-Match
+	etag     string // ETag of m.tasks for m.project; cleared when project changes
 	polling  bool   // a pollCmd is in flight; cleared by pollMsg
 	stats    stats
-	hasStats bool
 	projects []string
 
 	connected bool

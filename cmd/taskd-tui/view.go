@@ -213,27 +213,6 @@ func (m model) View() tea.View {
 		filter string
 	}
 	st := m.stats
-	if !m.connected {
-		// The list may have been applied while /stats failed; count what
-		// is on hand rather than show numbers from an older poll.
-		st = stats{}
-		for _, t := range m.tasks {
-			if m.project != "" && t.Project != m.project {
-				continue
-			}
-			st.Total++
-			switch t.Status {
-			case "pending":
-				st.Pending++
-			case "leased":
-				st.Leased++
-			case "done":
-				st.Done++
-			case "buried":
-				st.Buried++
-			}
-		}
-	}
 	tabDefs := []tabInfo{
 		{"0", "all", st.Total, ""},
 		{"1", "pending", st.Pending, "pending"},
@@ -248,9 +227,13 @@ func (m model) View() tea.View {
 	for _, tab := range tabDefs {
 		isActive := (m.filter == tab.filter)
 		countStr := strconv.Itoa(tab.count)
-		if isActive {
+		if isActive && m.connected {
 			body := tab.key + " " + tab.name + " " + countStr
 			tabParts = append(tabParts, m.theme.accent.Render(m.glyph.pillL)+m.theme.tabActive.Render(body)+m.theme.accent.Render(m.glyph.pillR))
+		} else if isActive {
+			// Counts are from the last successful poll; keep them but
+			// drop them out of the pill so they read as stale.
+			tabParts = append(tabParts, m.theme.accent.Render(m.glyph.pillL)+m.theme.tabActive.Render(tab.key+" "+tab.name)+m.theme.accent.Render(m.glyph.pillR)+" "+m.theme.dim.Render(countStr))
 		} else {
 			tabParts = append(tabParts, m.theme.tabKey.Render(tab.key)+" "+tab.name+" "+m.theme.dim.Render(countStr))
 		}
