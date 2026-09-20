@@ -922,6 +922,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[z]", "zoom"},
 		{"[n]", "new"},
 		{"[e]", "edit"},
+		{"[E]", "editor"},
 		{"[a]", "note"},
 		{"[ctrl-s]", "save form"},
 		{"[?]", "help"},

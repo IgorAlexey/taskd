@@ -2,19 +2,22 @@ package main
 
 import (
 	"bytes"
-	"charm.land/bubbles/v2/viewport"
-	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 	"cmp"
 	"encoding/json"
 	"fmt"
-	"github.com/charmbracelet/x/ansi"
 	"net/url"
+	"os"
+	"os/exec"
 	"path"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func newModel(cfg config, c *client) model {
@@ -367,6 +370,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		poll := m.startPoll()
 		return m, tea.Batch(cmd, poll)
+	case editorFinishedMsg:
+		if msg.err != nil {
+			return m, m.setError("editor error: " + msg.err.Error())
+		}
+		if msg.status != "" {
+			return m, m.setMsg(msg.status)
+		}
+		return m, editorPatchCmd(m.client, msg.taskID, msg.version, msg.body, msg.tempPath)
 	case noteFetchMsg:
 		if msg.seq != m.noteSeq {
 			return m, nil
@@ -807,6 +818,9 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		return m, cmd, true
 	case "e":
 		m, cmd := m.actionEdit()
+		return m, cmd, true
+	case "E":
+		m, cmd := m.actionEditInEditor()
 		return m, cmd, true
 	case "a":
 		m, cmd := m.actionAddNote()
@@ -1560,6 +1574,118 @@ func (m model) actionEdit() (model, tea.Cmd) {
 	return m, cmd
 }
 
+type editorFinishedMsg struct {
+	err      error
+	status   string
+	taskID   string
+	version  int
+	body     string
+	tempPath string
+}
+
+func (m model) actionEditInEditor() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status == "done" {
+		cmd := m.setMsg("cannot edit done task")
+		return m, cmd
+	}
+	if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+		cmd := m.setMsg("cannot edit actively leased task")
+		return m, cmd
+	}
+
+	tmpFile, err := os.CreateTemp("", "taskd-edit-*.md")
+	if err != nil {
+		cmd := m.setError("failed to create temp file: " + err.Error())
+		return m, cmd
+	}
+	tmpPath := tmpFile.Name()
+	if _, err := tmpFile.WriteString(t.Body); err != nil {
+		tmpFile.Close()
+		os.Remove(tmpPath)
+		cmd := m.setError("failed to write temp file: " + err.Error())
+		return m, cmd
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		cmd := m.setError("failed to close temp file: " + err.Error())
+		return m, cmd
+	}
+
+	editor := resolveEditor()
+	cmd := buildEditorCmd(editor, tmpPath)
+
+	return m, Suspend(cmd, func(err error) tea.Msg {
+		if err != nil {
+			os.Remove(tmpPath)
+			return editorFinishedMsg{err: err}
+		}
+		data, readErr := os.ReadFile(tmpPath)
+		if readErr != nil {
+			os.Remove(tmpPath)
+			return editorFinishedMsg{err: readErr}
+		}
+		newBody := string(data)
+		if newBody == t.Body {
+			os.Remove(tmpPath)
+			return editorFinishedMsg{status: "task body unchanged"}
+		}
+		if strings.TrimSpace(newBody) == "" {
+			os.Remove(tmpPath)
+			return editorFinishedMsg{status: "task body empty, unchanged"}
+		}
+		return editorFinishedMsg{
+			taskID:   t.ID,
+			version:  t.Version,
+			body:     newBody,
+			tempPath: tmpPath,
+		}
+	})
+}
+
+func editorPatchCmd(c *client, taskID string, version int, body, tempPath string) tea.Cmd {
+	return func() tea.Msg {
+		if c == nil {
+			os.Remove(tempPath)
+			return actMsg{msg: "task body updated"}
+		}
+		reqBody := map[string]any{
+			"body":       body,
+			"if_version": version,
+		}
+		if err := c.do("PATCH", "/tasks/"+taskID, reqBody); err != nil {
+			return actMsg{err: fmt.Errorf("%w (draft saved to %s)", err, tempPath)}
+		}
+		os.Remove(tempPath)
+		return actMsg{msg: "task body updated"}
+	}
+}
+
+func resolveEditor() string {
+	if ed := os.Getenv("VISUAL"); ed != "" {
+		return ed
+	}
+	if ed := os.Getenv("EDITOR"); ed != "" {
+		return ed
+	}
+	for _, probe := range []string{"nano", "vim", "vi", "emacs"} {
+		if _, err := exec.LookPath(probe); err == nil {
+			return probe
+		}
+	}
+	return "vi"
+}
+
+func buildEditorCmd(editor, path string) *exec.Cmd {
+	fields := strings.Fields(editor)
+	if len(fields) == 0 {
+		return exec.Command("vi", path)
+	}
+	return exec.Command(fields[0], append(fields[1:], path)...)
+}
 func (m model) actionPriAdjust(delta int) (model, tea.Cmd) {
 	t, ok := m.selected()
 	if !ok {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"strconv"
@@ -279,6 +280,7 @@ Keyboard shortcuts:
   z                   toggle detail zoom
   n                   create new task
   e                   edit selected task
+  E                   edit task body in $EDITOR
   a                   add note
   +/-                 raise / lower task priority
   c                   claim selected pending task
@@ -418,4 +420,7 @@ func main() {
 	if err := run(os.Stdout, os.Args[1:]); err != nil {
 		os.Exit(reportError(os.Stderr, err))
 	}
+}
+func Suspend(cmd *exec.Cmd, fn func(error) tea.Msg) tea.Cmd {
+	return tea.ExecProcess(cmd, fn)
 }
