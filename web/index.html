@@ -302,6 +302,25 @@
   .error-banner-dismiss:hover {
     color: #ff7b72;
   }
+  #connection-status {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    background: rgba(248,81,73,0.15);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+    padding: 2px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  #connection-status::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--danger);
+  }
   .error-summary {
     display: none;
     background: rgba(248,81,73,0.1);
@@ -361,6 +380,7 @@
   <header>
     <h1>taskd</h1>
     <div class="controls">
+      <span id="connection-status" role="status" aria-live="polite"></span>
       <label for="auto-refresh" style="font-size: 12px; color: var(--text-muted);">
         <input type="checkbox" id="auto-refresh" checked> Auto-refresh
       </label>
@@ -502,6 +522,11 @@
     let selectedTaskId = null;
     let refreshTimer = null;
     let refreshInFlight = false;
+    const REFRESH_MS = 3000;
+    const RETRY_MAX_MS = 30000;
+    let offline = false;
+    let retryDelay = REFRESH_MS;
+    let retryAt = 0;
     let shownTaskId = null;
     let shownTaskRaw = '';
     let currentTask = null;
@@ -582,7 +607,7 @@
       const select = document.getElementById('filter-worker');
       if (!select) return;
       try {
-        const res = await fetch('/workers');
+        const res = await fetchRaw('/workers');
         if (!res.ok) return;
         const workers = await res.json();
         const current = select.value;
@@ -641,6 +666,10 @@
       onFilterChange();
     }
 
+    function logFailure(msg, err) {
+      if (!offline) console.error(msg, err);
+    }
+
     function showError(msg) {
       const b = document.getElementById('error-banner');
       if (!b) return;
@@ -659,9 +688,89 @@
       b.style.display = 'flex';
     }
 
-    async function fetchJSON(url, opts, withHeaders) {
+    function renderConnection() {
+      const el = document.getElementById('connection-status');
+      if (!el) return;
+      if (!offline) {
+        el.style.display = 'none';
+        el.textContent = '';
+        return;
+      }
+      if (!retryAt) {
+        el.textContent = 'Offline';
+      } else {
+        const left = Math.ceil((retryAt - Date.now()) / 1000);
+        el.textContent = left > 0
+          ? 'Offline \u2014 reconnecting in ' + left + 's'
+          : 'Offline \u2014 reconnecting\u2026';
+      }
+      el.style.display = 'inline-flex';
+    }
+
+    function setOffline(msg) {
+      if (!offline) {
+        offline = true;
+        retryDelay = REFRESH_MS;
+        console.error('taskd unreachable:', msg);
+      }
+      renderConnection();
+    }
+
+    function setOnline() {
+      if (!offline) return;
+      offline = false;
+      retryDelay = REFRESH_MS;
+      retryAt = Date.now() + REFRESH_MS;
+      renderConnection();
+    }
+
+    function scheduleRefresh() {
+      if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+      }
+      const cb = document.getElementById('auto-refresh');
+      if (!cb || !cb.checked) {
+        retryAt = 0;
+        renderConnection();
+        return;
+      }
+      retryAt = Date.now() + (offline ? retryDelay : REFRESH_MS);
+      refreshTimer = setInterval(refreshTick, 1000);
+      renderConnection();
+    }
+
+    function refreshTick() {
+      if (Date.now() < retryAt) {
+        if (offline) renderConnection();
+        return;
+      }
+      if (refreshInFlight) return;
+      if (offline) retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
+      loadAll();
+    }
+
+    async function fetchRaw(url, opts) {
+      let res;
       try {
-        const res = await fetch(url, opts);
+        res = await fetch(url, opts);
+      } catch (err) {
+        err.transport = true;
+        setOffline(err.message);
+        throw err;
+      }
+      setOnline();
+      return res;
+    }
+
+    function showFetchError(err) {
+      if (err && err.transport) return;
+      showError(err && err.message ? err.message : String(err));
+    }
+
+    async function fetchJSON(url, opts, withHeaders) {
+      const res = await fetchRaw(url, opts);
+      try {
         if (!res.ok) {
           const txt = await res.text();
           throw new Error(txt || res.statusText || ('HTTP ' + res.status));
@@ -677,7 +786,7 @@
         }
         return withHeaders ? { data, headers: res.headers } : data;
       } catch (err) {
-        showError(err.message);
+        showFetchError(err);
         throw err;
       }
     }
@@ -711,7 +820,7 @@
           pendingProject = '';
           syncURL(false);
         }
-        console.error('Failed to load projects:', e);
+        logFailure('Failed to load projects:', e);
       }
     }
 
@@ -732,7 +841,7 @@
         setVal('stat-done', stats.done);
         setVal('stat-total', stats.total);
       } catch (e) {
-        console.error('Failed to load stats:', e);
+        logFailure('Failed to load stats:', e);
       }
     }
 
@@ -918,7 +1027,7 @@
         if (selectedTaskId) loadTaskDetails(selectedTaskId);
         return;
       } catch (e) {
-        console.error('Failed to load tasks:', e);
+        logFailure('Failed to load tasks:', e);
         return;
       }
     }
@@ -985,7 +1094,7 @@
       let t;
       const sameTask = (id === shownTaskId);
       try {
-        const res = await fetch('/tasks/' + encodeURIComponent(id));
+        const res = await fetchRaw('/tasks/' + encodeURIComponent(id));
         if (id !== selectedTaskId) return;
         if (res.status === 404) {
           selectedTaskId = null;
@@ -1004,8 +1113,8 @@
         showError(null);
       } catch (e) {
         if (id !== selectedTaskId) return;
-        showError(e.message);
-        console.error('Failed to load task details:', e);
+        showFetchError(e);
+        logFailure('Failed to load task details:', e);
         return;
       }
       if (id !== selectedTaskId) return;
@@ -1220,7 +1329,7 @@
         priority: priority
       };
       try {
-        const res = await fetch('/tasks/' + encodeURIComponent(currentTask.id), {
+        const res = await fetchRaw('/tasks/' + encodeURIComponent(currentTask.id), {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1238,7 +1347,7 @@
       } catch (err) {
         if (saveBtn) saveBtn.disabled = false;
         if (cancelBtn) cancelBtn.disabled = false;
-        showError(err.message);
+        showFetchError(err);
       }
     }
     async function copyTaskId(id) {
@@ -1455,16 +1564,10 @@
       try {
         await Promise.all([loadProjects(), loadWorkers(), loadStats(), loadTasks(true)]);
       } catch (e) {
-        console.error('Failed to refresh data:', e);
+        logFailure('Failed to refresh data:', e);
       } finally {
         refreshInFlight = false;
-        const cb = document.getElementById('auto-refresh');
-        if (cb && cb.checked) {
-          if (refreshTimer) {
-            clearTimeout(refreshTimer);
-          }
-          refreshTimer = setTimeout(loadAll, 3000);
-        }
+        scheduleRefresh();
       }
     }
 
@@ -1507,20 +1610,14 @@
         await Promise.all([loadProjects(), loadWorkers()]);
         await Promise.all([loadStats(), loadTasks()]);
       } catch (e) {
-        console.error('Failed to boot UI:', e);
+        logFailure('Failed to boot UI:', e);
       }
       setupAutoRefresh();
     }
 
     function setupAutoRefresh() {
       const cb = document.getElementById('auto-refresh');
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-        refreshTimer = null;
-      }
-      if (cb && cb.checked) {
-        refreshTimer = setTimeout(loadAll, 3000);
-      }
+      scheduleRefresh();
       if (cb) cb.onchange = setupAutoRefresh;
     }
     window.addEventListener('popstate', () => {

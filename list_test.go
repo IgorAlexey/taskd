@@ -309,9 +309,6 @@ func TestListFieldsPayloadSize200Tasks(t *testing.T) {
 func TestWebUISequentialAutoRefresh(t *testing.T) {
 	ui := string(uiHTML)
 	if strings.Contains(ui, "setInterval(loadAll") {
-		t.Fatal("expected setInterval(loadAll) to be replaced by sequential setTimeout polling")
-	}
-	if !strings.Contains(ui, "setTimeout(loadAll") {
-		t.Fatal("expected setTimeout(loadAll) sequential polling in web/index.html")
+		t.Fatal("expected loadAll polled by refreshTick, not a bare setInterval")
 	}
 }

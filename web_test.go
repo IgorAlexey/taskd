@@ -858,3 +858,131 @@ func TestWebUICenteredPage(t *testing.T) {
 		t.Errorf("expected body to keep a horizontal gutter, got %q", decls)
 	}
 }
+
+func TestWebUIConnectionStatusMarkup(t *testing.T) {
+	ui := string(uiHTML)
+
+	pill := regexp.MustCompile(`<span[^>]*id="connection-status"[^>]*>`).FindString(ui)
+	if pill == "" {
+		t.Fatal("expected #connection-status pill in web/index.html")
+	}
+	if !strings.Contains(pill, `role="status"`) || !strings.Contains(pill, `aria-live="polite"`) {
+		t.Fatalf("expected role=status and aria-live=polite on the pill, got %q", pill)
+	}
+
+	header := regexp.MustCompile(`(?s)<header>.*?</header>`).FindString(ui)
+	if !strings.Contains(header, `id="connection-status"`) {
+		t.Fatal("expected the connection pill inside <header>")
+	}
+	if !strings.Contains(ui, "#connection-status {") {
+		t.Fatal("expected a #connection-status style rule in web/index.html")
+	}
+	if !strings.Contains(ui, "Offline") {
+		t.Fatal("expected an offline label in web/index.html")
+	}
+}
+
+func TestWebUIConnectionRetry(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/connection.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+	type pill struct {
+		Text    string
+		Display string
+		Banner  string
+		Ticking bool
+	}
+	var got struct {
+		Boot               pill
+		Backoff            []int
+		Countdown          string
+		MutationBanner     string `json:"mutationBanner"`
+		ValidationBanner   string `json:"validationBanner"`
+		ValidationText     string `json:"validationText"`
+		OverlapFetches     int    `json:"overlapFetches"`
+		LogsWhileOffline   int    `json:"logsWhileOffline"`
+		AutoRefreshOff     pill   `json:"autoRefreshOff"`
+		Recovered, Relapse pill
+		OnlineTicks        int `json:"onlineTicks"`
+		RelapseTicks       int `json:"relapseTicks"`
+		ManualRefreshTicks int `json:"afterManualRefresh"`
+		OutOfBandTicks     int `json:"afterOutOfBandSuccess"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.Boot.Display == "none" || !strings.Contains(got.Boot.Text, "Offline") {
+		t.Errorf("boot pill = %+v, want a visible offline pill", got.Boot)
+	}
+	if !strings.Contains(got.Boot.Text, "3s") {
+		t.Errorf("boot pill text = %q, want a retry countdown", got.Boot.Text)
+	}
+	if got.Boot.Banner == "flex" || got.MutationBanner == "flex" {
+		t.Errorf("error banner = %q/%q, want the pill to replace it",
+			got.Boot.Banner, got.MutationBanner)
+	}
+	if got.ValidationBanner != "flex" || got.ValidationText == "" {
+		t.Errorf("validation banner = %q %q, want form errors while offline",
+			got.ValidationBanner, got.ValidationText)
+	}
+	if got.OverlapFetches != 0 {
+		t.Errorf("%d requests started while a refresh was in flight, want 0",
+			got.OverlapFetches)
+	}
+	if !got.Boot.Ticking {
+		t.Error("expected a countdown ticker while offline")
+	}
+
+	want := []int{3, 6, 12, 24, 30}
+	if !slices.Equal(got.Backoff, want) {
+		t.Errorf("seconds between retries = %v, want capped backoff %v",
+			got.Backoff, want)
+	}
+	if !strings.Contains(got.Countdown, "30s") {
+		t.Errorf("countdown text = %q, want the capped delay", got.Countdown)
+	}
+	if got.LogsWhileOffline != 1 {
+		t.Errorf("console errors during the outage = %d, want one per outage",
+			got.LogsWhileOffline)
+	}
+
+	if got.AutoRefreshOff.Ticking {
+		t.Error("countdown ticker still running with auto-refresh off")
+	}
+	if got.AutoRefreshOff.Text != "Offline" {
+		t.Errorf("pill with auto-refresh off = %q, want a bare Offline",
+			got.AutoRefreshOff.Text)
+	}
+
+	if got.Recovered.Display != "none" || got.Recovered.Text != "" {
+		t.Errorf("recovered pill = %+v, want it cleared", got.Recovered)
+	}
+	if got.OnlineTicks != 3 {
+		t.Errorf("online poll interval = %ds, want 3s", got.OnlineTicks)
+	}
+	if got.RelapseTicks != 3 || !strings.Contains(got.Relapse.Text, "Offline") {
+		t.Errorf("second outage = %d %+v, want backoff reset and the pill back",
+			got.RelapseTicks, got.Relapse)
+	}
+	if got.ManualRefreshTicks != 3 {
+		t.Errorf("retry delay after manual refreshes = %ds, want 3s: clicking "+
+			"Refresh must not advance the backoff", got.ManualRefreshTicks)
+	}
+	if got.OutOfBandTicks != 3 {
+		t.Errorf("poll resumed %ds after a non-poll request succeeded, "+
+			"want 3s", got.OutOfBandTicks)
+	}
+}
