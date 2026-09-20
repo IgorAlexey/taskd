@@ -2318,20 +2318,37 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 
 	purgeTasksHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
+		var req struct {
+			Project *string `json:"project"`
+		}
+		if !decodeBody(w, r, &req, true) {
+			return
+		}
+
+		if q.Has("project") && req.Project != nil && q.Get("project") != *req.Project {
+			writeError(w, http.StatusBadRequest, "conflicting project parameter")
+			return
+		}
+
+		var project string
+		if req.Project != nil {
+			project = *req.Project
+		} else if q.Has("project") {
+			project = q.Get("project")
+		}
+
 		var projectFilter string
-		if q.Has("project") {
-			p := q.Get("project")
-			if p == "" {
-				writeError(w, http.StatusBadRequest, "project cannot be empty")
-				return
-			}
-			if p != "*" && !validProject(p) {
+		if project != "" {
+			if project != "*" && !validProject(project) {
 				writeError(w, http.StatusBadRequest, "invalid project")
 				return
 			}
-			if p != "*" {
-				projectFilter = p
+			if project != "*" {
+				projectFilter = project
 			}
+		} else if q.Has("project") || req.Project != nil {
+			writeError(w, http.StatusBadRequest, "project cannot be empty")
+			return
 		}
 
 		query := "DELETE FROM tasks WHERE status = 'done'"

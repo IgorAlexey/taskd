@@ -227,3 +227,87 @@ PRAGMA user_version = 8;`
 		t.Fatalf("expected idx_tasks_done index to exist, got count %d", indexExists)
 	}
 }
+
+func TestPurgeJSONBody(t *testing.T) {
+	db, err := openDB(":memory:", 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	t.Cleanup(srv.Close)
+
+	create := func(id, project, status string) {
+		t.Helper()
+		_, err := db.rw.Exec(
+			"INSERT INTO tasks (id, project, status, body, priority, created_at) VALUES (?, ?, ?, ?, 3, unixepoch())",
+			id, project, status, "task "+id,
+		)
+		if err != nil {
+			t.Fatalf("insert task %s failed: %v", id, err)
+		}
+	}
+
+	create("d1", "p1", "done")
+	create("d2", "p1", "done")
+	create("d3", "p2", "done")
+
+	reqBody := `{"project":"p1"}`
+	resp, err := http.Post(srv.URL+"/tasks/purge", "application/json", strings.NewReader(reqBody))
+	if err != nil {
+		t.Fatalf("POST /tasks/purge failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST /tasks/purge status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result struct {
+		Deleted int64 `json:"deleted"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response failed: %v", err)
+	}
+	if result.Deleted != 2 {
+		t.Fatalf("deleted = %d, want 2", result.Deleted)
+	}
+
+	var countP2 int
+	if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE status = 'done' AND project = 'p2'").Scan(&countP2); err != nil {
+		t.Fatalf("count p2 failed: %v", err)
+	}
+	if countP2 != 1 {
+		t.Fatalf("p2 done tasks = %d, want 1 preserved", countP2)
+	}
+
+	respUnknown, err := http.Post(srv.URL+"/tasks/purge", "application/json", strings.NewReader(`{"unexpected":"field"}`))
+	if err != nil {
+		t.Fatalf("POST /tasks/purge unexpected failed: %v", err)
+	}
+	defer respUnknown.Body.Close()
+	if respUnknown.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for unexpected JSON fields, got %d", respUnknown.StatusCode)
+	}
+
+	respEmptyProj, err := http.Post(srv.URL+"/tasks/purge", "application/json", strings.NewReader(`{"project":""}`))
+	if err != nil {
+		t.Fatalf("POST /tasks/purge empty project failed: %v", err)
+	}
+	defer respEmptyProj.Body.Close()
+	if respEmptyProj.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for empty project, got %d", respEmptyProj.StatusCode)
+	}
+
+	respBadProj, err := http.Post(srv.URL+"/tasks/purge", "application/json", strings.NewReader(`{"project":"invalid name"}`))
+	if err != nil {
+		t.Fatalf("POST /tasks/purge invalid project failed: %v", err)
+	}
+	defer respBadProj.Body.Close()
+	if respBadProj.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 for invalid project, got %d", respBadProj.StatusCode)
+	}
+}
