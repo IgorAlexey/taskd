@@ -620,6 +620,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd := m.setMsg("task is not leased")
 					return m, cmd
 				}
+				if t.Worker != m.cfg.worker {
+					cmd := m.setMsg("cannot touch lease held by another worker")
+					return m, cmd
+				}
+				now := m.now
+				if now.IsZero() {
+					now = time.Now()
+				}
+				if t.LeaseExpires <= now.Unix() {
+					cmd := m.setMsg("lease has expired")
+					return m, cmd
+				}
 				id7 := shortID(t.ID)
 				m.msg = ""
 				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7)
