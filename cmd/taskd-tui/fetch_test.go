@@ -28,7 +28,7 @@ func TestFetchProjectQuery(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 
 	// Default: no project filter queries limit=500 and returns all tasks
 	tasks, err := u.fetch("")

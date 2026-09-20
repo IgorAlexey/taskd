@@ -8,7 +8,7 @@ import (
 )
 
 func TestTableHeaderClickNoSelect(t *testing.T) {
-	u := newUI("http://127.0.0.1:1", "", false)
+	u := newUI("http://127.0.0.1:1", "", false, "")
 	u.render([]task{
 		{ID: "t1", Status: "pending", Body: "hello"},
 	})

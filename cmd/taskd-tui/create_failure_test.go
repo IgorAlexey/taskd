@@ -31,7 +31,7 @@ func TestCreateFormKeepOpenOnFailure(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "proj-test", false)
+	u := newUI(srv.URL, "proj-test", false, "")
 	u.projects = []string{"proj-test"}
 	ts, err := u.fetch("proj-test")
 	if err != nil {

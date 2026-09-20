@@ -17,7 +17,7 @@ var tagTasks = []task{
 }
 
 func TestEscapeTableCells(t *testing.T) {
-	u := newUI("http://127.0.0.1:1", "", false)
+	u := newUI("http://127.0.0.1:1", "", false, "")
 	u.render(tagTasks)
 
 	for _, tc := range []struct {
@@ -43,7 +43,7 @@ func TestEscapeTableCells(t *testing.T) {
 // TestEscapeOnScreen is the pty reproduction: the marker has to survive all
 // the way onto the terminal, both in the table row and in the delete prompt.
 func TestEscapeOnScreen(t *testing.T) {
-	u := newUI("http://127.0.0.1:1", "", false)
+	u := newUI("http://127.0.0.1:1", "", false, "")
 	u.render(tagTasks)
 
 	sim := tcell.NewSimulationScreen("")

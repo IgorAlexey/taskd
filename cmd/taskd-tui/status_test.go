@@ -14,7 +14,7 @@ func statusLine(t *testing.T, u *ui) string {
 }
 
 func TestProjectScopedCounts(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	all := []task{
 		{ID: "a1", Project: "proj-a", Status: "pending", Body: "a pending"},
 		{ID: "a2", Project: "proj-a", Status: "done", Body: "a done"},
@@ -64,7 +64,7 @@ func TestProjectScopedCounts(t *testing.T) {
 }
 
 func TestStatusBarIndex(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	u.filter = ""
 	all := []task{
 		{ID: "a1", Project: "proj-a", Status: "pending", Body: "first"},
@@ -111,7 +111,7 @@ func TestStatusBarIndex(t *testing.T) {
 }
 
 func TestStatusBarWidth(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	all := []task{
 		{ID: "a1", Project: "proj-a", Status: "pending", Body: "first"},
 	}
@@ -144,7 +144,7 @@ func TestStatusBarWidth(t *testing.T) {
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
 	}
-	u2 := newUI("http://localhost:8080", "", false)
+	u2 := newUI("http://localhost:8080", "", false, "")
 	u2.app.SetScreen(sim)
 	sim.SetSize(160, 25)
 	u2.app.SetRoot(u2.pages, true)
@@ -166,7 +166,7 @@ func TestStatusBarWidth(t *testing.T) {
 }
 
 func TestDaemonOriginInStatusBar(t *testing.T) {
-	u := newUI("http://127.0.0.1:18842", "", false)
+	u := newUI("http://127.0.0.1:18842", "", false, "")
 	all := []task{
 		{ID: "t1", Status: "pending", Body: "task 1"},
 	}
@@ -185,7 +185,7 @@ func TestDaemonOriginInStatusBar(t *testing.T) {
 }
 
 func TestDaemonOriginSurvives40Columns(t *testing.T) {
-	u := newUI("http://127.0.0.1:18842", "", false)
+	u := newUI("http://127.0.0.1:18842", "", false, "")
 	u.width = 40
 	u.render([]task{
 		{ID: "t1", Status: "pending", Project: "very-long-project-name", Body: "task 1"},

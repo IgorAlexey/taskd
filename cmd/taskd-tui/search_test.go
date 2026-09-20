@@ -8,7 +8,7 @@ import (
 )
 
 func TestSearchFilter(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	u.filter = ""
 	all := []task{
 		{ID: "aaaa1111", Project: "proj-a", Status: "pending", Body: "rebuild zebra manifest", Worker: "worker1"},
@@ -106,7 +106,7 @@ func TestSearchSwallowsCommands(t *testing.T) {
 }
 
 func TestSearchBackspaceAndClear(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	all := []task{
 		{ID: "aaaa1111", Body: "first zebra"},
 		{ID: "bbbb2222", Body: "second"},
@@ -158,7 +158,7 @@ func TestSearchBackspaceAndClear(t *testing.T) {
 	}
 }
 func TestSearchEnterAccepts(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	all := []task{
 		{ID: "aaaa1111", Body: "alpha task"},
 		{ID: "bbbb2222", Body: "beta task"},
@@ -198,7 +198,7 @@ func TestSearchEnterAccepts(t *testing.T) {
 }
 
 func TestSearchNavigationKeys(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	all := []task{
 		{ID: "task-1", Body: "alpha first"},
 		{ID: "task-2", Body: "alpha second"},

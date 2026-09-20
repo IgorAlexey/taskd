@@ -173,7 +173,7 @@ func TestClaimKeyConflict(t *testing.T) {
 }
 
 func TestClaimCountDisplay(t *testing.T) {
-	u := newUI("http://127.0.0.1:1", "", false)
+	u := newUI("http://127.0.0.1:1", "", false, "")
 	tasks := []task{
 		{
 			ID:         "task-0",

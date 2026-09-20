@@ -344,7 +344,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	})
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, defaultWorker())
 	u.filter = ""
 	return u, &tasks, &mu
 }
@@ -687,7 +687,7 @@ func TestPriorityKeyAdjust(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	ts, err := u.fetch("")
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
@@ -1426,6 +1426,7 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 			"Keyboard shortcuts:",
 			"-url",
 			"-project",
+			"-worker",
 			"TASKD_URL",
 			"TASKD_PROJECT",
 			"T",
@@ -1446,7 +1447,7 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 	})
 
 	t.Run("ui project filter initialization", func(t *testing.T) {
-		u := newUI("http://localhost:8080", "proj-a", false)
+		u := newUI("http://localhost:8080", "proj-a", false, "")
 		u.filter = ""
 		if u.url != "http://localhost:8080" {
 			t.Fatalf("expected url http://localhost:8080, got %q", u.url)
@@ -1468,6 +1469,54 @@ func TestTUIFlagsAndEnv(t *testing.T) {
 			if tk.Project != "proj-a" {
 				t.Fatalf("expected only proj-a tasks, got %q", tk.Project)
 			}
+		}
+	})
+}
+
+func TestTUIWorkerFlag(t *testing.T) {
+	t.Run("parseFlags sets worker", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-worker", "my-worker"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.worker != "my-worker" {
+			t.Fatalf("expected worker my-worker, got %q", cfg.worker)
+		}
+	})
+
+	t.Run("env fallback", func(t *testing.T) {
+		t.Setenv("TASKD_WORKER", "env-worker")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.worker != "env-worker" {
+			t.Fatalf("expected worker from env env-worker, got %q", cfg.worker)
+		}
+	})
+
+	t.Run("flag overrides env", func(t *testing.T) {
+		t.Setenv("TASKD_WORKER", "env-worker")
+		cfg, err := parseFlags([]string{"-worker", "cli-worker"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.worker != "cli-worker" {
+			t.Fatalf("expected worker cli-worker, got %q", cfg.worker)
+		}
+	})
+
+	t.Run("worker with help flag", func(t *testing.T) {
+		_, err := parseFlags([]string{"-worker", "test-worker", "-h"})
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp for -worker test-worker -h, got %v", err)
+		}
+	})
+
+	t.Run("newUI adopts configured worker", func(t *testing.T) {
+		u := newUI("http://localhost:8080", "", false, "configured-worker")
+		if u.worker != "configured-worker" {
+			t.Fatalf("expected ui.worker configured-worker, got %q", u.worker)
 		}
 	})
 }
@@ -1568,7 +1617,7 @@ func TestNerdFontIcons(t *testing.T) {
 	})
 
 	t.Run("ascii fallback rendering", func(t *testing.T) {
-		u := newUI("http://localhost:8080", "", false)
+		u := newUI("http://localhost:8080", "", false, "")
 		u.filter = ""
 		tasks := []task{
 			{ID: "t1", Status: "pending", Priority: 0, Body: "task 1"},
@@ -1597,7 +1646,7 @@ func TestNerdFontIcons(t *testing.T) {
 	})
 
 	t.Run("nerd font glyph rendering", func(t *testing.T) {
-		u := newUI("http://localhost:8080", "", true)
+		u := newUI("http://localhost:8080", "", true, "")
 		u.filter = ""
 		tasks := []task{
 			{ID: "t1", Status: "pending", Priority: 0, Body: "task 1"},
@@ -1631,7 +1680,7 @@ func TestNerdFontIcons(t *testing.T) {
 }
 
 func TestSelectionClamping(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	t1 := task{ID: "task-1", Status: "pending", Priority: 1, Body: "first"}
 	t2 := task{ID: "task-2", Status: "pending", Priority: 2, Body: "second"}
 	t3 := task{ID: "task-3", Status: "pending", Priority: 3, Body: "third"}
@@ -1982,7 +2031,7 @@ func TestFetchServerError(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		u := newUI(srv.URL, "", false)
+		u := newUI(srv.URL, "", false, "")
 		ts, err := u.fetch("")
 		if err == nil {
 			t.Fatal("expected error from non-200 response, got nil")
@@ -2008,7 +2057,7 @@ func TestFetchServerError(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		u := newUI(srv.URL, "", false)
+		u := newUI(srv.URL, "", false, "")
 		_, err := u.fetch("")
 		if err == nil {
 			t.Fatal("expected error from 502 response, got nil")
@@ -2027,7 +2076,7 @@ func TestFetchServerError(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		u := newUI(srv.URL, "", false)
+		u := newUI(srv.URL, "", false, "")
 		_, err := u.fetch("")
 		if err == nil {
 			t.Fatal("expected error from 503 response, got nil")
@@ -2043,7 +2092,7 @@ func TestFetchServerError(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		u := newUI(srv.URL, "", false)
+		u := newUI(srv.URL, "", false, "")
 		sim := tcell.NewSimulationScreen("")
 		if err := sim.Init(); err != nil {
 			t.Fatal(err)
@@ -2089,7 +2138,7 @@ func TestFetchServerError(t *testing.T) {
 		}))
 		t.Cleanup(srv.Close)
 
-		u := newUI(srv.URL, "", false)
+		u := newUI(srv.URL, "", false, "")
 		_, err := u.fetch("")
 		if err == nil {
 			t.Fatal("expected error from 500 response, got nil")
@@ -2365,7 +2414,7 @@ func TestClearErrorOnReconnect(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	u.msgTimeout = 20 * time.Millisecond
 	sim := tcell.NewSimulationScreen("")
 	if err := sim.Init(); err != nil {
@@ -2509,7 +2558,7 @@ func TestProjectCyclingFromProjectsEndpoint(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	ps, err := u.fetchProjects()
 	if err != nil {
 		t.Fatal(err)
@@ -2547,7 +2596,7 @@ func TestRefreshCachesProjects(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	sim := tcell.NewSimulationScreen("")
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
@@ -2600,7 +2649,7 @@ func TestRefreshSurfacesProjectsError(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	sim := tcell.NewSimulationScreen("")
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
@@ -3144,7 +3193,7 @@ func TestRefreshMessage(t *testing.T) {
 	}
 }
 func TestDefaultViewHidesDone(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	if u.filter != "live" {
 		t.Fatalf("expected default filter to be %q, got %q", "live", u.filter)
 	}

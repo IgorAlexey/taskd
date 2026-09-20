@@ -1447,6 +1447,7 @@ func defaultWorker() string {
 type config struct {
 	url     string
 	project string
+	worker  string
 	icons   bool
 }
 
@@ -1460,6 +1461,8 @@ Options:
     	taskd daemon URL (default: $TASKD_URL, $T, or "http://localhost:8080")
   -project string
     	filter tasks by project (default: $TASKD_PROJECT)
+  -worker string
+    	worker identifier for claiming tasks (default: $TASKD_WORKER)
   -icons
     	use Nerd Font glyphs for status and priority (default: $TASKD_TUI_ICONS)
   -h, -help
@@ -1534,6 +1537,7 @@ func parseFlags(args []string) (config, error) {
 		defaultURL = "http://localhost:8080"
 	}
 	defaultProject := os.Getenv("TASKD_PROJECT")
+	defaultWorkerID := defaultWorker()
 	envIcons := os.Getenv("TASKD_TUI_ICONS")
 	defaultIcons := envIcons == "1" || strings.EqualFold(envIcons, "true")
 
@@ -1543,6 +1547,7 @@ func parseFlags(args []string) (config, error) {
 	fs.Usage = func() {}
 	fs.StringVar(&cfg.url, "url", defaultURL, "taskd daemon address")
 	fs.StringVar(&cfg.project, "project", defaultProject, "filter tasks by project")
+	fs.StringVar(&cfg.worker, "worker", defaultWorkerID, "worker identifier for claiming tasks")
 	fs.BoolVar(&cfg.icons, "icons", defaultIcons, "use Nerd Font glyphs for status and priority")
 	if err := fs.Parse(args); err != nil {
 		return cfg, err
@@ -1558,13 +1563,13 @@ func parseFlags(args []string) (config, error) {
 	return cfg, nil
 }
 
-func newUI(url, project string, icons bool) *ui {
+func newUI(url, project string, icons bool, worker string) *ui {
 	u := &ui{
 		url:          strings.TrimRight(url, "/"),
 		origin:       daemonOrigin(url),
 		project:      project,
 		icons:        icons,
-		worker:       defaultWorker(),
+		worker:       worker,
 		filter:       "live",
 		pollInterval: time.Second,
 		app:          tview.NewApplication().EnableMouse(true),
@@ -1650,7 +1655,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "taskd-tui: %v\n", err)
 		os.Exit(2)
 	}
-	u := newUI(cfg.url, cfg.project, cfg.icons)
+	u := newUI(cfg.url, cfg.project, cfg.icons, cfg.worker)
 	stop := u.quitOnSignal()
 	defer stop()
 	ctx, cancel := context.WithCancel(context.Background())

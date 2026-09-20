@@ -9,7 +9,7 @@ import (
 )
 
 func TestTableColumnWidthLimits(t *testing.T) {
-	u := newUI("http://127.0.0.1:1", "", false)
+	u := newUI("http://127.0.0.1:1", "", false, "")
 	longTitle := "important task title that must not be truncated"
 	u.render([]task{
 		{
@@ -54,7 +54,7 @@ func TestTableColumnWidthLimits(t *testing.T) {
 }
 
 func TestTruncateColumns(t *testing.T) {
-	u := newUI("http://127.0.0.1:1", "", false)
+	u := newUI("http://127.0.0.1:1", "", false, "")
 	u.render([]task{
 		{
 			ID:      "t1",

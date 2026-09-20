@@ -7,7 +7,7 @@ import (
 )
 
 func TestCtrlLSync(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false)
+	u := newUI("http://localhost:8080", "", false, "")
 	capture := u.app.GetInputCapture()
 	if capture == nil {
 		t.Fatal("expected application input capture to be installed")

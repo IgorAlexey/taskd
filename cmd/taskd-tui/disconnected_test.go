@@ -50,7 +50,7 @@ func TestTUIDisconnectedState(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	u.pollInterval = 20 * time.Millisecond
 
 	sim := tcell.NewSimulationScreen("")

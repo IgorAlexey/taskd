@@ -48,7 +48,7 @@ func projectStub(t *testing.T, gated bool) (*ui, func()) {
 	// A failed assertion must not leave srv.Close waiting on a held request.
 	t.Cleanup(release)
 
-	u := newUI(srv.URL, "proj-a", false)
+	u := newUI(srv.URL, "proj-a", false, "")
 	u.projects = []string{"proj-a", "proj-b", "proj-empty"}
 	u.render(nil)
 

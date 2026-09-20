@@ -34,7 +34,7 @@ func TestFetchStatsDirect(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	st, err := u.fetchStats("")
 	if err != nil {
 		t.Fatalf("fetchStats failed: %v", err)
@@ -80,7 +80,7 @@ func TestStatsBacklogExceedsPagination(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	sim := tcell.NewSimulationScreen("")
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
@@ -167,7 +167,7 @@ func TestStatsFallbackOnServerError(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	u := newUI(srv.URL, "", false)
+	u := newUI(srv.URL, "", false, "")
 	sim := tcell.NewSimulationScreen("")
 	if err := sim.Init(); err != nil {
 		t.Fatal(err)
