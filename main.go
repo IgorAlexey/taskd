@@ -1900,6 +1900,14 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	}
 
 	listTasksHandler := func(w http.ResponseWriter, r *http.Request) {
+		projects, err := db.sweep()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		for _, p := range projects {
+			db.notifyPending(p)
+		}
 		q := requestQuery(r)
 		status := q.Get("status")
 		switch status {

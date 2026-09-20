@@ -293,3 +293,90 @@ func TestSortCursor(t *testing.T) {
 		t.Fatalf("expected 400 when combining sort and after, got %d", combineResp.StatusCode)
 	}
 }
+
+func TestSortEffectiveStatusAndWorker(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 2))
+	defer srv.Close()
+
+	postJSON := func(url string, payload any) *http.Response {
+		data, err := json.Marshal(payload)
+		if err != nil {
+			t.Fatalf("marshal payload failed: %v", err)
+		}
+		resp, err := http.Post(srv.URL+url, "application/json", bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("POST %s failed: %v", url, err)
+		}
+		return resp
+	}
+
+	r1 := postJSON("/tasks", map[string]any{"id": "t1", "body": "first", "project": "p"})
+	r1.Body.Close()
+	if r1.StatusCode != http.StatusCreated {
+		t.Fatalf("create t1 status = %d, want 201", r1.StatusCode)
+	}
+	c1 := postJSON("/tasks/claim", map[string]any{"worker": "w2"})
+	if c1.StatusCode != http.StatusOK {
+		t.Fatalf("claim t1 status = %d, want 200", c1.StatusCode)
+	}
+	c1.Body.Close()
+
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = 't1'"); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+	r2 := postJSON("/tasks", map[string]any{"id": "t2", "body": "second", "project": "p"})
+	r2.Body.Close()
+	if r2.StatusCode != http.StatusCreated {
+		t.Fatalf("create t2 status = %d, want 201", r2.StatusCode)
+	}
+
+	c2 := postJSON("/tasks/claim", map[string]any{"worker": "w1"})
+	c2.Body.Close()
+	if c2.StatusCode != http.StatusOK {
+		t.Fatalf("claim t2 status = %d, want 200", c2.StatusCode)
+	}
+
+	type listTask struct {
+		ID           string `json:"id"`
+		Status       string `json:"status"`
+		Worker       string `json:"worker"`
+		LeaseExpires int64  `json:"lease_expires"`
+	}
+	getTasks := func(query string) []listTask {
+		resp, err := http.Get(srv.URL + "/tasks?" + query)
+		if err != nil {
+			t.Fatalf("GET /tasks?%s failed: %v", query, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET /tasks?%s status = %d, want 200", query, resp.StatusCode)
+		}
+		var tasks []listTask
+		if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
+			t.Fatalf("decode tasks failed: %v", err)
+		}
+		return tasks
+	}
+
+	statusDesc := getTasks("sort=status&order=desc")
+	if len(statusDesc) < 2 {
+		t.Fatalf("got %d tasks, want at least 2", len(statusDesc))
+	}
+	if statusDesc[0].Status != "pending" || statusDesc[1].Status != "leased" {
+		t.Fatalf("sort=status&order=desc got statuses [%s, %s], want [pending, leased]", statusDesc[0].Status, statusDesc[1].Status)
+	}
+
+	workerAsc := getTasks("sort=worker&order=asc")
+	if len(workerAsc) < 2 {
+		t.Fatalf("got %d tasks, want at least 2", len(workerAsc))
+	}
+	if workerAsc[0].Worker != "" || workerAsc[1].Worker != "w1" {
+		t.Fatalf("sort=worker&order=asc got workers [%q, %q], want [\"\", \"w1\"]", workerAsc[0].Worker, workerAsc[1].Worker)
+	}
+}
