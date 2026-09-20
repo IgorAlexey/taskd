@@ -174,3 +174,72 @@ func TestBodyHalfPageScroll(t *testing.T) {
 		t.Fatalf("expected table Ctrl+U to move selection back to row 5, got %d", r)
 	}
 }
+
+func TestBodyScrollPreservedAcrossRefresh(t *testing.T) {
+	origNow := nowUnix
+	fixedNow := int64(1000000000)
+	nowUnix = func() int64 { return fixedNow }
+	defer func() { nowUnix = origNow }()
+
+	u, _, _ := stub(t)
+
+	var body string
+	for i := 1; i <= 50; i++ {
+		body += fmt.Sprintf("line %02d: long body description line\n", i)
+	}
+
+	tasks := []task{
+		{
+			ID:           "t1",
+			Project:      "proj",
+			Status:       "leased",
+			LeaseExpires: fixedNow + 300,
+			Body:         body,
+		},
+		{
+			ID:      "t2",
+			Project: "proj",
+			Status:  "pending",
+			Body:    body,
+		},
+	}
+
+	u.render(tasks)
+	u.table.Select(1, 0)
+	u.showBody()
+
+	sim := tcell.NewSimulationScreen("")
+	if err := sim.Init(); err != nil {
+		t.Fatal(err)
+	}
+	sim.SetSize(80, 25)
+	u.body.SetRect(0, 0, 80, 10)
+	u.body.Draw(sim)
+
+	evJ := tcell.NewEventKey(tcell.KeyRune, 'j', 0)
+	handler := u.body.InputHandler()
+	for i := 0; i < 5; i++ {
+		handler(evJ, nil)
+	}
+	u.body.Draw(sim)
+
+	row, _ := u.body.GetScrollOffset()
+	if row <= 0 {
+		t.Fatalf("expected scroll offset > 0 before refresh, got %d", row)
+	}
+
+	fixedNow++
+	u.render(u.all)
+
+	afterRow, _ := u.body.GetScrollOffset()
+	if afterRow != row {
+		t.Fatalf("expected scroll offset %d preserved across render, got %d", row, afterRow)
+	}
+
+	u.table.Select(2, 0)
+	u.showBody()
+	newRow, _ := u.body.GetScrollOffset()
+	if newRow != 0 {
+		t.Fatalf("expected scroll offset 0 for different task, got %d", newRow)
+	}
+}

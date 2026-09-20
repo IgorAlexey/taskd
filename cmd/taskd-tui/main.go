@@ -640,9 +640,13 @@ func (u *ui) showBody() {
 	} else {
 		text = u.emptyState()
 	}
-	if id != u.shownID || text != u.shownBody {
+	if id != u.shownID {
 		u.shownID, u.shownBody = id, text
 		u.body.SetText(text).ScrollToBeginning()
+	} else if text != u.shownBody {
+		row, col := u.body.GetScrollOffset()
+		u.shownBody = text
+		u.body.SetText(text).ScrollTo(row, col)
 	}
 }
 
