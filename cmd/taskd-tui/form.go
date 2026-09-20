@@ -598,6 +598,7 @@ func helpView(width, height int, th theme) string {
 		{"+/-", "priority"},
 		{"c", "claim"},
 		{"u", "release"},
+		{"t", "touch lease"},
 		{"D", "delete"},
 		{"x", "complete"},
 		{"y/Y", "copy id/body"},

@@ -210,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case actMsg:
 		var cmd tea.Cmd
 		if msg.err != nil {
-			cmd = m.setMsg("error: " + msg.err.Error())
+			cmd = m.setError(msg.err.Error())
 		} else if msg.msg != "" {
 			cmd = m.setMsg(msg.msg)
 		}
@@ -503,6 +503,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.query = ""
 					return m, m.commitQuery()
 				}
+				if m.msg != "" {
+					m.msg = ""
+					return m, nil
+				}
 				return m, nil
 			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEnter:
 				m.mode = modeDetail
@@ -569,6 +573,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 				id7 := shortID(t.ID)
+				m.msg = ""
 				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7)
 			case msg.Text == "u":
 				t, ok := m.selected()
@@ -580,7 +585,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 				id7 := shortID(t.ID)
+				m.msg = ""
 				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": t.Worker}, "released task "+id7)
+			case msg.Text == "t":
+				t, ok := m.selected()
+				if !ok {
+					return m, nil
+				}
+				if t.Status != "leased" {
+					cmd := m.setMsg("task is not leased")
+					return m, cmd
+				}
+				id7 := shortID(t.ID)
+				m.msg = ""
+				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7)
 			case msg.Text == "D":
 				t, ok := m.selected()
 				if !ok {
@@ -814,6 +832,12 @@ func (m *model) setMsg(s string) tea.Cmd {
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 		return clearMsgMsg{id: id}
 	})
+}
+
+func (m *model) setError(s string) tea.Cmd {
+	m.msg = "error: " + s
+	m.msgID++
+	return nil
 }
 
 func titleOf(t task) (scope, title string) {

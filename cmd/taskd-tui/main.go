@@ -120,6 +120,7 @@ Keyboard shortcuts:
   +/-                 raise / lower task priority
   c                   claim selected pending task
   u                   release selected leased task
+  t                   touch (extend lease) selected task
   D                   delete selected task
   x                   complete selected task
   y/Y                 copy task ID / body to clipboard
