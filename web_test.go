@@ -1355,3 +1355,86 @@ func TestWebUIRowArrowKeyNavigation(t *testing.T) {
 		t.Error("expected modified arrow key (Ctrl+ArrowDown) to be ignored")
 	}
 }
+
+func TestWebUIExpandBody(t *testing.T) {
+	ui := string(uiHTML)
+
+	if !strings.Contains(ui, `id="expand-body-btn"`) {
+		t.Fatal("expected an expand control with id=\"expand-body-btn\"")
+	}
+	btn := regexp.MustCompile(`<button[^>]*id="expand-body-btn"[^>]*>`).FindString(ui)
+	if btn == "" {
+		t.Fatal("expected expand-body-btn to be a real <button>")
+	}
+	if !strings.Contains(btn, `type="button"`) {
+		t.Fatalf("expected type=\"button\" on the expand control, got %q", btn)
+	}
+	if !regexp.MustCompile(`<dialog[^>]*id="body-overlay"`).MatchString(ui) {
+		t.Fatal("expected the expanded body in a native <dialog>")
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/expand.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+	var got struct {
+		ButtonRendered         bool
+		ClosedBeforeExpand     bool
+		NoWindowKeydown        bool
+		HasClickHandler        bool
+		OpenedAsModal          bool
+		OverlayBody            string
+		ModalOpenerWasControl  bool
+		ClosedAfterDismiss     bool
+		FocusReturned          bool
+		HasCloseHandler        bool
+		ClosedAfterCloseButton bool
+		PanelClickKeepsOpen    bool
+		BackdropClickCloses    bool
+		OverlayRefreshed       bool
+		ClosedOverlayUntouched bool
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	checks := []struct {
+		name string
+		ok   bool
+	}{
+		{"expand control rendered in the details pane", got.ButtonRendered},
+		{"dialog closed before expanding", got.ClosedBeforeExpand},
+		{"Escape left to the dialog, no window keydown handler", got.NoWindowKeydown},
+		{"expand control wired to a click handler", got.HasClickHandler},
+		{"dialog opened with showModal", got.OpenedAsModal},
+		{"the control owned focus when the dialog opened", got.ModalOpenerWasControl},
+		{"dialog closed after dismissal", got.ClosedAfterDismiss},
+		{"focus returned to the expand control on close", got.FocusReturned},
+		{"close button wired", got.HasCloseHandler},
+		{"dialog closed by the close button", got.ClosedAfterCloseButton},
+		{"click inside the panel keeps the dialog open", got.PanelClickKeepsOpen},
+		{"click on the backdrop closes the dialog", got.BackdropClickCloses},
+		{"body refreshed while the dialog is open", got.OverlayRefreshed},
+		{"closed dialog not refreshed", got.ClosedOverlayUntouched},
+	}
+	for _, c := range checks {
+		if !c.ok {
+			t.Errorf("expected %s", c.name)
+		}
+	}
+	wantBody := "line one\n" + strings.Repeat("x", 400) + "\nlast line"
+	if got.OverlayBody != wantBody {
+		t.Errorf("overlay body = %q, want the full task body", got.OverlayBody)
+	}
+}

@@ -286,7 +286,46 @@
     overflow-x: auto;
     white-space: pre-wrap;
     word-break: break-all;
-    max-height: 200px;
+  }
+  #body-overlay {
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    border: none;
+    background: transparent;
+    padding: 16px;
+  }
+  #body-overlay::backdrop { background: rgba(1,4,9,0.88); }
+  .body-overlay-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    color: var(--text);
+  }
+  .body-overlay-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .body-overlay-header h2 {
+    font-size: 14px;
+    margin: 0;
+  }
+  #body-overlay-pre {
+    font-size: 13px;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+  .field-actions {
+    display: flex;
+    gap: 8px;
+  }
+  #task-details-content {
+    max-height: 70vh;
+    overflow-y: auto;
   }
   #error-banner {
     display: none;
@@ -533,6 +572,16 @@
     </div>
   </div>
   </main>
+
+  <dialog id="body-overlay" aria-labelledby="body-overlay-title">
+    <div class="body-overlay-panel">
+      <div class="body-overlay-header">
+        <h2 id="body-overlay-title">Task Body</h2>
+        <button type="button" id="body-overlay-close">Close (Esc)</button>
+      </div>
+      <pre id="body-overlay-pre"></pre>
+    </div>
+  </dialog>
 
   <script>
     let selectedTaskId = null;
@@ -1262,7 +1311,10 @@
         <div class="field">
           <div class="field-header">
             <span class="field-label">Body</span>
-            <button type="button" id="copy-body-btn" class="copy-btn">Copy</button>
+            <span class="field-actions">
+              <button type="button" id="expand-body-btn" class="copy-btn" aria-haspopup="dialog">Expand</button>
+              <button type="button" id="copy-body-btn" class="copy-btn">Copy</button>
+            </span>
           </div>
           <pre>${escapeHTML(t.body || '')}</pre>
         </div>
@@ -1305,6 +1357,36 @@
       if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
       const copyBodyBtn = document.getElementById('copy-body-btn');
       if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
+      const expandBtn = document.getElementById('expand-body-btn');
+      if (expandBtn) expandBtn.onclick = () => expandBody(t.body || '');
+      const dlg = document.getElementById('body-overlay');
+      if (dlg && dlg.open) setOverlayBody(t.body || '');
+    }
+
+    function setOverlayBody(body) {
+      const pre = document.getElementById('body-overlay-pre');
+      if (pre) pre.textContent = body;
+    }
+
+    function expandBody(body) {
+      const dlg = document.getElementById('body-overlay');
+      if (!dlg) return;
+      setOverlayBody(body || '');
+      if (!dlg.open) dlg.showModal();
+    }
+
+    function setupBodyOverlay() {
+      const dlg = document.getElementById('body-overlay');
+      if (!dlg) return;
+      const closeBtn = document.getElementById('body-overlay-close');
+      if (closeBtn) closeBtn.onclick = () => dlg.close();
+      dlg.addEventListener('click', (e) => {
+        if (e.target === dlg) dlg.close();
+      });
+      dlg.addEventListener('close', () => {
+        const btn = document.getElementById('expand-body-btn');
+        if (btn) btn.focus();
+      });
     }
 
     async function clearSelectedTask() {
@@ -1746,6 +1828,7 @@
       setupRowActivation();
       setupCardFilters();
       setupSearch();
+      setupBodyOverlay();
       applyURLState();
       syncURL(false);
       try {
