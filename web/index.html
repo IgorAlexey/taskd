@@ -892,7 +892,10 @@
 
     <aside class="stack">
       <section class="panel" id="task-details" aria-labelledby="details-heading" tabindex="-1">
-        <h2 class="panel-header" id="details-heading">Task Details</h2>
+        <div class="panel-header">
+          <h2 id="details-heading">Task Details</h2>
+          <button type="button" id="task-details-close" class="modal-close-btn" onclick="clearSelectedTask()" aria-label="Close task details">&times;</button>
+        </div>
         <div class="sidebar-section stack stack-sm" id="task-details-content">
           <p class="text-muted italic">Select a task to view details</p>
         </div>
@@ -1045,6 +1048,7 @@
             <div class="shortcut-row"><kbd>PgUp</kbd> / <kbd>PgDn</kbd> <span>Jump 10 tasks up / down</span></div>
             <div class="shortcut-row"><kbd>Enter</kbd> <span>Select task and focus details pane</span></div>
             <div class="shortcut-row"><kbd>Enter</kbd> / <kbd>Space</kbd> <span>Sort selected column header</span></div>
+            <div class="shortcut-row"><kbd>Esc</kbd> <span>Deselect task and clear details</span></div>
           </div>
         </section>
         <section class="shortcuts-section">
@@ -3432,6 +3436,13 @@
           return;
         }
         if (document.querySelector && document.querySelector('dialog[open]')) return;
+        if (e.key === 'Escape') {
+          if (selectedTaskId) {
+            e.preventDefault();
+            clearSelectedTask();
+            return;
+          }
+        }
         if (e.key === '/') {
           const el = document.getElementById('filter-search');
           if (el) {

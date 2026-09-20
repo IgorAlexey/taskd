@@ -39,6 +39,7 @@ func TestWebUIShortcutsModal(t *testing.T) {
 		}
 	}
 }
+
 func TestWebUISearchArrowDown(t *testing.T) {
 	ui := string(uiHTML)
 	if !strings.Contains(ui, `id="filter-search"`) {
@@ -49,5 +50,25 @@ func TestWebUISearchArrowDown(t *testing.T) {
 	}
 	if !strings.Contains(ui, "ArrowDown") {
 		t.Fatal("expected ArrowDown handling in web/index.html")
+	}
+}
+
+func TestWebUIDeselectTask(t *testing.T) {
+	ui := string(uiHTML)
+
+	if !strings.Contains(ui, `id="task-details-close"`) {
+		t.Fatal("expected #task-details-close button in web/index.html")
+	}
+	if !strings.Contains(ui, `aria-label="Close task details"`) {
+		t.Fatal("expected dismiss button with aria-label=\"Close task details\" in web/index.html")
+	}
+	if !strings.Contains(ui, `onclick="clearSelectedTask()"`) {
+		t.Fatal("expected dismiss button to call clearSelectedTask() in web/index.html")
+	}
+	if !strings.Contains(ui, "e.key === 'Escape'") {
+		t.Fatal("expected Escape key handling in web/index.html")
+	}
+	if !strings.Contains(ui, "Deselect task and clear details") {
+		t.Fatal("expected Deselect task shortcut documented in web/index.html")
 	}
 }
