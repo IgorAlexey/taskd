@@ -1280,7 +1280,7 @@ func isScope(candidate, project string) bool {
 }
 
 func titleOf(t task) (scope, title string) {
-	first := t.Body
+	first := strings.TrimLeft(t.Body, " \t\r\n")
 	if idx := strings.IndexByte(first, '\n'); idx >= 0 {
 		first = first[:idx]
 	}

@@ -131,3 +131,11 @@ func TestTableScopeColumn(t *testing.T) {
 		t.Fatalf("expected view not to repeat project before scope, got:\n%s", view)
 	}
 }
+
+func TestTitleLeadingNewlines(t *testing.T) {
+	taskItem := task{Body: "\n\nfix split normals\n\ndetails...", Project: "taskd"}
+	scope, title := titleOf(taskItem)
+	if scope != "" || title != "fix split normals" {
+		t.Fatalf("titleOf = (%q, %q), want (%q, %q)", scope, title, "", "fix split normals")
+	}
+}
