@@ -165,6 +165,22 @@ const api = new Function(
     await els['copy-id-btn'].onclick();
     results.copyFailure = (els['copy-id-btn'].textContent === 'Copy' && els['error-banner'].textContent.includes('Failed to copy ID'));
   }
+  results.pendingHasCopyBody = pendingHTML.includes('id="copy-body-btn"');
+  Object.defineProperty(global.navigator, 'clipboard', {
+    value: { writeText: async (txt) => { clipboardText = txt; } },
+    configurable: true,
+    writable: true,
+  });
+  if (els['copy-body-btn'] && els['copy-body-btn'].onclick) {
+    await els['copy-body-btn'].onclick();
+    results.copyBodySuccess = (clipboardText === 'pending task' && els['copy-body-btn'].textContent === 'Copied!');
+  }
+  delete global.navigator.clipboard;
+  if (els['copy-body-btn']) els['copy-body-btn'].textContent = 'Copy';
+  if (els['copy-body-btn'] && els['copy-body-btn'].onclick) {
+    await els['copy-body-btn'].onclick();
+    results.copyBodyFailure = (els['copy-body-btn'].textContent === 'Copy' && els['error-banner'].textContent.includes('Failed to copy body'));
+  }
 
   confirmAnswer = false;
   confirmAsked = 0;

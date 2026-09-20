@@ -251,6 +251,15 @@
   .field {
     margin-bottom: 10px;
   }
+  .field-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .field-header .field-label {
+    margin-bottom: 0;
+  }
   .field label, .field .field-label {
     display: block;
     font-size: 12px;
@@ -846,12 +855,7 @@
       }
     }
 
-    let copyTimer = null;
     function resetTaskDetails() {
-      if (copyTimer) {
-        clearTimeout(copyTimer);
-        copyTimer = null;
-      }
       shownTaskId = null;
       shownTaskRaw = '';
       currentTask = null;
@@ -1209,7 +1213,7 @@
           bodyInput.focus();
         }
         const copyBtn = document.getElementById('copy-id-btn');
-        if (copyBtn) copyBtn.onclick = () => copyTaskId(t.id);
+        if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
         return;
       }
       pane.innerHTML = `
@@ -1227,7 +1231,13 @@
         ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
         ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
         ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
-        <div class="field"><span class="field-label">Body</span><pre>${escapeHTML(t.body || '')}</pre></div>
+        <div class="field">
+          <div class="field-header">
+            <span class="field-label">Body</span>
+            <button type="button" id="copy-body-btn" class="copy-btn">Copy</button>
+          </div>
+          <pre>${escapeHTML(t.body || '')}</pre>
+        </div>
         ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
         <div class="task-actions">
           ${t.status !== 'done' ? '<button type="button" id="edit-task-btn" onclick="toggleTaskEdit()">Edit Task</button>' : ''}
@@ -1256,7 +1266,9 @@
       const delBtn = document.getElementById('delete-task-btn');
       if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status);
       const copyBtn = document.getElementById('copy-id-btn');
-      if (copyBtn) copyBtn.onclick = () => copyTaskId(t.id);
+      if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
+      const copyBodyBtn = document.getElementById('copy-body-btn');
+      if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
     }
 
     async function finishTaskAction() {
@@ -1414,14 +1426,14 @@
         showFetchError(err);
       }
     }
-    async function copyTaskId(id) {
-      if (!id) return;
+    async function copyToClipboard(text, btn, label) {
+      if (!btn) return;
       try {
         if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(id);
+          await navigator.clipboard.writeText(text);
         } else if (typeof document !== 'undefined' && document.body && document.execCommand) {
           const ta = document.createElement('textarea');
-          ta.value = id;
+          ta.value = text;
           ta.style.position = 'fixed';
           ta.style.opacity = '0';
           document.body.appendChild(ta);
@@ -1432,17 +1444,14 @@
         } else {
           throw new Error('clipboard API unavailable');
         }
-        const btn = document.getElementById('copy-id-btn');
-        if (btn) {
-          btn.textContent = 'Copied!';
-          if (copyTimer) clearTimeout(copyTimer);
-          copyTimer = setTimeout(() => {
-            if (btn) btn.textContent = 'Copy';
-            copyTimer = null;
-          }, 1500);
-        }
+        btn.textContent = 'Copied!';
+        if (btn._copyTimer) clearTimeout(btn._copyTimer);
+        btn._copyTimer = setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn._copyTimer = null;
+        }, 1500);
       } catch (err) {
-        showError('Failed to copy ID: ' + (err && err.message ? err.message : err));
+        showError('Failed to copy ' + label + ': ' + (err && err.message ? err.message : err));
       }
     }
 
