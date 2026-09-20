@@ -214,7 +214,8 @@ func TestViewFormattingAndWidthLimits(t *testing.T) {
 	widths := []int{60, 70, 80, 90, 100}
 	for _, width := range widths {
 		f, _ := newCreateForm("myproj")
-		view := f.fitted(width, 24, th).View()
+		f.fit(width, 24, th)
+		view := f.View()
 		stripped := ansi.Strip(view)
 
 		if !strings.Contains(stripped, f.title) {
@@ -302,21 +303,19 @@ func TestBlinkMessagesRoundTripThroughTheForm(t *testing.T) {
 	}
 }
 
-func TestHiddenAssetFieldLeavesTheFocusRing(t *testing.T) {
+func TestEmptyAssetFieldIsDrawnOnlyWhileFocusedAtLevelTwo(t *testing.T) {
 	f, _ := newCreateForm("p")
 	th := newTheme(true)
-	f.fit(40, 8, th) // too short for the asset row: level 2
+	f.fit(40, 8, th) // too short for every row: level 2
 	if f.level != 2 {
 		t.Fatalf("expected level 2 at 40x8, got %d", f.level)
 	}
-	f.setFocus(1)
-	f.setFocus(f.focus + 1)
-	if f.focus != 3 {
-		t.Fatalf("Tab from priority must skip the hidden asset field, got focus %d", f.focus)
+	if strings.Contains(ansi.Strip(f.View()), "asset:") {
+		t.Fatalf("an empty, unfocused asset field has no row at level 2")
 	}
-	f.setFocus(f.focus - 1)
-	if f.focus != 1 {
-		t.Fatalf("Shift-Tab from body must skip the hidden asset field, got focus %d", f.focus)
+	f.setFocus(2)
+	if !strings.Contains(ansi.Strip(f.View()), "asset:") {
+		t.Fatalf("the asset field is drawn while it has the cursor")
 	}
 }
 
@@ -346,11 +345,12 @@ func TestAssetFieldKeepsItsRowWhileFocusedOrFilled(t *testing.T) {
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> body; asset now empty
 	view = ansi.Strip(m.View().Content)
 	if m.form.focus != 3 || strings.Contains(view, "asset:") {
-		t.Fatalf("an empty asset field leaves the ring and the screen at level 2: focus=%d\n%s", m.form.focus, view)
+		t.Fatalf("an empty asset field leaves the screen at level 2: focus=%d\n%s", m.form.focus, view)
 	}
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
-	if m.form.focus != 1 {
-		t.Fatalf("Shift-Tab from body must skip the empty asset field, got %d", m.form.focus)
+	view = ansi.Strip(m.View().Content)
+	if m.form.focus != 2 || !strings.Contains(view, "asset:") {
+		t.Fatalf("Shift-Tab reaches the asset field and draws it again: focus=%d\n%s", m.form.focus, view)
 	}
 }
 
@@ -366,24 +366,15 @@ func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
 		seen = append(seen, m.form.focus)
 		m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
 	}
-	want := []int{0, 1, 3, 4, 0} // asset is out of the ring from level 2
+	want := []int{0, 1, 2, 3, 4} // every field stays reachable
 	for i := range want {
 		if seen[i] != want[i] {
 			t.Fatalf("Tab ring = %v, want %v", seen, want)
 		}
 	}
-	// The loop left focus on priority; two Shift-Tabs walk back past
-	// project onto the button.
-	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	// The loop left focus on project; Shift-Tab walks back onto the button.
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.form.focus != 4 {
 		t.Fatalf("Shift-Tab from project must reach the button, got %d", m.form.focus)
 	}
-}
-
-// fitted lays the form out for a size and returns it, for tests that
-// render outside the model.
-func (f formModel) fitted(width, height int, th theme) formModel {
-	f.fit(width, height, th)
-	return f
 }
