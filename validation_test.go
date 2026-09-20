@@ -277,3 +277,49 @@ func TestPatchValidationFieldErrors(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkerValidation(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	cases := []struct {
+		name       string
+		worker     string
+		wantStatus int
+		wantError  string
+	}{
+		{"newline in worker", "bad\nworker", http.StatusBadRequest, "invalid worker \"bad\\nworker\""},
+		{"tabs in worker", "worker\twith\ttabs", http.StatusBadRequest, "invalid worker \"worker\\twith\\ttabs\""},
+		{"spaces in worker", "bad worker", http.StatusBadRequest, "invalid worker \"bad worker\""},
+		{"special char in worker", "worker@host", http.StatusBadRequest, "invalid worker \"worker@host\""},
+		{"empty worker", "", http.StatusBadRequest, "missing worker"},
+		{"whitespace only worker", "   ", http.StatusBadRequest, "invalid worker \"   \""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			payload, _ := json.Marshal(map[string]string{"worker": tc.worker})
+			resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(string(payload)))
+			if err != nil {
+				t.Fatalf("POST claim failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != tc.wantStatus {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.wantStatus)
+			}
+			var apiErr apiError
+			if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+				t.Fatalf("decode failed: %v", err)
+			}
+			if apiErr.Error != tc.wantError {
+				t.Fatalf("got error = %q, want %q", apiErr.Error, tc.wantError)
+			}
+		})
+	}
+}

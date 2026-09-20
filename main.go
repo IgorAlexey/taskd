@@ -948,14 +948,18 @@ var errMissingWorker = errors.New("missing worker")
 var errWorkerTooLong = errors.New("worker too long")
 
 func cleanWorker(raw string) (string, error) {
-	worker := strings.TrimSpace(raw)
-	if worker == "" {
+	if raw == "" {
 		return "", errMissingWorker
 	}
-	if len(worker) > maxWorkerLen {
+	if len(raw) > maxWorkerLen {
 		return "", errWorkerTooLong
 	}
-	return worker, nil
+	for i := range len(raw) {
+		if !validAuthorByte(raw[i]) {
+			return "", fmt.Errorf("invalid worker %q", raw)
+		}
+	}
+	return raw, nil
 }
 
 func checkWorker(w http.ResponseWriter, raw string) (string, bool) {
