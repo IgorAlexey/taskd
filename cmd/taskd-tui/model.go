@@ -665,6 +665,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m.actionToggleZoom()
 			case msg.Text == "q" || isCtrlC(msg):
 				return m.actionQuit()
+			case msg.Text == "]" || msg.Code == ']':
+				m.move(1)
+				return m, nil
+			case msg.Text == "[" || msg.Code == '[':
+				m.move(-1)
+				return m, nil
 			case msg.Text == "j":
 				m.detail.ScrollDown(1)
 				return m, nil

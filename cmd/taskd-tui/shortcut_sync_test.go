@@ -30,6 +30,7 @@ func TestShortcutDocsSync(t *testing.T) {
 		"p, P                cycle project filter forward / backward",
 		"Esc                 reset filters / exit panes",
 		"Enter               activate detail pane",
+		"[/]                 previous / next task in detail",
 	} {
 		if !strings.Contains(usage, want) {
 			t.Errorf("printUsage missing %q", want)
@@ -76,7 +77,9 @@ func TestShortcutDocsSync(t *testing.T) {
 	if !strings.Contains(helpContent, "[p/P]") || !strings.Contains(helpContent, "project") {
 		t.Errorf("help modal missing [p/P] project; got:\n%s", helpContent)
 	}
-
+	if !strings.Contains(helpContent, "[[/]]") || !strings.Contains(helpContent, "prev/next") {
+		t.Errorf("help modal missing [[/]] prev/next; got:\n%s", helpContent)
+	}
 	m.mode = modeTable
 	up, _ := m.Update(tea.KeyPressMsg{Text: "4"})
 	m = up.(model)

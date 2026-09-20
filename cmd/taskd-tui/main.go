@@ -303,6 +303,7 @@ Keyboard shortcuts:
   Tab                 switch focus to detail pane
   Esc                 reset filters / exit panes
   z                   toggle detail zoom
+  [/]                 previous / next task in detail
   n                   create new task
   e                   edit selected task
   E                   edit task body in $EDITOR
