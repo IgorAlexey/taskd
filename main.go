@@ -84,10 +84,12 @@ func rowExists(db *sql.DB, query string) (bool, error) {
 	return true, nil
 }
 
-func openDB(path string) (*sql.DB, error) {
-	if dir := dbDir(path); dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, err
+func openDBConn(path string, readOnly bool) (*sql.DB, error) {
+	if !readOnly {
+		if dir := dbDir(path); dir != "" && dir != "." {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return nil, err
+			}
 		}
 	}
 	var u *url.URL
@@ -107,6 +109,9 @@ func openDB(path string) (*sql.DB, error) {
 		u = &url.URL{Scheme: "file", Path: abs}
 	}
 	q := u.Query()
+	if readOnly {
+		q.Set("mode", "ro")
+	}
 	q.Add("_pragma", "busy_timeout(5000)")
 	u.RawQuery = q.Encode()
 	db, err := sql.Open("sqlite", u.String())
@@ -114,6 +119,14 @@ func openDB(path string) (*sql.DB, error) {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1)
+	return db, nil
+}
+
+func openDB(path string) (*sql.DB, error) {
+	db, err := openDBConn(path, false)
+	if err != nil {
+		return nil, err
+	}
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		db.Close()
@@ -1743,6 +1756,12 @@ func run(args []string) error {
 		if err := checkBackupSource(cfg.dbPath); err != nil {
 			return err
 		}
+		db, err := openDBConn(cfg.dbPath, true)
+		if err != nil {
+			return err
+		}
+		defer db.Close()
+		return backupDB(db, cfg.backupPath)
 	}
 
 	db, err := openDB(cfg.dbPath)
@@ -1750,10 +1769,6 @@ func run(args []string) error {
 		return err
 	}
 	defer db.Close()
-
-	if cfg.backupPath != "" {
-		return backupDB(db, cfg.backupPath)
-	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

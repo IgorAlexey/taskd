@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -125,5 +127,89 @@ func TestCheckBackupSourceMemory(t *testing.T) {
 		if err := checkBackupSource(path); err == nil {
 			t.Fatalf("expected -backup of %q to be refused", path)
 		}
+	}
+}
+
+func TestRunBackupDoesNotMigrateOrMutateSource(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "src.db")
+	backupPath := filepath.Join(dir, "out.db")
+
+	db, err := openDB(srcPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'hello', 'p1')"); err != nil {
+		db.Close()
+		t.Fatalf("insert task failed: %v", err)
+	}
+	if _, err := db.Exec("PRAGMA user_version = 2"); err != nil {
+		db.Close()
+		t.Fatalf("set user_version failed: %v", err)
+	}
+	db.Close()
+
+	beforeBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read src.db before backup: %v", err)
+	}
+
+	if err := run([]string{"-db", srcPath, "-backup", backupPath}); err != nil {
+		t.Fatalf("run -backup failed: %v", err)
+	}
+
+	afterBytes, err := os.ReadFile(srcPath)
+	if err != nil {
+		t.Fatalf("read src.db after backup: %v", err)
+	}
+
+	if !bytes.Equal(beforeBytes, afterBytes) {
+		t.Fatalf("src.db was mutated by -backup (size %d -> %d)", len(beforeBytes), len(afterBytes))
+	}
+
+	srcCheck, err := sql.Open("sqlite", "file:"+srcPath+"?mode=ro")
+	if err != nil {
+		t.Fatalf("open src.db: %v", err)
+	}
+	defer srcCheck.Close()
+	var srcVer int
+	if err := srcCheck.QueryRow("PRAGMA user_version").Scan(&srcVer); err != nil {
+		t.Fatalf("query src.db user_version: %v", err)
+	}
+	if srcVer != 2 {
+		t.Fatalf("src.db user_version = %d, want 2", srcVer)
+	}
+
+	outDB, err := sql.Open("sqlite", "file:"+backupPath+"?mode=ro")
+	if err != nil {
+		t.Fatalf("open out.db: %v", err)
+	}
+	defer outDB.Close()
+
+	var integrity string
+	if err := outDB.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		t.Fatalf("query out.db integrity_check: %v", err)
+	}
+	if integrity != "ok" {
+		t.Fatalf("out.db integrity_check = %q, want ok", integrity)
+	}
+
+	var outVer int
+	if err := outDB.QueryRow("PRAGMA user_version").Scan(&outVer); err != nil {
+		t.Fatalf("query out.db user_version: %v", err)
+	}
+	if outVer != 2 {
+		t.Fatalf("out.db user_version = %d, want 2", outVer)
+	}
+
+	var srcCount, outCount int
+	if err := srcCheck.QueryRow("SELECT count(*) FROM tasks").Scan(&srcCount); err != nil {
+		t.Fatalf("query src.db count: %v", err)
+	}
+	if err := outDB.QueryRow("SELECT count(*) FROM tasks").Scan(&outCount); err != nil {
+		t.Fatalf("query out.db count: %v", err)
+	}
+	if outCount != srcCount {
+		t.Fatalf("out.db row count = %d, want %d", outCount, srcCount)
 	}
 }
