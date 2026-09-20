@@ -582,6 +582,23 @@ func TestClaimProjectValidation(t *testing.T) {
 	if respValid.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK for valid project, got %d", respValid.StatusCode)
 	}
+	postTask("t3", "p1")
+	wildcardPayload := `{"worker":"w1","project":"*"}`
+	respWildcard, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(wildcardPayload))
+	if err != nil {
+		t.Fatalf("claim wildcard failed: %v", err)
+	}
+	defer respWildcard.Body.Close()
+	if respWildcard.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for wildcard project, got %d", respWildcard.StatusCode)
+	}
+	var claimed taskItem
+	if err := json.NewDecoder(respWildcard.Body).Decode(&claimed); err != nil {
+		t.Fatalf("decode wildcard claim failed: %v", err)
+	}
+	if claimed.Project != "p1" {
+		t.Fatalf("expected claimed task project %q, got %q", "p1", claimed.Project)
+	}
 }
 
 type testClient struct {
