@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -147,6 +149,34 @@ func TestWebUISkipLinkAndLandmarks(t *testing.T) {
 	}
 }
 
+var queueTableFields = []string{
+	"asset_path", "claim_count", "id", "priority", "project", "status", "summary", "worker",
+}
+
+func listRequestParams(t *testing.T, raw string) map[string]string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("list request %q is not a URL: %v", raw, err)
+	}
+	if u.Path != "/tasks" {
+		t.Fatalf("list request %q does not hit /tasks", raw)
+	}
+	q := u.Query()
+	fields := strings.Split(q.Get("fields"), ",")
+	slices.Sort(fields)
+	if !slices.Equal(fields, queueTableFields) {
+		t.Errorf("list request %q asks for fields %v, want the fields the queue table feeds on, summary plus its asset_path fallback %v",
+			raw, fields, queueTableFields)
+	}
+	q.Del("fields")
+	params := make(map[string]string, len(q))
+	for k, v := range q {
+		params[k] = strings.Join(v, ",")
+	}
+	return params
+}
+
 func TestWebUIURLState(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -226,8 +256,10 @@ func TestWebUIURLState(t *testing.T) {
 	if got.Load.Pane != "details" {
 		t.Errorf("load pane = %q, want the task from the URL", got.Load.Pane)
 	}
-	if got.Load.List != "/tasks?limit=200&project=p1&status=pending" {
-		t.Errorf("first list request = %q, want both filters applied", got.Load.List)
+	wantLoadList := map[string]string{"limit": "200", "project": "p1", "status": "pending"}
+	if params := listRequestParams(t, got.Load.List); !maps.Equal(params, wantLoadList) {
+		t.Errorf("first list request = %q (params %v), want both filters applied %v",
+			got.Load.List, params, wantLoadList)
 	}
 
 	if got.Noise.Status != "" || got.Noise.Project != "" {
@@ -271,9 +303,10 @@ func TestWebUIURLState(t *testing.T) {
 		t.Errorf("projects down = %+v, want the unconfirmed project gone",
 			got.ProjectsDown)
 	}
-	if got.ProjectsDown.List != "/tasks?limit=200&status=pending" {
-		t.Errorf("projects down list = %q, want no project filter",
-			got.ProjectsDown.List)
+	wantDownList := map[string]string{"limit": "200", "status": "pending"}
+	if params := listRequestParams(t, got.ProjectsDown.List); !maps.Equal(params, wantDownList) {
+		t.Errorf("projects down list = %q (params %v), want no project filter",
+			got.ProjectsDown.List, params)
 	}
 
 	if got.ProjectFilterStats.URL != "/stats?project=p1" {
@@ -285,8 +318,10 @@ func TestWebUIURLState(t *testing.T) {
 	if got.CardFilterStatus.Status != "pending" || got.CardFilterStatus.URL != "/ui?project=p1&status=pending" {
 		t.Errorf("status card filter = %+v, want pending and /ui?project=p1&status=pending", got.CardFilterStatus)
 	}
-	if got.CardFilterStatus.List != "/tasks?limit=200&project=p1&status=pending" {
-		t.Errorf("status card filter fetch = %q, want project=p1&status=pending query", got.CardFilterStatus.List)
+	wantCardList := map[string]string{"limit": "200", "project": "p1", "status": "pending"}
+	if params := listRequestParams(t, got.CardFilterStatus.List); !maps.Equal(params, wantCardList) {
+		t.Errorf("status card filter fetch = %q (params %v), want %v",
+			got.CardFilterStatus.List, params, wantCardList)
 	}
 	if got.CardFilterTotal.Status != "" || got.CardFilterTotal.URL != "/ui?project=p1" {
 		t.Errorf("total card filter = %+v, want empty status and /ui?project=p1", got.CardFilterTotal)
@@ -815,7 +850,7 @@ func TestWebUIPagination(t *testing.T) {
 	}
 }
 
-func TestWebUIRowSummaryFirstLine(t *testing.T) {
+func TestWebUIRowSummaryFromServerField(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
 		if os.Getenv("CI") != "" {
@@ -841,16 +876,17 @@ func TestWebUIRowSummaryFirstLine(t *testing.T) {
 	}
 
 	want := map[string]string{
-		"multiline":     "Fix the parser",
-		"crlf":          "Windows title",
-		"leadingBlank":  "Indented title",
-		"longFirstLine": strings.Repeat("A", 50) + "\u2026",
-		"blankOnly":     "models/car.glb",
-		"emptyBody":     "models/car.glb",
-		"noBodyNoAsset": "",
-		"singleLine":    "just one line",
-		"emoji":         "x" + strings.Repeat("\U0001F680", 49) + "\u2026",
-		"markup":        "<img src=x onerror=alert(1)> & co",
+		"serverSummary":                 "Fix the parser",
+		"serverTruncated":               strings.Repeat("A", 50) + "\u2026",
+		"emptySummaryWithAsset":         "models/car.glb",
+		"missingSummaryWithAsset":       "models/car.glb",
+		"noSummaryNoAsset":              "",
+		"bodyNeverUsed":                 "",
+		"bodyIgnoredWhenSummaryPresent": "server summary",
+		"markup":                        "<img src=x onerror=alert(1)> & co",
+	}
+	if len(got.Summary) != len(want) {
+		t.Errorf("harness reported %d cases, want %d", len(got.Summary), len(want))
 	}
 	for name, exp := range want {
 		if got.Summary[name] != exp {
@@ -1469,5 +1505,64 @@ func TestWebUIExpandBody(t *testing.T) {
 	wantBody := "line one\n" + strings.Repeat("x", 400) + "\nlast line"
 	if got.OverlayBody != wantBody {
 		t.Errorf("overlay body = %q, want the full task body", got.OverlayBody)
+	}
+}
+
+func TestWebUIPollKeepsSummary(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/pollsummary.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	var got struct {
+		FirstLoad           []string `json:"firstLoad"`
+		AfterPoll           []string `json:"afterPoll"`
+		FirstURL            string   `json:"firstURL"`
+		PollURL             string   `json:"pollURL"`
+		AfterCreatePoll     []string `json:"afterCreatePoll"`
+		FirstStatuses       []string `json:"firstStatuses"`
+		AfterCreateStatuses []string `json:"afterCreateStatuses"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("decode harness output failed: %v\n%s", err, out)
+	}
+
+	want := "web: keep the Summary column populated"
+	if len(got.FirstLoad) != 1 || got.FirstLoad[0] != want {
+		t.Fatalf("first load summaries = %q, want [%q]", got.FirstLoad, want)
+	}
+	if len(got.AfterPoll) != 1 || got.AfterPoll[0] != want {
+		t.Errorf("after one poll summaries = %q, want [%q]", got.AfterPoll, want)
+	}
+	if len(got.AfterCreatePoll) != 2 {
+		t.Fatalf("after create poll summaries = %q, want 2 rows", got.AfterCreatePoll)
+	}
+	if got.AfterCreatePoll[0] != want {
+		t.Errorf("existing row summary after poll = %q, want %q", got.AfterCreatePoll[0], want)
+	}
+	if created := "created while the page was open"; got.AfterCreatePoll[1] != created {
+		t.Errorf("row created during a poll has summary %q, want %q", got.AfterCreatePoll[1], created)
+	}
+	if len(got.FirstStatuses) != 1 || got.FirstStatuses[0] != "pending" {
+		t.Errorf("first load status cells = %q, want [\"pending\"]", got.FirstStatuses)
+	}
+	if len(got.AfterCreateStatuses) != 2 || got.AfterCreateStatuses[0] != "leased" || got.AfterCreateStatuses[1] != "pending" {
+		t.Errorf("status cells after poll = %q, want [\"leased\" \"pending\"]", got.AfterCreateStatuses)
+	}
+	firstParams := listRequestParams(t, got.FirstURL)
+	pollParams := listRequestParams(t, got.PollURL)
+	if !maps.Equal(firstParams, pollParams) {
+		t.Errorf("refresh request %q does not match the first paint %q", got.PollURL, got.FirstURL)
 	}
 }

@@ -816,6 +816,8 @@ type taskItem struct {
 	Primitives   json.RawMessage `json:"primitives"`
 	Project      string          `json:"project"`
 	ClaimCount   int             `json:"claim_count"`
+
+	summaryPrefix string
 }
 
 func (t *taskItem) normalize(now int64) {
@@ -826,6 +828,22 @@ func (t *taskItem) normalize(now int64) {
 		t.Worker = ""
 		t.LeaseExpires = 0
 	}
+}
+
+const summaryRunes = 50
+
+const summaryPrefixCol = "substr(ltrim(body, ' ' || char(9) || char(13) || char(10)), 1, 51)"
+
+func summaryLine(body string) string {
+	s := strings.TrimLeft(body, " \t\r\n")
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimRight(s, "\r")
+	if r := []rune(s); len(r) > summaryRunes {
+		return string(r[:summaryRunes]) + "\u2026"
+	}
+	return s
 }
 
 type leaseEnvelope struct {
@@ -1334,7 +1352,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			for _, p := range parts {
 				f := strings.TrimSpace(p)
 				switch f {
-				case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count":
+				case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary":
 					if !seen[f] {
 						seen[f] = true
 						requestedFields = append(requestedFields, f)
@@ -1349,8 +1367,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				return
 			}
 		}
-		bodyCol := "body"
-		primCol := "primitives"
+		bodyCol, primCol, summaryCol := "body", "primitives", "''"
 		if requestedFields != nil {
 			if !slices.Contains(requestedFields, "body") {
 				bodyCol = "''"
@@ -1358,8 +1375,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			if !slices.Contains(requestedFields, "primitives") {
 				primCol = "NULL"
 			}
+			if slices.Contains(requestedFields, "summary") {
+				summaryCol = summaryPrefixCol
+			}
 		}
-		query := fmt.Sprintf("SELECT id, asset_path, status, worker, lease_expires, priority, %s, %s, project, claim_count, rowid FROM tasks", bodyCol, primCol)
+		query := fmt.Sprintf("SELECT id, asset_path, status, worker, lease_expires, priority, %s, %s, %s, project, claim_count, rowid FROM tasks", bodyCol, primCol, summaryCol)
 		var where []string
 		var args []any
 		if status == "pending" {
@@ -1439,7 +1459,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				prim         []byte
 				rowid        int64
 			)
-			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &rowid); err != nil {
+			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.summaryPrefix, &item.Project, &item.ClaimCount, &rowid); err != nil {
 				internalError(w, err)
 				return
 			}
@@ -1523,6 +1543,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 						buf.Write(b)
 					case "claim_count":
 						buf.WriteString(strconv.Itoa(item.ClaimCount))
+					case "summary":
+						b, _ := json.Marshal(summaryLine(item.summaryPrefix))
+						buf.Write(b)
 					}
 				}
 				buf.WriteByte('}')

@@ -597,6 +597,7 @@
     let currentTask = null;
     let isEditingTask = false;
     const PAGE_SIZE = 200;
+    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,asset_path,summary';
     let claimWorker = '';
     let currentPage = 1;
     let totalTasks = 0;
@@ -932,8 +933,6 @@
 
     function rowFields(t) {
       const tid = String(t.id || '');
-      const title = String(t.body || '').replace(/^[ \t\r\n]+/, '').split('\n', 1)[0].replace(/\r+$/, '');
-      const chars = [...title];
       return {
         id: tid,
         shortId: tid.length > 10 ? tid.slice(0, 8) + '…' : tid,
@@ -943,7 +942,7 @@
         priority: String(t.priority ?? ''),
         claimCount: String(t.claim_count ?? 0),
         worker: t.worker || '',
-        summary: chars.length ? (chars.length > 50 ? chars.slice(0, 50).join('') + '…' : title) : (t.asset_path || '')
+        summary: t.summary || t.asset_path || ''
       };
     }
     function createRow(t, isSelected) {
@@ -989,7 +988,7 @@
       }
     }
 
-    async function loadTasks(isPoll) {
+    async function loadTasks() {
       const projEl = document.getElementById('filter-project');
       const statusEl = document.getElementById('filter-status');
       const prioEl = document.getElementById('filter-priority');
@@ -1002,8 +1001,7 @@
       const search = searchEl ? searchEl.value.trim() : '';
       while (true) {
         const offset = (currentPage - 1) * PAGE_SIZE;
-        let url = '/tasks?limit=' + PAGE_SIZE;
-        if (isPoll) url += '&fields=id,status,project,priority,claim_count,worker,asset_path';
+        let url = '/tasks?limit=' + PAGE_SIZE + '&fields=' + QUEUE_FIELDS;
         if (offset > 0) url += '&offset=' + offset;
         if (proj) url += '&project=' + encodeURIComponent(proj);
         if (status) url += '&status=' + encodeURIComponent(status);
@@ -1810,7 +1808,7 @@
       if (refreshInFlight) return;
       refreshInFlight = true;
       try {
-        const tasks = [loadProjects(), loadWorkers(), loadStats(), loadTasks(true)];
+        const tasks = [loadProjects(), loadWorkers(), loadStats(), loadTasks()];
         if (selectedTaskId) tasks.push(loadTaskDetails(selectedTaskId));
         await Promise.all(tasks);
       } catch (e) {

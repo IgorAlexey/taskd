@@ -1,35 +1,8 @@
 'use strict';
 const fs = require('fs');
+const { createElement } = require('./dom.js');
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
-
-function createElement(tag) {
-  let html = '';
-  const el = {
-    tagName: tag.toUpperCase(),
-    value: '',
-    textContent: '',
-    style: {},
-    dataset: {},
-    children: [],
-    options: [],
-    appendChild() {},
-    insertBefore() {},
-    removeChild() {},
-    remove() {},
-    addEventListener() {},
-    setAttribute() {},
-    getAttribute() { return null; },
-    querySelector() { return null; },
-    querySelectorAll() { return []; },
-    focus() {},
-  };
-  Object.defineProperty(el, 'innerHTML', {
-    get() { return html; },
-    set(v) { html = v; },
-  });
-  return el;
-}
 
 const document = {
   getElementById: () => null,
@@ -53,18 +26,15 @@ const api = new Function(
   script + '\nreturn { rowFields, createRow };'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
-const long = 'A'.repeat(80);
 const cases = {
-  multiline: { body: 'Fix the parser\n\nWhy: it drops newlines\nDone when: ok' },
-  crlf: { body: 'Windows title\r\nsecond line' },
-  leadingBlank: { body: '\n\n  Indented title\nrest' },
-  longFirstLine: { body: long + '\nsecond line' },
-  blankOnly: { body: '\n \n', asset_path: 'models/car.glb' },
-  emptyBody: { body: '', asset_path: 'models/car.glb' },
-  noBodyNoAsset: {},
-  singleLine: { body: 'just one line' },
-  emoji: { body: 'x' + '🚀'.repeat(60) + '\nsecond line' },
-  markup: { body: '<img src=x onerror=alert(1)> & co\nsecond line' },
+  serverSummary: { summary: 'Fix the parser' },
+  serverTruncated: { summary: 'A'.repeat(50) + '\u2026' },
+  emptySummaryWithAsset: { summary: '', asset_path: 'models/car.glb' },
+  missingSummaryWithAsset: { asset_path: 'models/car.glb' },
+  noSummaryNoAsset: {},
+  bodyNeverUsed: { body: 'raw body first line\nsecond line' },
+  bodyIgnoredWhenSummaryPresent: { summary: 'server summary', body: 'raw body\nsecond line' },
+  markup: { summary: '<img src=x onerror=alert(1)> & co' },
 };
 
 const out = { summary: {}, rowHTML: {} };
