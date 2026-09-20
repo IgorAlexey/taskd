@@ -1917,17 +1917,15 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		}
 		origin := r.Header.Get("Origin")
 		originMatched := corsOrigin != "" && (corsOrigin == "*" || origin == corsOrigin)
-		if r.Method == http.MethodOptions && originMatched {
-			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
 		if originMatched {
 			w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
-			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count")
+			if r.Method == http.MethodOptions {
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match")
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Next-Cursor, ETag")
 		}
 		if strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
 			cleanReq := *r
