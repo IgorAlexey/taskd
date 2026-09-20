@@ -857,6 +857,26 @@ func (u *ui) confirmDiscard(f *tview.Form, dirty func() bool, close func()) func
 		}, close)
 	}
 }
+func bindFormSubmit(f *tview.Form, submit func()) {
+	capture := func(ev *tcell.EventKey) *tcell.EventKey {
+		if ev.Key() == tcell.KeyCtrlS || (ev.Modifiers()&tcell.ModCtrl != 0 && (ev.Rune() == 's' || ev.Rune() == 'S')) {
+			submit()
+			return nil
+		}
+		return ev
+	}
+	f.SetInputCapture(capture)
+	for i := range f.GetFormItemCount() {
+		if c, ok := f.GetFormItem(i).(interface {
+			SetInputCapture(func(*tcell.EventKey) *tcell.EventKey) *tview.Box
+		}); ok {
+			c.SetInputCapture(capture)
+		}
+	}
+	for i := range f.GetButtonCount() {
+		f.GetButton(i).SetInputCapture(capture)
+	}
+}
 
 func (u *ui) showCreateForm() {
 	prev := u.app.GetFocus()
@@ -929,6 +949,7 @@ func (u *ui) showCreateForm() {
 		send()
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", cancel).SetCancelFunc(cancel)
+	bindFormSubmit(f, submit)
 	u.form = f
 	u.pages.AddPage("create", centerModal(f, 60, 15), true, true)
 	u.app.SetFocus(f)
@@ -1000,6 +1021,7 @@ func (u *ui) showEditForm(t task) {
 		})
 	}
 	f.AddButton("Submit", submit).AddButton("Cancel", cancel).SetCancelFunc(cancel)
+	bindFormSubmit(f, submit)
 	u.form = f
 	u.pages.AddPage("edit", centerModal(f, 60, 15), true, true)
 	u.app.SetFocus(f)
