@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -258,6 +259,8 @@ func TestSummaryLine(t *testing.T) {
 	}{
 		{"multi line", "first line\nsecond line", "first line"},
 		{"crlf", "first line\r\nsecond line", "first line"},
+		{"bare cr ends the line", "first line\rsecond line", "first line"},
+		{"cr at the prefix boundary", strings.Repeat("A", 50) + "\rB\nrest", strings.Repeat("A", 50)},
 		{"leading blank lines", "\n\n  Indented title\nrest", "Indented title"},
 		{"truncated", strings.Repeat("A", 80) + "\nsecond", strings.Repeat("A", 50) + "\u2026"},
 		{"exactly 50 runes", strings.Repeat("A", 50) + "\nsecond", strings.Repeat("A", 50)},
@@ -352,6 +355,63 @@ func TestListFieldsSummaryProjection(t *testing.T) {
 	}
 }
 
+func TestListSummaryPrefixMatchesFullBodyFuzz(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	alphabet := []string{"A", " ", "\t", "\r", "\n", "\v", "é", "\U0001F680"}
+	fillers := []string{"A", "é", "\U0001F680"}
+	rng := rand.New(rand.NewSource(1))
+	bodies := make(map[string]string, 400)
+	for i := 0; i < 400; i++ {
+		var sb strings.Builder
+		for n := rng.Intn(4); n > 0; n-- {
+			sb.WriteString(alphabet[rng.Intn(len(alphabet))])
+		}
+		filler := fillers[rng.Intn(len(fillers))]
+		for n := summaryRunes - 5 + rng.Intn(12); n > 0; n-- {
+			sb.WriteString(filler)
+		}
+		for n := rng.Intn(12); n > 0; n-- {
+			sb.WriteString(alphabet[rng.Intn(len(alphabet))])
+		}
+		bodies[fmt.Sprintf("fuzz-%03d", i)] = sb.String()
+	}
+	for id, body := range bodies {
+		if _, err := db.rw.Exec("INSERT INTO tasks (id, asset_path, status, body, priority, project) VALUES (?, '', 'pending', ?, 3, 'fuzzproj')", id, body); err != nil {
+			t.Fatalf("insert %s failed: %v", id, err)
+		}
+	}
+
+	code, resp := do(t, http.MethodGet, srv.URL+"/tasks?project=fuzzproj&limit=1000&fields=id,summary", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET fields=id,summary expected 200, got %d: %s", code, resp)
+	}
+	var items []map[string]any
+	if err := json.Unmarshal(resp, &items); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if len(items) != len(bodies) {
+		t.Fatalf("expected %d items, got %d", len(bodies), len(items))
+	}
+	for _, item := range items {
+		id, _ := item["id"].(string)
+		body, ok := bodies[id]
+		if !ok {
+			t.Fatalf("unexpected task id %q", id)
+		}
+		if want := summaryLine(body); item["summary"] != want {
+			t.Fatalf("task %q body %q: prefix summary %+v, want %q", id, body, item["summary"], want)
+		}
+	}
+}
+
 func TestListSummaryPrefixMatchesFullBody(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -367,6 +427,8 @@ func TestListSummaryPrefixMatchesFullBody(t *testing.T) {
 		"b-exact-51":      strings.Repeat("A", 51) + "\nsecond line",
 		"b-crlf-50":       strings.Repeat("B", 50) + "\r\nsecond line",
 		"b-crlf-51":       strings.Repeat("B", 51) + "\r\nsecond line",
+		"b-cr-boundary":   strings.Repeat("B", 50) + "\rB\nsecond line",
+		"b-cr-run":        strings.Repeat("B", 50) + "\r\r\rB\nsecond line",
 		"b-emoji-50":      strings.Repeat("\U0001F680", 50) + "\nsecond line",
 		"b-emoji-51":      strings.Repeat("\U0001F680", 51) + "\nsecond line",
 		"b-emoji-tail":    "x" + strings.Repeat("\U0001F680", 60),

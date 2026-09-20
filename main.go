@@ -832,14 +832,23 @@ func (t *taskItem) normalize(now int64) {
 
 const summaryRunes = 50
 
-const summaryPrefixCol = "substr(ltrim(body, ' ' || char(9) || char(13) || char(10)), 1, 51)"
+const summaryTrim = " \t\r\n"
+
+var summaryPrefixCol = fmt.Sprintf("substr(ltrim(body, %s), 1, %d)", sqlCharset(summaryTrim), summaryRunes+1)
+
+func sqlCharset(cut string) string {
+	parts := make([]string, 0, len(cut))
+	for _, r := range cut {
+		parts = append(parts, fmt.Sprintf("char(%d)", r))
+	}
+	return strings.Join(parts, " || ")
+}
 
 func summaryLine(body string) string {
-	s := strings.TrimLeft(body, " \t\r\n")
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
+	s := strings.TrimLeft(body, summaryTrim)
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
 		s = s[:i]
 	}
-	s = strings.TrimRight(s, "\r")
 	if r := []rune(s); len(r) > summaryRunes {
 		return string(r[:summaryRunes]) + "\u2026"
 	}
