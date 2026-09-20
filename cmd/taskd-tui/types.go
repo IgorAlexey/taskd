@@ -21,6 +21,16 @@ type task struct {
 	Primitives   json.RawMessage `json:"primitives"`
 }
 
+func (t *task) normalize(now int64) {
+	if t.Status == "leased" && t.LeaseExpires < now {
+		t.Status = "pending"
+	}
+	if t.Status == "pending" || t.Status == "buried" {
+		t.Worker = ""
+		t.LeaseExpires = 0
+	}
+}
+
 // stats mirrors GET /stats. LeaseSeconds and DB are additive fields the
 // daemon gained for the TUI; zero values mean an older daemon.
 type stats struct {

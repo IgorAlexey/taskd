@@ -59,7 +59,7 @@ func (m *model) startPoll() tea.Cmd {
 	}
 	m.polling = true
 	m.seq++
-	return pollCmd(m.client, m.project, m.etag, m.seq)
+	return pollCmd(m.client, m.project, m.filter, m.etag, m.seq)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -88,6 +88,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.now = time.Time(msg)
+		now := m.now.Unix()
+		for i := range m.tasks {
+			m.tasks[i].normalize(now)
+		}
+		m.rebuild()
 		poll := m.startPoll()
 		return m, tea.Batch(tickCmd(m.cfg.refresh), poll)
 
@@ -357,25 +362,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.syncDetail()
 				return m, nil
 			case msg.Text == "0":
-				m.filter = ""
-				m.rebuild()
-				return m, nil
+				return m.setFilter("")
 			case msg.Text == "1":
-				m.filter = "pending"
-				m.rebuild()
-				return m, nil
+				return m.setFilter("pending")
 			case msg.Text == "2":
-				m.filter = "leased"
-				m.rebuild()
-				return m, nil
+				return m.setFilter("leased")
 			case msg.Text == "3":
-				m.filter = "done"
-				m.rebuild()
-				return m, nil
+				return m.setFilter("done")
 			case msg.Text == "4":
-				m.filter = "buried"
-				m.rebuild()
-				return m, nil
+				return m.setFilter("buried")
 			case msg.Text == "p":
 				if len(m.projects) == 0 {
 					m.project = ""
@@ -565,6 +560,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) setFilter(f string) (model, tea.Cmd) {
+	if m.filter == f {
+		return m, nil
+	}
+	m.filter = f
+	m.etag, m.polling = "", false
+	m.rebuild()
+	poll := m.startPoll()
+	return m, poll
 }
 
 func (m *model) rebuild() {

@@ -44,10 +44,13 @@ func parseError(resp *http.Response, method, path string) error {
 // list fetches the queue. etag is the tag of the list the caller already
 // holds; when the daemon answers 304 the returned tasks are nil and
 // changed is false. On 200 the new tag comes back with the tasks.
-func (c *client) list(project, etag string) (tasks []task, newETag string, changed bool, err error) {
+func (c *client) list(project, status, etag string) (tasks []task, newETag string, changed bool, err error) {
 	relPath := "/tasks?limit=500"
 	if project != "" {
 		relPath += "&project=" + url.QueryEscape(project)
+	}
+	if status != "" {
+		relPath += "&status=" + url.QueryEscape(status)
 	}
 	req, err := http.NewRequest(http.MethodGet, c.base+relPath, nil)
 	if err != nil {
@@ -151,9 +154,9 @@ func (c *client) do(method, path string, body any) error {
 	return parseError(resp, method, path)
 }
 
-func pollCmd(c *client, project, etag string, seq uint64) tea.Cmd {
+func pollCmd(c *client, project, status, etag string, seq uint64) tea.Cmd {
 	return func() tea.Msg {
-		tasks, newETag, changed, err := c.list(project, etag)
+		tasks, newETag, changed, err := c.list(project, status, etag)
 		if err != nil {
 			return pollMsg{seq: seq, err: err}
 		}

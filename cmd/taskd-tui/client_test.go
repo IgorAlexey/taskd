@@ -51,7 +51,7 @@ func TestClientListETagAnd304(t *testing.T) {
 	c := newClient(ts.URL)
 
 	// First call: 200 OK with ETag
-	tasks, etag, changed, err := c.list("", "")
+	tasks, etag, changed, err := c.list("", "", "")
 	if err != nil {
 		t.Fatalf("first list failed: %v", err)
 	}
@@ -66,7 +66,7 @@ func TestClientListETagAnd304(t *testing.T) {
 	}
 
 	// Second call with that tag: 304 Not Modified, tag echoed back
-	tasks2, etag2, changed2, err2 := c.list("", etag)
+	tasks2, etag2, changed2, err2 := c.list("", "", etag)
 	if err2 != nil {
 		t.Fatalf("second list failed: %v", err2)
 	}
@@ -90,7 +90,7 @@ func TestClientListErrorSurfacesDaemonMessage(t *testing.T) {
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-	_, etag, changed, err := c.list("", `"old"`)
+	_, etag, changed, err := c.list("", "", `"old"`)
 	if err == nil || err.Error() != "database down" {
 		t.Fatalf("expected daemon error text, got %v", err)
 	}
@@ -195,7 +195,7 @@ func TestPollCmdToleratesProjects500(t *testing.T) {
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-	cmd := pollCmd(c, "", "", 1)
+	cmd := pollCmd(c, "", "", "", 1)
 	if cmd == nil {
 		t.Fatalf("pollCmd returned nil cmd")
 	}
@@ -318,10 +318,10 @@ func TestListAndStatsQueryEscaping(t *testing.T) {
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-	_, _, _, _ = c.list("proj with/special", "")
+	_, _, _, _ = c.list("proj with/special", "pending", "")
 	_, _ = c.getStats("proj with/special")
 
-	if requestedTasksURL != "/tasks?limit=500&project=proj+with%2Fspecial" {
+	if requestedTasksURL != "/tasks?limit=500&project=proj+with%2Fspecial&status=pending" {
 		t.Errorf("unexpected tasks URL: %q", requestedTasksURL)
 	}
 	if requestedStatsURL != "/stats?project=proj+with%2Fspecial" {
