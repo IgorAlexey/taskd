@@ -948,6 +948,21 @@ const buryExhaustedSQL = `UPDATE tasks SET status='buried', worker=NULL, lease_e
 WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
   AND claim_count > 0 AND claim_count >= ?`
 
+// etagMatches implements If-None-Match: a comma-separated list of
+// entity tags, each optionally weak (W/), or the wildcard "*".
+func etagMatches(header, etag string) bool {
+	if header == "" {
+		return false
+	}
+	for _, tag := range strings.Split(header, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag == "*" || strings.TrimPrefix(tag, "W/") == etag {
+			return true
+		}
+	}
+	return false
+}
+
 func newHandler(db *store, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, 0, "")
 }
@@ -1597,8 +1612,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		w.Header().Set("ETag", etag)
 
-		inm := strings.TrimSpace(r.Header.Get("If-None-Match"))
-		if strings.TrimPrefix(inm, "W/") == etag {
+		if etagMatches(r.Header.Get("If-None-Match"), etag) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

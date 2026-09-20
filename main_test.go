@@ -6129,3 +6129,22 @@ func TestListTasksETag(t *testing.T) {
 		t.Fatalf("expected filtered ETag to differ from unfiltered ETag %s, got same", newETag)
 	}
 }
+
+func TestIfNoneMatchList(t *testing.T) {
+	for _, tc := range []struct {
+		header string
+		want   bool
+	}{
+		{`"abc"`, true},
+		{`W/"abc"`, true},
+		{`"x", "abc"`, true},
+		{`"x",W/"abc"`, true},
+		{`*`, true},
+		{`"x"`, false},
+		{``, false},
+	} {
+		if got := etagMatches(tc.header, `"abc"`); got != tc.want {
+			t.Errorf("etagMatches(%q) = %v, want %v", tc.header, got, tc.want)
+		}
+	}
+}
