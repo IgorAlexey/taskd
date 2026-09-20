@@ -948,7 +948,20 @@ func (m *modalBox) HasFocus() bool {
 }
 
 func (m *modalBox) MouseHandler() func(tview.MouseAction, *tcell.EventMouse, func(tview.Primitive)) (bool, tview.Primitive) {
-	return m.content.MouseHandler()
+	return func(action tview.MouseAction, ev *tcell.EventMouse, setFocus func(tview.Primitive)) (bool, tview.Primitive) {
+		var consumed bool
+		var capture tview.Primitive
+		if h := m.content.MouseHandler(); h != nil {
+			consumed, capture = h(action, ev, setFocus)
+		}
+		if consumed || !m.InRect(ev.Position()) {
+			return consumed, capture
+		}
+		if action == tview.MouseLeftDown {
+			setFocus(m.content)
+		}
+		return true, capture
+	}
 }
 
 func (m *modalBox) InputHandler() func(*tcell.EventKey, func(tview.Primitive)) {
