@@ -1206,8 +1206,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			search := strings.TrimSpace(q.Get("q"))
 			if search != "" {
 				pat := "%" + escapeLike(search) + "%"
-				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))))")
-				args = append(args, pat, pat, pat, pat, now)
+				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))) OR asset_path LIKE ? ESCAPE '\\')")
+				args = append(args, pat, pat, pat, pat, now, pat)
 			}
 		}
 		var whereSQL string

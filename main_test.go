@@ -3688,6 +3688,17 @@ func TestTasksSearchParam(t *testing.T) {
 	if len(res) != 1 || res[0].ID != "t-custom-2" {
 		t.Fatalf("expected 1 task matching custom id, got %+v", res)
 	}
+	post(t, srv.URL+"/tasks", map[string]any{"project": "p", "asset_path": "models/car.glb"})
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?q=car.glb", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=car.glb expected 200, got %d: %s", code, body)
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal tasks failed: %v", err)
+	}
+	if len(res) != 1 || res[0].AssetPath != "models/car.glb" {
+		t.Fatalf("expected 1 task matching asset_path car.glb, got %+v", res)
+	}
 }
 
 func TestStats(t *testing.T) {
