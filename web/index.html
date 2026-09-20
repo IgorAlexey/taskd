@@ -2125,6 +2125,7 @@
           ` : ''}
           ${t.status === 'buried' ? `
             <button type="button" id="kick-task-btn" data-variant="primary">Kick Task</button>
+            <button type="button" id="close-task-btn">Close Task</button>
           ` : ''}
           <button type="button" id="delete-task-btn" data-variant="warning"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}>Delete Task</button>
         </div>

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -868,5 +869,12 @@ const api = new Function("document", "location", "history", "window", "fetch", "
 	}
 	if !got.DetailsLoaded {
 		t.Error("expected task details to be loaded")
+	}
+}
+func TestWebUICloseBuriedTask(t *testing.T) {
+	ui := string(uiHTML)
+	re := regexp.MustCompile(`status\s*===\s*'buried'[\s\S]*?id="kick-task-btn"[\s\S]*?id="close-task-btn"`)
+	if !re.MatchString(ui) {
+		t.Fatal("expected #close-task-btn alongside #kick-task-btn for buried tasks in web/index.html")
 	}
 }
