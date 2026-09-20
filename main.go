@@ -143,7 +143,12 @@ func (s *store) Close() error {
 	return err
 }
 
-func openDB(path string) (*store, error) {
+func openDB(path string) (s *store, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("cannot open database %s: %w", path, err)
+		}
+	}()
 	rw, err := openRW(path)
 	if err != nil {
 		return nil, err
@@ -181,7 +186,7 @@ func openRW(path string) (*sql.DB, error) {
 	}
 	if version < 0 || version > schemaVersion {
 		db.Close()
-		return nil, fmt.Errorf("database %s has schema version %d, this binary supports %d", path, version, schemaVersion)
+		return nil, fmt.Errorf("unsupported schema version %d (this binary supports %d)", version, schemaVersion)
 	}
 	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
 DROP INDEX IF EXISTS idx_tasks_claim;
@@ -196,7 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) 
 	if !hasTasks {
 		if version != 0 {
 			db.Close()
-			return nil, fmt.Errorf("database %s has schema version %d but no tasks table", path, version)
+			return nil, fmt.Errorf("schema version %d specified but tasks table is missing", version)
 		}
 		used, err := rowExists(db, "SELECT 1 FROM sqlite_master LIMIT 1")
 		if err != nil {
@@ -205,7 +210,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) 
 		}
 		if used {
 			db.Close()
-			return nil, fmt.Errorf("database %s is not a taskd database", path)
+			return nil, errors.New("file is not a taskd database")
 		}
 		if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
 			db.Close()
@@ -2261,6 +2266,23 @@ func listen(addr string) (net.Listener, error) {
 	log.Printf("listening on %s", l.Addr())
 	return l, nil
 }
+func openReadOnlyDB(path string) (db *sql.DB, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("cannot open database %s: %w", path, err)
+		}
+	}()
+	db, err = openDBConn(path, true)
+	if err != nil {
+		return nil, err
+	}
+	if err = db.Ping(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
 func run(args []string) error {
 	cfg, err := parseFlags(args)
 	if err != nil {
@@ -2276,7 +2298,7 @@ func run(args []string) error {
 		if err := checkBackupSource(cfg.dbPath); err != nil {
 			return err
 		}
-		db, err := openDBConn(cfg.dbPath, true)
+		db, err := openReadOnlyDB(cfg.dbPath)
 		if err != nil {
 			return err
 		}
@@ -2307,7 +2329,11 @@ func fatal(stderr io.Writer, err error) int {
 		fmt.Fprintf(stderr, "taskd: %v\ntry 'taskd -h' for usage\n", err)
 		return 2
 	}
-	log.New(stderr, "", log.LstdFlags).Print(err)
+	fmt.Fprintf(stderr, "taskd: %v\n", err)
+	var se *sqlite.Error
+	if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CANTOPEN || se.Code()&0xff == sqlite3.SQLITE_CANTOPEN) {
+		fmt.Fprintln(stderr, "       is -db pointing at a directory, or a path you cannot write?")
+	}
 	return 1
 }
 

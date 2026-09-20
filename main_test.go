@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -216,5 +217,117 @@ func TestLeaseExpirationExhaustsMaxClaims(t *testing.T) {
 	task := c.get("/tasks/expired01")
 	if task.Status != "buried" || task.ClaimCount != 2 {
 		t.Fatalf("task = %+v, want buried with claim_count 2", task)
+	}
+}
+
+func TestOpenDBDirectoryFailure(t *testing.T) {
+	dir := t.TempDir()
+	_, err := openDB(dir)
+	if err == nil {
+		t.Fatalf("expected openDB(%s) to fail, got nil", dir)
+	}
+	want := "cannot open database " + dir + ": unable to open database file (14)"
+	if err.Error() != want {
+		t.Fatalf("got error %q, want %q", err.Error(), want)
+	}
+}
+
+func TestOpenDBUnwriteableDirectoryFailure(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "ro")
+	if err := os.MkdirAll(parent, 0500); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	dbPath := filepath.Join(parent, "taskd.db")
+	_, err := openDB(dbPath)
+	if err == nil {
+		t.Fatalf("expected openDB(%s) to fail, got nil", dbPath)
+	}
+	want := "cannot open database " + dbPath + ": unable to open database file (14)"
+	if err.Error() != want {
+		t.Fatalf("got error %q, want %q", err.Error(), want)
+	}
+}
+
+func TestOpenDBNotADatabaseFailure(t *testing.T) {
+	filePath := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(filePath, []byte("hi\n"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	_, err := openDB(filePath)
+	if err == nil {
+		t.Fatalf("expected openDB(%s) to fail, got nil", filePath)
+	}
+	want := "cannot open database " + filePath + ": file is not a database (26)"
+	if err.Error() != want {
+		t.Fatalf("got error %q, want %q", err.Error(), want)
+	}
+}
+
+func TestCLIDatabaseOpenFailureOutput(t *testing.T) {
+	dir := t.TempDir()
+	err := run([]string{"-db", dir, "-addr", ":18802"})
+	if err == nil {
+		t.Fatal("expected run to fail for directory db")
+	}
+	var stderr bytes.Buffer
+	code := fatal(&stderr, err)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	wantOut := "taskd: cannot open database " + dir + ": unable to open database file (14)\n       is -db pointing at a directory, or a path you cannot write?\n"
+	if stderr.String() != wantOut {
+		t.Fatalf("got stderr %q, want %q", stderr.String(), wantOut)
+	}
+
+	parent := filepath.Join(t.TempDir(), "ro")
+	if err := os.MkdirAll(parent, 0500); err != nil {
+		t.Fatalf("MkdirAll failed: %v", err)
+	}
+	roPath := filepath.Join(parent, "taskd.db")
+	err = run([]string{"-db", roPath, "-addr", ":18802"})
+	if err == nil {
+		t.Fatal("expected run to fail for unwriteable db path")
+	}
+	stderr.Reset()
+	code = fatal(&stderr, err)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	wantOut = "taskd: cannot open database " + roPath + ": unable to open database file (14)\n       is -db pointing at a directory, or a path you cannot write?\n"
+	if stderr.String() != wantOut {
+		t.Fatalf("got stderr %q, want %q", stderr.String(), wantOut)
+	}
+
+	notesPath := filepath.Join(t.TempDir(), "notes.txt")
+	if err := os.WriteFile(notesPath, []byte("hi\n"), 0644); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+	err = run([]string{"-db", notesPath, "-addr", ":18802"})
+	if err == nil {
+		t.Fatal("expected run to fail for non-db file")
+	}
+	stderr.Reset()
+	code = fatal(&stderr, err)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	wantOut = "taskd: cannot open database " + notesPath + ": file is not a database (26)\n"
+	if stderr.String() != wantOut {
+		t.Fatalf("got stderr %q, want %q", stderr.String(), wantOut)
+	}
+
+	backupDest := filepath.Join(t.TempDir(), "backup.db")
+	err = run([]string{"-db", notesPath, "-backup", backupDest})
+	if err == nil {
+		t.Fatal("expected run to fail for backup with non-db file")
+	}
+	stderr.Reset()
+	code = fatal(&stderr, err)
+	if code != 1 {
+		t.Fatalf("expected exit code 1, got %d", code)
+	}
+	wantOut = "taskd: cannot open database " + notesPath + ": file is not a database (26)\n"
+	if stderr.String() != wantOut {
+		t.Fatalf("got stderr %q, want %q", stderr.String(), wantOut)
 	}
 }
