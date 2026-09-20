@@ -33,13 +33,8 @@ func newModel(cfg config, c *client) model {
 		now:     time.Now(),
 		detail:  vp,
 	}
-	vw := m.width - 2
-	if vw < 1 {
-		vw = 1
-	}
-	vh := m.detailViewportHeight()
-	m.detail.SetWidth(vw)
-	m.detail.SetHeight(vh)
+	m.detail.SetWidth(m.detailViewportWidth())
+	m.detail.SetHeight(m.detailViewportHeight())
 	return m
 }
 
@@ -226,13 +221,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.help = newHelpModel(msg.Width, msg.Height, m.help.prev, m.theme)
 			m.help.vp.SetYOffset(yOffset)
 		}
-		vw := m.width - 2
-		if vw < 1 {
-			vw = 1
-		}
-		vh := m.detailViewportHeight()
-		m.detail.SetWidth(vw)
-		m.detail.SetHeight(vh)
+		m.detail.SetWidth(m.detailViewportWidth())
+		m.detail.SetHeight(m.detailViewportHeight())
 		m.clamp()
 		if t, ok := m.selected(); ok {
 			m.detail.SetContent(m.renderBody(t))
@@ -1099,10 +1089,7 @@ func (m model) renderBody(t task) string {
 	rest = highlightCode(rest, m.theme)
 	w := m.detail.Width()
 	if w <= 0 {
-		w = m.width - 2
-	}
-	if w <= 0 {
-		w = 78
+		w = m.detailViewportWidth()
 	}
 	return lipgloss.NewStyle().Width(w).Render(rest)
 }
@@ -1135,6 +1122,17 @@ func (m model) detailViewportHeight() int {
 		return 1
 	}
 	return vh
+}
+func (m model) detailViewportWidth() int {
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	vw := w - detailIndent - scrollbarWidth
+	if vw < 1 {
+		return 1
+	}
+	return vw
 }
 
 func cycleWorker(current string, workers []string, delta int) string {

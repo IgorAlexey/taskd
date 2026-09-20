@@ -221,11 +221,14 @@ func tableScrollbar(total, offset, tRows int) scrollbarLayout {
 
 // Layout constants shared by view and model (paging, offset clamping).
 const (
-	headerRows  = 1 // pill, url, connection, db, refresh
-	tabRows     = 1 // status tabs and project selector
-	colHeadRows = 1 // table column header
-	footerRows  = 1 // key legend and position
-	gapRows     = 2 // blank line above the table and above the detail rule
-	minDetail   = 8
-	minTable    = 3
+	headerRows         = 1 // pill, url, connection, db, refresh
+	tabRows            = 1 // status tabs and project selector
+	colHeadRows        = 1 // table column header
+	footerRows         = 1 // key legend and position
+	gapRows            = 2 // blank line above the table and above the detail rule
+	minDetail          = 8
+	minTable           = 3
+	detailIndentSpaces = " "
+	detailIndent       = len(detailIndentSpaces)
+	scrollbarWidth     = 1
 )

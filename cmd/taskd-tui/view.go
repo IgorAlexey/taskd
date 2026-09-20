@@ -158,6 +158,12 @@ func padLine(s string, w int) string {
 	}
 	return s
 }
+func padLineIndent(s string, w int) string {
+	if w <= detailIndent {
+		return padLine(s, w)
+	}
+	return detailIndentSpaces + padLine(s, w-detailIndent)
+}
 
 func leaseLeft(t task, now time.Time) string {
 	if t.Status != "leased" || t.LeaseExpires <= 0 {
@@ -700,7 +706,7 @@ func (m model) View() tea.View {
 				l1.WriteString(m.theme.scope.Render(scope) + " ")
 			}
 			l1.WriteString(m.theme.bold.Render(title))
-			detailLines = append(detailLines, padLine(l1.String(), w))
+			detailLines = append(detailLines, padLineIndent(l1.String(), w))
 		}
 
 		if dRows >= 3 {
@@ -727,7 +733,7 @@ func (m model) View() tea.View {
 				chips = append(chips, curTask.AssetPath)
 			}
 			chipsLine := m.theme.dim.Render(strings.Join(chips, "  "))
-			detailLines = append(detailLines, padLine(chipsLine, w))
+			detailLines = append(detailLines, padLineIndent(chipsLine, w))
 		}
 
 		vpContent := m.detail.View()
@@ -767,9 +773,9 @@ func (m model) View() tea.View {
 				} else {
 					scrollCell = m.theme.dim.Render(m.glyph.track)
 				}
-				detailLines = append(detailLines, padLine(line, w-1)+scrollCell)
+				detailLines = append(detailLines, padLineIndent(line, w-scrollbarWidth)+scrollCell)
 			} else {
-				detailLines = append(detailLines, padLine(line, w))
+				detailLines = append(detailLines, padLineIndent(line, w))
 			}
 		}
 	}
