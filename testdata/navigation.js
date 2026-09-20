@@ -6,6 +6,7 @@ const script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
 let keydownHandler = null;
 const tbody = {
   querySelectorAll: () => [],
+  querySelector: () => null,
   addEventListener(type, fn) {
     if (type === 'keydown') keydownHandler = fn;
   },
@@ -14,6 +15,7 @@ const tbody = {
 const document = {
   getElementById: id => (id === 'task-table-body' ? tbody : null),
   querySelectorAll: () => [],
+  querySelector: () => null,
 };
 
 let selectedTaskId = null;

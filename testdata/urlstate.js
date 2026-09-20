@@ -2,9 +2,15 @@
 const fs = require('fs');
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
-const statusOptions = [...src
-  .match(/<select[^>]*id="filter-status"[\s\S]*?<\/select>/)[0]
-  .matchAll(/value="([^"]*)"/g)].map(m => m[1]);
+const radioTags = src.match(/<input[^>]*name="filter-status"[^>]*>/g) || [];
+const statusOptions = radioTags.map(tag => {
+  const valMatch = tag.match(/value="([^"]*)"/);
+  const idMatch = tag.match(/id="([^"]*)"/);
+  return {
+    value: valMatch ? valMatch[1] : '',
+    id: idMatch ? idMatch[1] : '',
+  };
+});
 
 function element(options) {
   const el = {
@@ -46,9 +52,32 @@ function response(status, data) {
 }
 
 function boot(search, world) {
+  const statusRadios = [];
+  for (let i = 0; i < statusOptions.length; i++) {
+    const opt = statusOptions[i];
+    let isChecked = (i === 0);
+    const r = {
+      tagName: 'INPUT',
+      type: 'radio',
+      name: 'filter-status',
+      id: opt.id,
+      value: opt.value,
+      get checked() { return isChecked; },
+      set checked(v) {
+        isChecked = Boolean(v);
+        if (isChecked) {
+          for (const other of statusRadios) {
+            if (other !== r) other.uncheck();
+          }
+        }
+      },
+      uncheck() { isChecked = false; }
+    };
+    statusRadios.push(r);
+  }
+
   const els = {
     'filter-project': element([{ value: '', textContent: '(all)' }]),
-    'filter-status': element(statusOptions.map(v => ({ value: v }))),
     'filter-search': element(),
     'form-project': element(),
     'task-details-content': element(),
@@ -60,9 +89,28 @@ function boot(search, world) {
     'stat-done': element(),
     'stat-total': element(),
   };
+  for (const r of statusRadios) {
+    els[r.id] = r;
+  }
   const document = {
     getElementById: id => els[id] || null,
     createElement: () => element(),
+    querySelector: sel => {
+      if (sel === 'input[name="filter-status"]:checked') {
+        return statusRadios.find(r => r.checked) || null;
+      }
+      const m = sel.match(/^input\[name="filter-status"\]\[value="([^"]*)"\]$/);
+      if (m) {
+        return statusRadios.find(r => r.value === m[1]) || null;
+      }
+      return null;
+    },
+    querySelectorAll: sel => {
+      if (sel === 'input[name="filter-status"]') {
+        return statusRadios;
+      }
+      return [];
+    },
   };
   const location = { pathname: '/ui', search, hash: '' };
   const entries = [location.pathname + search];
@@ -115,6 +163,8 @@ function boot(search, world) {
   )(document, location, history, window, fetchStub, console, () => 0, () => {});
   return {
     api, els, history, location, listFetches, statsFetches,
+    status: () => { const active = statusRadios.find(r => r.checked); return active ? active.value : ''; },
+    setStatus: v => { const r = statusRadios.find(x => x.value === v); if (r) r.checked = true; },
     url: () => location.pathname + location.search,
     pane: () => {
       const h = els['task-details-content'].innerHTML;
@@ -152,7 +202,7 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
   w = boot('?status=bogus&project=ghost&task=t1', world);
   await settle();
   out.noise = {
-    status: w.els['filter-status'].value,
+    status: w.status(),
     project: w.els['filter-project'].value,
     options: w.els['filter-project'].options.map(o => o.value),
     url: w.url(),
@@ -160,7 +210,7 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
 
   w = boot('', world);
   await settle();
-  w.els['filter-status'].value = 'done';
+  w.setStatus('done');
   w.api.onFilterChange();
   await settle();
   out.filter = { entry: w.history.log[w.history.log.length - 1][0], url: w.url() };
@@ -216,7 +266,7 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
   w.api.filterByStatus('pending');
   await settle();
   out.cardFilterStatus = {
-    status: w.els['filter-status'].value,
+    status: w.status(),
     url: w.url(),
     list: w.listFetches[w.listFetches.length - 1],
   };
@@ -224,7 +274,7 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
   w.api.filterByStatus('');
   await settle();
   out.cardFilterTotal = {
-    status: w.els['filter-status'].value,
+    status: w.status(),
     url: w.url(),
     list: w.listFetches[w.listFetches.length - 1],
   };
@@ -273,5 +323,28 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
     url: w.url(),
     list: w.listFetches[0],
   };
+
+  w = boot('?status=live', world);
+  await settle();
+  const liveBootStatus = w.status();
+  const liveBootList = w.listFetches[w.listFetches.length - 1];
+  w.api.selectTask('t1');
+  await settle();
+  out.live = {
+    status: liveBootStatus,
+    bootList: liveBootList,
+    selectedURL: w.url(),
+  };
+
+  w = boot('?status=pending', world);
+  await settle();
+  w.setStatus('live');
+  w.api.onFilterChange();
+  await settle();
+  out.liveChoose = {
+    url: w.url(),
+    list: w.listFetches[w.listFetches.length - 1],
+  };
+
   process.stdout.write(JSON.stringify(out, null, 1));
 })();

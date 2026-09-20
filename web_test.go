@@ -24,7 +24,12 @@ func TestWebUIFormLabels(t *testing.T) {
 	for _, id := range []string{
 		"auto-refresh",
 		"filter-project",
-		"filter-status",
+		"filter-status-all",
+		"filter-status-live",
+		"filter-status-pending",
+		"filter-status-leased",
+		"filter-status-done",
+		"filter-status-buried",
 		"filter-priority",
 		"filter-worker",
 		"filter-search",
@@ -269,6 +274,15 @@ func TestWebUIURLState(t *testing.T) {
 			URL        string `json:"url"`
 			List       string
 		}
+		Live struct {
+			Status      string
+			BootList    string `json:"bootList"`
+			SelectedURL string `json:"selectedURL"`
+		}
+		LiveChoose struct {
+			URL  string `json:"url"`
+			List string
+		}
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -378,6 +392,40 @@ func TestWebUIURLState(t *testing.T) {
 	}
 	if !strings.Contains(got.SearchRestore.List, "&q=prefilled") {
 		t.Errorf("search restore fetch list = %q, want &q=prefilled", got.SearchRestore.List)
+	}
+	if got.Live.Status != "live" {
+		t.Errorf("live boot status = %q, want live", got.Live.Status)
+	}
+	if !strings.Contains(got.Live.BootList, "&status=live") {
+		t.Errorf("live boot fetch list = %q, want &status=live", got.Live.BootList)
+	}
+	if got.Live.SelectedURL != "/ui?status=live&task=t1" {
+		t.Errorf("live selected URL = %q, want /ui?status=live&task=t1", got.Live.SelectedURL)
+	}
+	if got.LiveChoose.URL != "/ui?status=live" {
+		t.Errorf("live choose URL = %q, want /ui?status=live", got.LiveChoose.URL)
+	}
+	if !strings.Contains(got.LiveChoose.List, "&status=live") {
+		t.Errorf("live choose fetch list = %q, want &status=live", got.LiveChoose.List)
+	}
+}
+
+func TestWebUILiveStatusFilter(t *testing.T) {
+	ui := string(uiHTML)
+
+	if strings.Contains(ui, `<select id="filter-status"`) {
+		t.Fatal(`found <select id="filter-status"> in web/index.html`)
+	}
+	if !regexp.MustCompile(`<input[^>]*type="radio"[^>]*name="filter-status"`).MatchString(ui) {
+		t.Fatal("expected radio inputs named filter-status in web/index.html")
+	}
+	if !strings.Contains(ui, "<legend") {
+		t.Fatal("expected legend in web/index.html")
+	}
+	for _, st := range []string{"pending", "leased", "done", "buried", "live"} {
+		if !regexp.MustCompile(`<input[^>]*name="filter-status"[^>]*value="` + st + `"`).MatchString(ui) {
+			t.Fatalf("expected status radio for %q in web/index.html", st)
+		}
 	}
 }
 func TestWebUITaskDetailsGuard(t *testing.T) {

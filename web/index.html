@@ -188,6 +188,29 @@
     align-items: center;
     flex-wrap: wrap;
   }
+  .filter-bar fieldset {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    margin: 0 0 0 8px;
+  }
+  .filter-bar fieldset legend {
+    color: var(--text-muted);
+    font-size: 12px;
+    padding: 0 4px;
+  }
+  .filter-bar fieldset label {
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .filter-bar fieldset input[type="radio"] {
+    cursor: pointer;
+    margin: 0;
+  }
   table {
     width: 100%;
     border-collapse: collapse;
@@ -478,14 +501,21 @@
         <select id="filter-project" onchange="onFilterChange(/* loadStats */)">
           <option value="">(all)</option>
         </select>
-        <label for="filter-status" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Status:</label>
-        <select id="filter-status" onchange="onFilterChange()">
-          <option value="">(all)</option>
-          <option value="pending">Pending</option>
-          <option value="leased">Leased</option>
-          <option value="done">Done</option>
-          <option value="buried">Buried</option>
-        </select>
+        <fieldset class="filter-status-group">
+          <legend>Status</legend>
+          <input type="radio" id="filter-status-all" name="filter-status" value="" checked onchange="onFilterChange()">
+          <label for="filter-status-all">(all)</label>
+          <input type="radio" id="filter-status-live" name="filter-status" value="live" onchange="onFilterChange()">
+          <label for="filter-status-live">Live</label>
+          <input type="radio" id="filter-status-pending" name="filter-status" value="pending" onchange="onFilterChange()">
+          <label for="filter-status-pending">Pending</label>
+          <input type="radio" id="filter-status-leased" name="filter-status" value="leased" onchange="onFilterChange()">
+          <label for="filter-status-leased">Leased</label>
+          <input type="radio" id="filter-status-done" name="filter-status" value="done" onchange="onFilterChange()">
+          <label for="filter-status-done">Done</label>
+          <input type="radio" id="filter-status-buried" name="filter-status" value="buried" onchange="onFilterChange()">
+          <label for="filter-status-buried">Buried</label>
+        </fieldset>
         <label for="filter-priority" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Priority:</label>
         <select id="filter-priority" onchange="onFilterChange()">
           <option value="">(all)</option>
@@ -620,15 +650,25 @@
       };
     }
 
+    function getStatusFilter() {
+      const checked = document.querySelector('input[name="filter-status"]:checked');
+      return checked ? checked.value : '';
+    }
+
+    function setStatusFilter(value) {
+      const target = document.querySelector('input[name="filter-status"][value="' + value + '"]');
+      const radio = target || document.querySelector('input[name="filter-status"][value=""]');
+      if (radio) radio.checked = true;
+    }
+
     function currentURLState() {
       const projEl = document.getElementById('filter-project');
-      const statusEl = document.getElementById('filter-status');
       const prioEl = document.getElementById('filter-priority');
       const workerEl = document.getElementById('filter-worker');
       const searchEl = document.getElementById('filter-search');
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
-        status: statusEl ? statusEl.value : '',
+        status: getStatusFilter(),
         priority: prioEl ? prioEl.value : '',
         worker: workerEl ? workerEl.value : '',
         q: searchEl ? searchEl.value.trim() : '',
@@ -702,7 +742,7 @@
       const projEl = document.getElementById('filter-project');
       pendingProject = (projEl && projEl.value === state.project) ? '' : state.project;
       setFilter(projEl, state.project);
-      setFilter(document.getElementById('filter-status'), state.status);
+      setStatusFilter(state.status);
       setFilter(document.getElementById('filter-priority'), state.priority);
       const workerEl = document.getElementById('filter-worker');
       if (workerEl && state.worker) {
@@ -736,9 +776,7 @@
       loadStats();
     }
     function filterByStatus(status) {
-      const select = document.getElementById('filter-status');
-      if (!select) return;
-      setFilter(select, status);
+      setStatusFilter(status);
       onFilterChange();
     }
 
@@ -1007,12 +1045,11 @@
 
     async function loadTasks() {
       const projEl = document.getElementById('filter-project');
-      const statusEl = document.getElementById('filter-status');
       const prioEl = document.getElementById('filter-priority');
       const workerEl = document.getElementById('filter-worker');
       const searchEl = document.getElementById('filter-search');
       const proj = projEl ? projEl.value : '';
-      const status = statusEl ? statusEl.value : '';
+      const status = getStatusFilter();
       const prio = prioEl ? prioEl.value : '';
       const worker = workerEl ? workerEl.value : '';
       const search = searchEl ? searchEl.value.trim() : '';

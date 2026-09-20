@@ -7,6 +7,7 @@ const script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
 const document = {
   getElementById: () => null,
   createElement: tag => createElement(tag),
+  querySelector: () => null,
 };
 const location = { pathname: '/ui', search: '', hash: '' };
 const history = { pushState() {}, replaceState() {} };

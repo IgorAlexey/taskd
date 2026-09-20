@@ -33,7 +33,6 @@ function boot(initialSearch = '') {
 
   const els = {
     'filter-project': createElement('select'),
-    'filter-status': createElement('select'),
     'task-details-content': createElement('div'),
     'error-banner': createElement('div'),
     'task-table-body': createElement('tbody'),
@@ -49,6 +48,7 @@ function boot(initialSearch = '') {
   const document = {
     getElementById: id => els[id] || null,
     createElement: tag => createElement(tag),
+    querySelector: () => null,
   };
 
   const location = { pathname: '/ui', search: initialSearch, hash: '' };

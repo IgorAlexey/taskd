@@ -44,7 +44,6 @@ const fetchStub = async url => {
 
 const els = {
   'filter-project': createElement('select'),
-  'filter-status': createElement('select'),
   'task-details-content': createElement('div'),
   'error-banner': createElement('div'),
   'task-table-body': createElement('tbody'),
@@ -56,6 +55,7 @@ const els = {
 const document = {
   getElementById: id => els[id] || null,
   createElement: tag => createElement(tag),
+  querySelector: () => null,
 };
 const location = { pathname: '/ui', search: '', hash: '' };
 const history = { pushState() {}, replaceState() {} };

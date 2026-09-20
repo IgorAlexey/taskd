@@ -23,6 +23,7 @@ const els = {
 const document = {
   getElementById: id => els[id] || null,
   createElement: () => ({ style: {}, dataset: {}, setAttribute() {}, innerHTML: '' }),
+  querySelector: () => null,
 };
 
 let taskData = { id: 't1', project: 'p1', status: 'pending', body: 'hello' };

@@ -43,6 +43,7 @@ const els = {
 };
 
 const document = {
+  querySelector: () => null,
   getElementById(id) {
     if (!(id in els)) els[id] = stub();
     return els[id];
