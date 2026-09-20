@@ -130,3 +130,71 @@ func TestSearchNavigationKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestClickClearSearchFooter(t *testing.T) {
+	m := newModel(config{refresh: time.Hour}, nil)
+	m.width = 100
+	m.height = 24
+	m.mode = modeTable
+	m.query = "alpha"
+	m.tasks = []task{
+		{ID: "1", Status: "pending", Body: "alpha task"},
+	}
+	m.rebuildShown()
+
+	view := ansi.Strip(m.View().Content)
+	want := `filter "alpha" [Esc clear]`
+	if !strings.Contains(view, want) {
+		t.Fatalf("expected %q in view, got:\n%s", want, view)
+	}
+
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	footer := lines[len(lines)-1]
+	idx := strings.Index(footer, "[Esc clear]")
+	if idx == -1 {
+		t.Fatalf("footer missing [Esc clear]: %q", footer)
+	}
+
+	up, _ := m.Update(tea.MouseClickMsg{
+		X:      idx + 2,
+		Y:      m.height - 1,
+		Button: tea.MouseLeft,
+	})
+	m = up.(model)
+
+	if m.query != "" {
+		t.Fatalf("expected query cleared, got %q", m.query)
+	}
+
+	restored := ansi.Strip(m.View().Content)
+	if strings.Contains(restored, want) {
+		t.Fatalf("unexpected [Esc clear] in restored footer:\n%s", restored)
+	}
+}
+
+func TestFilterTargetsDetailAndZoomPreserveShortcuts(t *testing.T) {
+	m := newModel(config{refresh: time.Hour}, nil)
+	m.width = 100
+	m.height = 24
+	m.query = "alpha"
+	m.tasks = []task{
+		{ID: "1", Status: "pending", Body: "alpha task"},
+	}
+	m.rebuildShown()
+
+	m.mode = modeDetail
+	targets := m.footerTargets()
+	for _, target := range targets {
+		if target.action == "clear_search" {
+			t.Fatalf("expected detail mode not to expose clear_search target")
+		}
+	}
+
+	m.mode = modeZoom
+	targets = m.footerTargets()
+	for _, target := range targets {
+		if target.action == "clear_search" {
+			t.Fatalf("expected zoom mode not to expose clear_search target")
+		}
+	}
+}

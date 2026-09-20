@@ -1331,17 +1331,10 @@ func cycleScope(current string, items []string, delta int) string {
 	return items[idx-1]
 }
 func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
-	targets := m.footerTargets()
-	w := m.width
 	frw := lipgloss.Width(m.footRight())
-	var footLeftW int
-	items := m.footerItems()
-	for _, it := range items {
-		footLeftW += ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1]) + 2
-	}
-	if footLeftW > 0 {
-		footLeftW -= 2
-	}
+	footLeft, targets := m.footLeft(frw)
+	w := m.width
+	footLeftW := ansi.StringWidth(footLeft)
 	maxLeft := w
 	if footLeftW+frw+1 > w {
 		maxLeft = max(0, w-frw-1)
@@ -1352,6 +1345,9 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 	for _, target := range targets {
 		if x >= target.start && x < target.end {
 			switch target.action {
+			case "clear_search":
+				m.query = ""
+				return m, m.commitQuery()
 			case "create":
 				return m.actionCreate()
 			case "edit":
