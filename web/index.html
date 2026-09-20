@@ -1242,6 +1242,7 @@
           ${t.status !== 'done' ? '<button type="button" id="edit-task-btn" onclick="toggleTaskEdit()">Edit Task</button>' : ''}
           ${t.status === 'leased' ? `
             <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
+            <button type="button" id="touch-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Touch Lease</button>
             <button type="button" id="release-task-btn">Release Task</button>
           ` : ''}
           ${t.status === 'pending' ? `
@@ -1256,6 +1257,8 @@
 
       const compBtn = document.getElementById('complete-task-btn');
       if (compBtn) compBtn.onclick = () => completeTask(t.id, t.worker);
+      const touchBtn = document.getElementById('touch-task-btn');
+      if (touchBtn) touchBtn.onclick = () => touchTask(t.id, t.worker);
       const relBtn = document.getElementById('release-task-btn');
       if (relBtn) relBtn.onclick = () => releaseTask(t.id, t.worker);
       const claimBtn = document.getElementById('claim-task-btn');
@@ -1314,6 +1317,26 @@
           body: JSON.stringify({ worker: worker })
         });
         await finishTaskTransition(id);
+      } catch (_) {}
+    }
+
+    async function touchTask(id, worker) {
+      if (!id) return;
+      if (!worker) {
+        showError('Cannot touch lease: missing worker');
+        return;
+      }
+      try {
+        const res = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/touch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worker: worker })
+        });
+        showError(null);
+        if (currentTask && currentTask.id === id && res && res.lease_expires) {
+          currentTask.lease_expires = res.lease_expires;
+          renderTaskDetails(currentTask, true);
+        }
       } catch (_) {}
     }
 

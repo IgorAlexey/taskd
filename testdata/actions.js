@@ -147,6 +147,19 @@ const fetchStub = async (url, opts = {}) => {
     }
     return response(204, null);
   }
+  if (url.endsWith('/touch')) {
+    const raw = url.slice('/tasks/'.length);
+    const id = decodeURIComponent(raw.split('/touch')[0]);
+    const t = tasks.find(x => x.id === id);
+    if (!t) return response(404, 'task not found');
+    if (t.status !== 'leased') return response(409, 'task is ' + t.status);
+    const body = opts.body ? JSON.parse(opts.body) : {};
+    if (!body.worker) return response(400, 'missing worker');
+    if (body.worker !== t.worker) return response(409, 'worker mismatch');
+    const newExpires = 2000000000;
+    t.lease_expires = newExpires;
+    return response(200, { id: t.id, lease_expires: newExpires, status: t.status });
+  }
   if (url.endsWith('/claim')) {
     const id = decodeURIComponent(url.slice('/tasks/'.length, -'/claim'.length));
     const t = tasks.find(x => x.id === id);
@@ -172,7 +185,7 @@ const fetchStub = async (url, opts = {}) => {
 const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setInterval', 'clearInterval',
-  script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, releaseTask, claimTask,' +
+  script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, touchTask, releaseTask, claimTask,' +
   ' closeTask, clearSelectedTask, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
@@ -186,6 +199,7 @@ const api = new Function(
   results.pendingHasRelease = pendingHTML.includes('id="release-task-btn"');
   results.pendingHasClaim = pendingHTML.includes('id="claim-task-btn"');
   results.pendingHasClose = pendingHTML.includes('id="close-task-btn"');
+  results.pendingHasTouch = pendingHTML.includes('id="touch-task-btn"');
   let clipboardText = '';
   Object.defineProperty(global.navigator, 'clipboard', {
     value: { writeText: async (txt) => { clipboardText = txt; } },
@@ -241,6 +255,7 @@ const api = new Function(
     /id="delete-task-btn"[^>]*aria-disabled="true"/.test(leasedHTML);
   results.leasedDeleteTitle = /id="delete-task-btn"[^>]*title="[^"]+"/.test(leasedHTML);
   results.leasedHasComplete = leasedHTML.includes('id="complete-task-btn"');
+  results.leasedHasTouch = leasedHTML.includes('id="touch-task-btn"');
   results.leasedHasRelease = leasedHTML.includes('id="release-task-btn"');
   results.leasedHasClaim = leasedHTML.includes('id="claim-task-btn"');
   results.leasedHasClose = leasedHTML.includes('id="close-task-btn"');
@@ -252,6 +267,17 @@ const api = new Function(
   results.leasedDeleteAsked = confirmAsked > 0;
   results.leasedDeleteCalls = calls.filter(c => c.method === 'DELETE').length;
   results.leasedDeletePaneKept = !els['task-details-content'].innerHTML.includes('Select a task');
+
+  calls.length = 0;
+  if (els['touch-task-btn'] && els['touch-task-btn'].onclick) {
+    await els['touch-task-btn'].onclick();
+  }
+  results.touchCall = calls.find(c => c.url.includes('/touch'));
+  results.touchSelected = (api.selected === 't-leased');
+  const touchPaneHTML = els['task-details-content'].innerHTML;
+  results.touchPaneHasExpires = touchPaneHTML.includes('Lease Expires');
+  results.touchUpdatedExpires = touchPaneHTML.includes(new Date(2000000000 * 1000).toLocaleString());
+  results.touchPaneNotReset = !touchPaneHTML.includes('Select a task');
 
   calls.length = 0;
   await els['release-task-btn'].onclick();

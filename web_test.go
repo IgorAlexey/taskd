@@ -324,6 +324,7 @@ func TestWebUITaskActions(t *testing.T) {
 		{"copy-id-btn", "Copy"},
 		{"copy-body-btn", "Copy"},
 		{"delete-task-btn", "Delete Task"},
+		{"touch-task-btn", "Touch Lease"},
 		{"release-task-btn", "Release Task"},
 		{"complete-task-btn", "Complete Task"},
 		{"claim-task-btn", "Claim Task"},
@@ -358,6 +359,7 @@ func TestWebUITaskActions(t *testing.T) {
 		PendingHasRelease       bool
 		PendingHasClaim         bool
 		PendingHasClose         bool
+		PendingHasTouch         bool
 		PendingHasCopy          bool
 		CopySuccess             bool
 		CopyFailure             bool
@@ -374,12 +376,22 @@ func TestWebUITaskActions(t *testing.T) {
 		LeasedDeleteAsked       bool
 		LeasedDeleteCalls       int
 		LeasedHasComplete       bool
+		LeasedHasTouch          bool
 		LeasedHasRelease        bool
 		LeasedHasClaim          bool
 		LeasedHasClose          bool
 		LeasedDeletePaneKept    bool
 		ErrorBannerSurvivesPoll bool
-		ReleaseCall             *struct {
+		TouchCall               *struct {
+			URL    string
+			Method string
+			Body   map[string]any
+		}
+		TouchSelected       bool
+		TouchPaneHasExpires bool
+		TouchUpdatedExpires bool
+		TouchPaneNotReset   bool
+		ReleaseCall         *struct {
 			URL    string
 			Method string
 			Body   map[string]any
@@ -469,8 +481,26 @@ func TestWebUITaskActions(t *testing.T) {
 	if got.LeasedDeleteAsked || got.LeasedDeleteCalls != 0 || !got.LeasedDeletePaneKept {
 		t.Errorf("leased delete should not trigger confirm or call DELETE: asked=%v calls=%d paneKept=%v", got.LeasedDeleteAsked, got.LeasedDeleteCalls, got.LeasedDeletePaneKept)
 	}
-	if !got.LeasedHasComplete || !got.LeasedHasRelease {
+	if !got.LeasedHasComplete || !got.LeasedHasRelease || !got.LeasedHasTouch {
 		t.Errorf("leased buttons mismatch: %+v", got)
+	}
+	if got.PendingHasTouch {
+		t.Errorf("pending tasks should not offer touch lease: %+v", got)
+	}
+	if got.TouchCall == nil || got.TouchCall.URL != "/tasks/t-leased/touch" || got.TouchCall.Method != "POST" || got.TouchCall.Body["worker"] != "w-1" {
+		t.Errorf("touch call mismatch: %+v", got.TouchCall)
+	}
+	if !got.TouchSelected {
+		t.Errorf("expected task to remain selected after touch")
+	}
+	if !got.TouchPaneHasExpires {
+		t.Errorf("expected details pane to display lease expires after touch")
+	}
+	if !got.TouchUpdatedExpires {
+		t.Errorf("expected details pane to update displayed lease expires after touch")
+	}
+	if !got.TouchPaneNotReset {
+		t.Errorf("details pane was reset after touch")
 	}
 	if !got.ErrorBannerSurvivesPoll {
 		t.Error("expected error banner to survive subsequent successful fetch")
