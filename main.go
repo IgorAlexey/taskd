@@ -765,6 +765,17 @@ func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, arg
 	return updateTask(w, db, query, append(args, id, worker), id, worker, nil)
 }
 
+func updateLeasedOrLapsed(w http.ResponseWriter, db *sql.DB, set, id, worker string, claim *int, args ...any) (leaseEnvelope, bool) {
+	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=?"
+	fullArgs := append(args, id, worker)
+	if claim != nil {
+		query += " AND claim_count=?"
+		fullArgs = append(fullArgs, *claim)
+	}
+	query += " RETURNING id, lease_expires, status"
+	return updateTask(w, db, query, fullArgs, id, worker, claim)
+}
+
 func updateTask(w http.ResponseWriter, db *sql.DB, query string, args []any, id, worker string, claim *int) (leaseEnvelope, bool) {
 	var (
 		env     leaseEnvelope
@@ -1342,14 +1353,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		query := "UPDATE tasks SET status='done', primitives=?, lease_expires=NULL WHERE id=? AND status='leased' AND worker=?"
-		args := []any{prim, id, req.Worker}
-		if req.ClaimCount != nil {
-			query += " AND claim_count=?"
-			args = append(args, *req.ClaimCount)
-		}
-		query += " RETURNING id, lease_expires, status"
-		if _, ok := updateTask(w, db.rw, query, args, id, req.Worker, req.ClaimCount); !ok {
+		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='done', primitives=?, lease_expires=NULL", id, req.Worker, req.ClaimCount, prim); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1411,8 +1415,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	}
 	buryIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Worker   string `json:"worker"`
-			Priority *int   `json:"priority"`
+			Worker     string `json:"worker"`
+			Priority   *int   `json:"priority"`
+			ClaimCount *int   `json:"claim_count"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
@@ -1429,7 +1434,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if _, ok := updateLeased(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.Priority); !ok {
+		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.ClaimCount, req.Priority); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -2072,7 +2077,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/close   close task without result
   POST   /tasks/{id}/touch   extend lease, return expiration (requires worker)
   POST   /tasks/{id}/release release task back to pending (requires worker)
-  POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority)
+  POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority, optional claim_count)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task (?force=1 to delete done task)
   GET    /projects           list active projects
