@@ -1878,9 +1878,14 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	listTasksHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
 		status := q.Get("status")
-		if q.Has("status") && status != "pending" && status != "leased" && status != "done" && status != "buried" && status != "live" {
+		switch status {
+		case "", "pending", "leased", "done", "buried", "live":
+		default:
 			writeError(w, http.StatusBadRequest, "invalid status")
 			return
+		}
+		if status == "" {
+			q.Del("status")
 		}
 		project, ok := validateProjectFilter(w, q)
 		if !ok {
