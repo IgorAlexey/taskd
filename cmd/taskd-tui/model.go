@@ -1669,8 +1669,10 @@ func editorPatchCmd(c *client, taskID string, version int, body, tempPath string
 			return actMsg{msg: "task body updated"}
 		}
 		reqBody := map[string]any{
-			"body":       body,
-			"if_version": version,
+			"body": body,
+		}
+		if version > 0 {
+			reqBody["if_version"] = version
 		}
 		if err := c.do("PATCH", "/tasks/"+taskID, reqBody); err != nil {
 			return actMsg{err: fmt.Errorf("%w (draft saved to %s)", err, tempPath)}

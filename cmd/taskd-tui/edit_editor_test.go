@@ -76,6 +76,39 @@ func TestEditBodyInEditor(t *testing.T) {
 		}
 	})
 
+	t.Run("ZeroVersionOmitsIfVersion", func(t *testing.T) {
+		var gotPatch map[string]any
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			json.NewDecoder(r.Body).Decode(&gotPatch)
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer ts.Close()
+
+		tmpFile, err := os.CreateTemp("", "taskd-draft-*.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpPath := tmpFile.Name()
+		tmpFile.WriteString("content")
+		tmpFile.Close()
+
+		patchCmd := editorPatchCmd(newClient(ts.URL), "task-zero-ver", 0, "content", tmpPath)
+		resMsg := patchCmd()
+		act, ok := resMsg.(actMsg)
+		if !ok || act.err != nil {
+			t.Fatalf("unexpected patch result: %#v", resMsg)
+		}
+		if gotPatch == nil {
+			t.Fatal("expected PATCH request to be sent")
+		}
+		if gotPatch["body"] != "content" {
+			t.Errorf("expected body 'content', got %v", gotPatch["body"])
+		}
+		if _, ok := gotPatch["if_version"]; ok {
+			t.Errorf("expected if_version to be omitted when version is 0, got %v", gotPatch["if_version"])
+		}
+	})
+
 	t.Run("PatchFailurePreservesDraftFile", func(t *testing.T) {
 		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusConflict)
@@ -108,6 +141,12 @@ func TestEditBodyInEditor(t *testing.T) {
 		data, err := os.ReadFile(tmpPath)
 		if err != nil || string(data) != "precious user text" {
 			t.Fatalf("draft file was lost or corrupted on patch failure: err=%v data=%q", err, string(data))
+		}
+		up, _ := m.Update(act)
+		m = up.(model)
+		wantDraft := "draft saved to " + tmpPath
+		if !strings.Contains(m.msg, wantDraft) {
+			t.Fatalf("expected status message to contain %q, got %q", wantDraft, m.msg)
 		}
 	})
 
