@@ -951,10 +951,9 @@ WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
 // etagMatches implements If-None-Match: a comma-separated list of
 // entity tags, each optionally weak (W/), or the wildcard "*".
 func etagMatches(header, etag string) bool {
-	if header == "" {
-		return false
-	}
-	for _, tag := range strings.Split(header, ",") {
+	for header != "" {
+		var tag string
+		tag, header, _ = strings.Cut(header, ",")
 		tag = strings.TrimSpace(tag)
 		if tag == "*" || strings.TrimPrefix(tag, "W/") == etag {
 			return true
