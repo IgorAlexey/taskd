@@ -969,15 +969,6 @@ func (n noteModel) layout(width, height int, th theme) noteLayout {
 	if len(n.taskID) > 0 {
 		title += " " + th.dim.Render("("+shortID(n.taskID)+")")
 	}
-	head := []string{title, ""}
-	if n.errText != "" {
-		head = append(head, th.err.Render(n.errText), "")
-	}
-	inputLine := n.input.View()
-	head = append(head, inputLine, "")
-
-	wrappedHead := wrapRows(head, inner)
-
 	saveToken := "[enter] save"
 	cancelToken := "[esc] cancel"
 	saveW := ansi.StringWidth(saveToken)
@@ -994,14 +985,74 @@ func (n noteModel) layout(width, height int, th theme) noteLayout {
 	wrappedKeep := wrapRows(keep, inner)
 
 	room := max(1, height-2*modalBorderW)
-	if len(wrappedHead)+len(wrappedKeep) > room {
-		wrappedHead = wrappedHead[:max(0, room-len(wrappedKeep))]
-	}
-	if len(wrappedHead)+len(wrappedKeep) > room {
-		wrappedKeep = wrappedKeep[:max(0, room-len(wrappedHead))]
+	if len(wrappedKeep) > room {
+		wrappedKeep = wrappedKeep[:room]
 	}
 	if len(wrappedKeep) == 0 {
-		return noteLayout{boxWidth: boxWidth, inner: inner, head: wrappedHead}
+		return noteLayout{boxWidth: boxWidth, inner: inner}
+	}
+
+	headRoom := max(0, room-len(wrappedKeep))
+	inputH := len(wrapRows([]string{n.input.View()}, inner))
+	titleH := len(wrapRows([]string{title}, inner))
+	mandatory := titleH + inputH
+
+	var head []string
+	if headRoom >= mandatory {
+		head = []string{title}
+		avail := headRoom - mandatory
+		showErr := false
+		if n.errText != "" {
+			errLines := len(wrapRows([]string{th.err.Render(n.errText)}, inner))
+			if avail >= errLines {
+				showErr = true
+				avail -= errLines
+			}
+		}
+		showAuthor := false
+		if n.author != "" {
+			authorLines := len(wrapRows([]string{th.dim.Render("author: ") + n.author}, inner))
+			if avail >= authorLines {
+				showAuthor = true
+				avail -= authorLines
+			}
+		}
+		showSep1 := avail >= 1
+		if showSep1 {
+			avail--
+		}
+		showSep2 := avail >= 1
+		if showSep2 {
+			avail--
+		}
+		showErrSep := showErr && avail >= 1
+		if showErrSep {
+			avail--
+		}
+
+		if showAuthor {
+			head = append(head, th.dim.Render("author: ")+n.author)
+		}
+		if showSep1 {
+			head = append(head, "")
+		}
+		if showErr {
+			head = append(head, th.err.Render(n.errText))
+			if showErrSep {
+				head = append(head, "")
+			}
+		}
+		head = append(head, n.input.View())
+		if showSep2 {
+			head = append(head, "")
+		}
+	} else if headRoom >= inputH {
+		head = []string{n.input.View()}
+	}
+
+	wrappedHead := wrapRows(head, inner)
+	if len(wrappedHead) > headRoom {
+		wrappedHead = wrappedHead[:headRoom]
 	}
 
 	lines := make([]string, 0, len(wrappedHead)+len(wrappedKeep))
