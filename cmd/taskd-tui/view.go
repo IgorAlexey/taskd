@@ -251,6 +251,13 @@ func (m model) renderWorker() string {
 	return m.glyph.host + " " + m.theme.tabKey.Render("w") + " " + m.theme.dim.Render("worker ") + name
 }
 
+func (m model) displayScope(t task) (scope, title string) {
+	scope, title = titleOf(t)
+	if scope == "" && m.project == "" {
+		scope = t.Project
+	}
+	return scope, title
+}
 func (m model) View() tea.View {
 	w := m.width
 	if w <= 0 {
@@ -343,8 +350,9 @@ func (m model) View() tea.View {
 		for _, idx := range m.shown {
 			if idx >= 0 && idx < len(m.tasks) {
 				t := m.tasks[idx]
-				if t.Project != "" {
-					sw := ansi.StringWidth(t.Project)
+				sc, _ := m.displayScope(t)
+				if sc != "" {
+					sw := ansi.StringWidth(sc)
 					if sw > maxScope {
 						maxScope = sw
 					}
@@ -488,9 +496,10 @@ func (m model) View() tea.View {
 				}
 				priStyled := m.theme.dim.Render(priStr)
 
+				sc, rawTitle := m.displayScope(t)
 				var scopeStyled string
 				if wScope > 0 {
-					sText := padRight(trunc(t.Project, wScope, ""), wScope)
+					sText := padRight(trunc(sc, wScope, ""), wScope)
 					if isDone {
 						scopeStyled = m.theme.dim.Render(sText)
 					} else {
@@ -498,7 +507,6 @@ func (m model) View() tea.View {
 					}
 				}
 
-				_, rawTitle := titleOf(t)
 				titleText := padRight(trunc(rawTitle, wTitle, ellipsis), wTitle)
 				var titleStyled string
 				if isDone {

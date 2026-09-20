@@ -1082,18 +1082,39 @@ func (m *model) confirmTask(action, past, method, path string, t task, body any)
 	m.mode = modeConfirm
 }
 
+func isScope(candidate, project string) bool {
+	if candidate == "" || project == "" {
+		return false
+	}
+	if strings.EqualFold(candidate, project) {
+		return true
+	}
+	p := strings.ToLower(project)
+	c := strings.ToLower(candidate)
+	return strings.HasPrefix(c, p+"-") || strings.HasPrefix(c, p+"/")
+}
+
 func titleOf(t task) (scope, title string) {
-	scope = t.Project
 	first := t.Body
 	if idx := strings.IndexByte(first, '\n'); idx >= 0 {
 		first = first[:idx]
 	}
 	first = strings.TrimRight(first, "\r")
-	if t.Project != "" && strings.HasPrefix(first, t.Project+":") {
-		first = strings.TrimPrefix(first, t.Project+":")
+	if strings.HasPrefix(first, "[") {
+		if idx := strings.IndexByte(first, ']'); idx > 1 {
+			candidate := first[1:idx]
+			if !strings.ContainsAny(candidate, " \t") {
+				return candidate, strings.TrimSpace(first[idx+1:])
+			}
+		}
 	}
-	title = strings.TrimSpace(first)
-	return scope, title
+	if idx := strings.Index(first, ": "); idx > 0 {
+		candidate := first[:idx]
+		if isScope(candidate, t.Project) {
+			return candidate, strings.TrimSpace(first[idx+2:])
+		}
+	}
+	return "", strings.TrimSpace(first)
 }
 
 func workerParts(w string) (host, checkout string) {
