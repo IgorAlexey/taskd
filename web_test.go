@@ -632,3 +632,45 @@ func TestWebUISelectPollReconciliation(t *testing.T) {
 		t.Error("project option DOM node not preserved when projects list updated")
 	}
 }
+
+func TestWebUIEditTaskPrefill(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/task_edit_prefill.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("edit prefill harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("edit prefill harness failed: %v", err)
+	}
+
+	var got struct {
+		IsEditing bool   `json:"isEditing"`
+		Project   string `json:"project"`
+		Priority  string `json:"priority"`
+		AssetPath string `json:"assetPath"`
+		Body      string `json:"body"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if !got.IsEditing {
+		t.Errorf("expected isEditing = true after clicking Edit Task, got %v", got.IsEditing)
+	}
+	if got.Project != "proj-alpha" {
+		t.Errorf("expected project %q, got %q", "proj-alpha", got.Project)
+	}
+	if got.Priority != "15" {
+		t.Errorf("expected priority %q, got %q", "15", got.Priority)
+	}
+	if got.AssetPath != "/images/test.png" {
+		t.Errorf("expected asset path %q, got %q", "/images/test.png", got.AssetPath)
+	}
+	if got.Body != "Fix the widget layout" {
+		t.Errorf("expected body %q, got %q", "Fix the widget layout", got.Body)
+	}
+}

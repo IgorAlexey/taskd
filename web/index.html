@@ -1996,6 +1996,10 @@
         const projInput = document.getElementById('edit-task-project');
         const assetInput = document.getElementById('edit-task-asset-path');
         const bodyInput = document.getElementById('edit-task-body');
+        if (projInput) projInput.value = t.project || '';
+        if (prioInput) prioInput.value = t.priority ?? '';
+        if (assetInput) assetInput.value = t.asset_path || '';
+        if (bodyInput) bodyInput.value = t.body || '';
         const onInputKeyDown = function(e) {
           if (e.key === 'Escape') {
             cancelTaskEdit();
