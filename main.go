@@ -2535,13 +2535,28 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		query := "SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))"
-		args := []any{time.Now().Unix()}
+		status := q.Get("status")
+		conditions := []string{"worker IS NOT NULL", "worker != ''"}
+		var args []any
+		if q.Has("status") {
+			switch status {
+			case "leased":
+				conditions = append(conditions, "status = 'leased' AND lease_expires >= unixepoch()")
+			case "done", "buried", "pending":
+				conditions = append(conditions, "status = ?")
+				args = append(args, status)
+			default:
+				writeError(w, http.StatusBadRequest, "invalid status")
+				return
+			}
+		} else {
+			conditions = append(conditions, "(status = 'done' OR (status = 'leased' AND lease_expires >= unixepoch()))")
+		}
 		if project != "" && project != "*" {
-			query += " AND project = ?"
+			conditions = append(conditions, "project = ?")
 			args = append(args, project)
 		}
-		query += " ORDER BY worker ASC"
+		query := "SELECT DISTINCT worker FROM tasks WHERE " + strings.Join(conditions, " AND ") + " ORDER BY worker ASC"
 		rows, err := db.ro.Query(query, args...)
 		if err != nil {
 			internalError(w, err)
@@ -2968,7 +2983,7 @@ RETURNING status, project`,
 		http.MethodGet: {handler: projectsHandler},
 	})
 	handleMethods(mux, "/workers", map[string]route{
-		http.MethodGet: {handler: workersHandler, params: []string{"project"}},
+		http.MethodGet: {handler: workersHandler, params: []string{"project", "status"}},
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
@@ -3084,6 +3099,7 @@ HTTP Endpoints:
   GET    /projects           list active projects
   GET    /workers            list active workers
          ?project=           exact match; project=* matches all projects
+         ?status=            filter by task status (pending, leased, done, buried)
   GET    /stats              task queue statistics
          ?project=           exact match; project=* matches all projects
          ?worker=            exact match; empty value selects unassigned
