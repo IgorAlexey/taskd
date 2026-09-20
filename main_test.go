@@ -98,7 +98,7 @@ func getTask(t *testing.T, srvURL, id string) (string, string) {
 	return item.Status, string(item.Primitives)
 }
 
-func assertUnattributed(t *testing.T, db *sql.DB, srvURL, id string) {
+func assertUnattributed(t *testing.T, db *store, srvURL, id string) {
 	t.Helper()
 	code, body := do(t, http.MethodGet, srvURL+"/tasks/"+id, nil)
 	if code != http.StatusOK {
@@ -118,7 +118,7 @@ func assertUnattributed(t *testing.T, db *sql.DB, srvURL, id string) {
 		worker       sql.NullString
 		leaseExpires sql.NullInt64
 	)
-	if err := db.QueryRow("SELECT worker, lease_expires FROM tasks WHERE id = ?", id).Scan(&worker, &leaseExpires); err != nil {
+	if err := db.rw.QueryRow("SELECT worker, lease_expires FROM tasks WHERE id = ?", id).Scan(&worker, &leaseExpires); err != nil {
 		t.Fatalf("select task %s: %v", id, err)
 	}
 	if worker.Valid || leaseExpires.Valid {
@@ -126,7 +126,7 @@ func assertUnattributed(t *testing.T, db *sql.DB, srvURL, id string) {
 	}
 }
 
-func conflictServer(t *testing.T) (*sql.DB, *httptest.Server) {
+func conflictServer(t *testing.T) (*store, *httptest.Server) {
 	t.Helper()
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -138,9 +138,9 @@ func conflictServer(t *testing.T) (*sql.DB, *httptest.Server) {
 	return db, srv
 }
 
-func expireLease(t *testing.T, db *sql.DB, id string) {
+func expireLease(t *testing.T, db *store, id string) {
 	t.Helper()
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = ?", id); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = ?", id); err != nil {
 		t.Fatalf("expire lease of %s: %v", id, err)
 	}
 }
@@ -232,7 +232,7 @@ func TestFlow(t *testing.T) {
 	}
 
 	var status, worker, primitivesRaw string
-	err = db.QueryRow("SELECT status, worker, primitives FROM tasks WHERE id = ?", created.ID).Scan(&status, &worker, &primitivesRaw)
+	err = db.rw.QueryRow("SELECT status, worker, primitives FROM tasks WHERE id = ?", created.ID).Scan(&status, &worker, &primitivesRaw)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -368,7 +368,7 @@ func TestExpiredLeaseReclaim(t *testing.T) {
 		t.Fatalf("claim1 id %q != created id %q", claimed1.ID, created.ID)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", created.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", created.ID); err != nil {
 		t.Fatalf("update lease_expires failed: %v", err)
 	}
 
@@ -387,7 +387,7 @@ func TestExpiredLeaseReclaim(t *testing.T) {
 	}
 
 	var worker, status string
-	err = db.QueryRow("SELECT worker, status FROM tasks WHERE id = ?", created.ID).Scan(&worker, &status)
+	err = db.rw.QueryRow("SELECT worker, status FROM tasks WHERE id = ?", created.ID).Scan(&worker, &status)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -516,7 +516,7 @@ func TestWAL(t *testing.T) {
 	defer db.Close()
 
 	var mode string
-	if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+	if err := db.rw.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatalf("PRAGMA journal_mode failed: %v", err)
 	}
 	if strings.ToLower(strings.TrimSpace(mode)) != "wal" {
@@ -618,7 +618,7 @@ func TestEnqueueBodyPriority(t *testing.T) {
 
 	var bodyVal string
 	var priorityVal int
-	err = db.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res1.ID).Scan(&bodyVal, &priorityVal)
+	err = db.rw.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res1.ID).Scan(&bodyVal, &priorityVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -650,7 +650,7 @@ func TestEnqueueBodyPriority(t *testing.T) {
 
 	var bodyVal2, assetPathVal2 string
 	var priorityVal2 int
-	err = db.QueryRow("SELECT asset_path, body, priority FROM tasks WHERE id = ?", res2.ID).Scan(&assetPathVal2, &bodyVal2, &priorityVal2)
+	err = db.rw.QueryRow("SELECT asset_path, body, priority FROM tasks WHERE id = ?", res2.ID).Scan(&assetPathVal2, &bodyVal2, &priorityVal2)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -928,7 +928,7 @@ func TestPatchTask(t *testing.T) {
 
 	var bodyVal string
 	var priorityVal int
-	err = db.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
+	err = db.rw.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -946,7 +946,7 @@ func TestPatchTask(t *testing.T) {
 		t.Fatalf("PATCH body expected 204, got %d: %s", code, body)
 	}
 
-	err = db.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
+	err = db.rw.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -1012,7 +1012,7 @@ func TestPatchLeasedTask(t *testing.T) {
 
 	var bodyVal string
 	var priorityVal int
-	err = db.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
+	err = db.rw.QueryRow("SELECT body, priority FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal, &priorityVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -1034,7 +1034,7 @@ func TestPatchLeasedTask(t *testing.T) {
 		t.Fatalf("PATCH on done task expected 409, got %d: %s", code, body)
 	}
 
-	err = db.QueryRow("SELECT body FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal)
+	err = db.rw.QueryRow("SELECT body FROM tasks WHERE id = ?", res.ID).Scan(&bodyVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -1064,7 +1064,7 @@ func TestPatchLeasedTask(t *testing.T) {
 		t.Fatalf("claim failed: %d: %s", code, body)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", resExpired.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", resExpired.ID); err != nil {
 		t.Fatalf("set expired lease failed: %v", err)
 	}
 
@@ -1489,7 +1489,7 @@ func TestDeleteExpiredLeasedTask(t *testing.T) {
 		t.Fatalf("DELETE on active leased task expected 409, got %d: %s", code, body)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", res.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", res.ID); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -1776,7 +1776,7 @@ func TestOpenDBCreateParentDir(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+	if err := db.rw.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("failed to query tasks table: %v", err)
 	}
 }
@@ -1880,7 +1880,7 @@ PRAGMA user_version = 1;`
 	}
 
 	var userVersion int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+	if err := db.rw.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
 	if userVersion != schemaVersion {
@@ -1888,7 +1888,7 @@ PRAGMA user_version = 1;`
 	}
 
 	var queueIdxCount int
-	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_queue'").Scan(&queueIdxCount); err != nil {
+	if err := db.rw.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_queue'").Scan(&queueIdxCount); err != nil {
 		t.Fatalf("query idx_tasks_queue: %v", err)
 	}
 	if queueIdxCount != 1 {
@@ -1896,7 +1896,7 @@ PRAGMA user_version = 1;`
 	}
 
 	var claimIdxCount int
-	if err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_claim'").Scan(&claimIdxCount); err != nil {
+	if err := db.rw.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name='idx_tasks_claim'").Scan(&claimIdxCount); err != nil {
 		t.Fatalf("query idx_tasks_claim: %v", err)
 	}
 	if claimIdxCount != 0 {
@@ -1955,14 +1955,14 @@ PRAGMA user_version = 3;`
 	defer db.Close()
 
 	var userVersion int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+	if err := db.rw.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
 	if userVersion != schemaVersion {
 		t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 	}
 
-	rows, err := db.Query("SELECT name FROM pragma_table_info('tasks')")
+	rows, err := db.rw.Query("SELECT name FROM pragma_table_info('tasks')")
 	if err != nil {
 		t.Fatalf("table_info: %v", err)
 	}
@@ -1979,13 +1979,13 @@ PRAGMA user_version = 3;`
 		t.Fatalf("rebuilt column order = %s", got)
 	}
 	var midRowid int
-	if err := db.QueryRow("SELECT rowid FROM tasks WHERE id = 'mid'").Scan(&midRowid); err != nil {
+	if err := db.rw.QueryRow("SELECT rowid FROM tasks WHERE id = 'mid'").Scan(&midRowid); err != nil {
 		t.Fatalf("query rowid: %v", err)
 	}
 	if midRowid != 7 {
 		t.Fatalf("rowid renumbered by rebuild: mid = %d, want 7", midRowid)
 	}
-	if _, err := db.Exec("INSERT INTO tasks (id, priority) VALUES ('neg', -1)"); err == nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, priority) VALUES ('neg', -1)"); err == nil {
 		t.Fatal("expected CHECK to reject negative priority")
 	}
 
@@ -2024,7 +2024,7 @@ PRAGMA user_version = 3;`
 		t.Fatalf("unmarshal create: %v", err)
 	}
 	var pri int
-	if err := db.QueryRow("SELECT priority FROM tasks WHERE id = ?", created.ID).Scan(&pri); err != nil {
+	if err := db.rw.QueryRow("SELECT priority FROM tasks WHERE id = ?", created.ID).Scan(&pri); err != nil {
 		t.Fatalf("query priority: %v", err)
 	}
 	if pri != 3 {
@@ -2226,7 +2226,7 @@ func TestProjects(t *testing.T) {
 		t.Fatalf("expected [alpha beta], got %v", projects)
 	}
 
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('raw1', 'empty proj', '')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('raw1', 'empty proj', '')"); err != nil {
 		t.Fatalf("insert empty project task failed: %v", err)
 	}
 	code, body = do(t, http.MethodGet, srv.URL+"/projects", nil)
@@ -2413,7 +2413,7 @@ func TestPatchProjectAndAssetPath(t *testing.T) {
 	}
 
 	var pVal, aVal string
-	err = db.QueryRow("SELECT project, asset_path FROM tasks WHERE id = ?", res.ID).Scan(&pVal, &aVal)
+	err = db.rw.QueryRow("SELECT project, asset_path FROM tasks WHERE id = ?", res.ID).Scan(&pVal, &aVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -2430,7 +2430,7 @@ func TestPatchProjectAndAssetPath(t *testing.T) {
 	if code != http.StatusNoContent {
 		t.Fatalf("PATCH clear asset_path expected 204, got %d: %s", code, body)
 	}
-	err = db.QueryRow("SELECT asset_path FROM tasks WHERE id = ?", res.ID).Scan(&aVal)
+	err = db.rw.QueryRow("SELECT asset_path FROM tasks WHERE id = ?", res.ID).Scan(&aVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -2459,7 +2459,7 @@ func TestOpenDBHashPath(t *testing.T) {
 	}
 
 	var count int
-	if err := db.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+	if err := db.rw.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("query tasks failed: %v", err)
 	}
 
@@ -2474,7 +2474,7 @@ func TestOpenDBHashPath(t *testing.T) {
 	if _, err := os.Stat(qPath); err != nil {
 		t.Fatalf("expected database at %s, got error: %v", qPath, err)
 	}
-	if err := qDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+	if err := qDB.rw.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("query tasks with question mark failed: %v", err)
 	}
 }
@@ -2771,7 +2771,7 @@ func TestExpiredLeasedTasksTreatedAsPending(t *testing.T) {
 	if singleBefore.Status != "leased" || singleBefore.Worker != "w1" || singleBefore.LeaseExpires == 0 {
 		t.Fatalf("expected leased status and worker w1 before expiration, got %+v", singleBefore)
 	}
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -3227,7 +3227,7 @@ func TestClaimByIDExpiredLease(t *testing.T) {
 		t.Fatalf("initial claim expected 200, got %d: %s", code, body)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", created.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires=0 WHERE id = ?", created.ID); err != nil {
 		t.Fatalf("update lease_expires failed: %v", err)
 	}
 	code, body = post(t, srv.URL+"/tasks/"+created.ID+"/claim", map[string]string{
@@ -3863,7 +3863,7 @@ func TestClaimCountIncrement(t *testing.T) {
 		t.Fatalf("expected id %s and claim_count 1, got id=%s claim_count=%d", created.ID, first.ID, first.ClaimCount)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -3970,7 +3970,7 @@ PRAGMA user_version = 2;`
 		t.Fatalf("unexpected claimed: %+v", claimed)
 	}
 	var userVersion int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+	if err := db.rw.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
 	if userVersion != schemaVersion {
@@ -4368,7 +4368,7 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 			t.Fatalf("openDB on DB=%s failed: %v", envDB, err)
 		}
 		var userVersion int
-		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		if err := db.rw.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			db.Close()
 			t.Fatalf("query user_version: %v", err)
 		}
@@ -4377,7 +4377,7 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 			t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 		}
 		var hasClaimCount int
-		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+		if err := db.rw.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
 			db.Close()
 			t.Fatalf("query claim_count: %v", err)
 		}
@@ -4408,7 +4408,7 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		defer db.Close()
 
 		var userVersion int
-		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		if err := db.rw.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			t.Fatalf("query user_version: %v", err)
 		}
 		if userVersion != schemaVersion {
@@ -4416,7 +4416,7 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		}
 
 		var hasClaimCount int
-		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+		if err := db.rw.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
 			t.Fatalf("query claim_count: %v", err)
 		}
 		if hasClaimCount != 1 {
@@ -4444,7 +4444,7 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		defer db.Close()
 
 		var userVersion int
-		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
+		if err := db.rw.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			t.Fatalf("query user_version: %v", err)
 		}
 		if userVersion != schemaVersion {
@@ -4452,7 +4452,7 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		}
 
 		var hasClaimCount int
-		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
+		if err := db.rw.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
 			t.Fatalf("query claim_count: %v", err)
 		}
 		if hasClaimCount != 1 {
@@ -4491,7 +4491,7 @@ func TestPatchEmptyBodyAndAssetPath(t *testing.T) {
 		t.Fatalf("PATCH body empty expected 400, got %d: %s", code, body)
 	}
 	var bodyVal string
-	err = db.QueryRow("SELECT body FROM tasks WHERE id = ?", res1.ID).Scan(&bodyVal)
+	err = db.rw.QueryRow("SELECT body FROM tasks WHERE id = ?", res1.ID).Scan(&bodyVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -4520,7 +4520,7 @@ func TestPatchEmptyBodyAndAssetPath(t *testing.T) {
 		t.Fatalf("PATCH asset_path empty expected 400, got %d: %s", code, body)
 	}
 	var assetVal string
-	err = db.QueryRow("SELECT asset_path FROM tasks WHERE id = ?", res2.ID).Scan(&assetVal)
+	err = db.rw.QueryRow("SELECT asset_path FROM tasks WHERE id = ?", res2.ID).Scan(&assetVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -4632,7 +4632,7 @@ func TestProjectMaxLength(t *testing.T) {
 	}
 
 	var pVal string
-	err = db.QueryRow("SELECT project FROM tasks WHERE id = ?", res.ID).Scan(&pVal)
+	err = db.rw.QueryRow("SELECT project FROM tasks WHERE id = ?", res.ID).Scan(&pVal)
 	if err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
@@ -4935,7 +4935,7 @@ func TestListWorkerFilterHonoursExpiry(t *testing.T) {
 	}
 
 	// Expire lease
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = 'w1t'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = 'w1t'"); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -5020,7 +5020,7 @@ func TestBackupOnline(t *testing.T) {
 	}
 	defer cliDB.Close()
 
-	if _, err := cliDB.Exec("VACUUM INTO ?", cfg.backupPath); err != nil {
+	if _, err := cliDB.rw.Exec("VACUUM INTO ?", cfg.backupPath); err != nil {
 		t.Fatalf("VACUUM INTO failed: %v", err)
 	}
 
@@ -5049,7 +5049,7 @@ func TestBackupOnline(t *testing.T) {
 		t.Fatalf("expected integrity_check 'ok', got %q", integrity)
 	}
 
-	if _, err := cliDB.Exec("VACUUM INTO ?", cfg.backupPath); err == nil {
+	if _, err := cliDB.rw.Exec("VACUUM INTO ?", cfg.backupPath); err == nil {
 		t.Fatalf("expected error when backup file already exists")
 	}
 
@@ -5072,7 +5072,7 @@ func TestBackupOnline(t *testing.T) {
 	}()
 
 	concurrentBackupPath := filepath.Join(dir, "backup-concurrent.db")
-	if _, err := cliDB.Exec("VACUUM INTO ?", concurrentBackupPath); err != nil {
+	if _, err := cliDB.rw.Exec("VACUUM INTO ?", concurrentBackupPath); err != nil {
 		t.Fatalf("VACUUM INTO during concurrent writes failed: %v", err)
 	}
 	close(stopCh)
@@ -5118,7 +5118,7 @@ func TestDoneRejectsExpiredLease(t *testing.T) {
 		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -5187,7 +5187,7 @@ func TestReleaseRejectsExpiredLease(t *testing.T) {
 		t.Fatalf("POST /tasks/claim expected 200, got %d: %s", code, body)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created.ID); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -5249,7 +5249,7 @@ func TestCloseTask(t *testing.T) {
 
 	expired := createTask(t, srv.URL, "p2")
 	claimTask(t, srv.URL, "p2", "w1")
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", expired); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", expired); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 	code, body = post(t, srv.URL+"/tasks/"+expired+"/close", nil)
@@ -5670,7 +5670,7 @@ func TestProjectNameValidation(t *testing.T) {
 	}
 
 	var pVal string
-	if err := db.QueryRow("SELECT project FROM tasks WHERE id = ?", taskID).Scan(&pVal); err != nil {
+	if err := db.rw.QueryRow("SELECT project FROM tasks WHERE id = ?", taskID).Scan(&pVal); err != nil {
 		t.Fatalf("query db failed: %v", err)
 	}
 	if pVal != "valid-updated_proj.2" {
@@ -5897,7 +5897,7 @@ func TestTasksFilterLive(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("claim tExpired expected 200, got %d: %s", code, body)
 	}
-	if _, err := db.Exec("UPDATE tasks SET lease_expires=unixepoch()-10 WHERE id=?", tExpired); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires=unixepoch()-10 WHERE id=?", tExpired); err != nil {
 		t.Fatalf("expire tExpired failed: %v", err)
 	}
 

@@ -55,7 +55,7 @@ func TestWorkerAtMaxLengthAccepted(t *testing.T) {
 	}
 
 	var stored string
-	if err := db.QueryRow("SELECT worker FROM tasks WHERE id=?", id).Scan(&stored); err != nil {
+	if err := db.rw.QueryRow("SELECT worker FROM tasks WHERE id=?", id).Scan(&stored); err != nil {
 		t.Fatalf("read worker: %v", err)
 	}
 	if stored != strings.TrimSpace(worker) {
@@ -72,7 +72,7 @@ func TestWorkerColumnBoundInSchema(t *testing.T) {
 	db, srv := conflictServer(t)
 	id := createTask(t, srv.URL, "p")
 
-	_, err := db.Exec("UPDATE tasks SET worker=? WHERE id=?", strings.Repeat("a", maxWorkerLen+1), id)
+	_, err := db.rw.Exec("UPDATE tasks SET worker=? WHERE id=?", strings.Repeat("a", maxWorkerLen+1), id)
 	if err == nil {
 		t.Fatal("expected the worker CHECK constraint to reject an oversized value")
 	}
@@ -115,14 +115,14 @@ PRAGMA user_version = 4;`
 	defer db.Close()
 
 	var stored string
-	if err := db.QueryRow("SELECT worker FROM tasks WHERE id='t1'").Scan(&stored); err != nil {
+	if err := db.rw.QueryRow("SELECT worker FROM tasks WHERE id='t1'").Scan(&stored); err != nil {
 		t.Fatalf("read worker: %v", err)
 	}
 	if len(stored) != maxWorkerLen {
 		t.Fatalf("worker kept %d bytes, want %d", len(stored), maxWorkerLen)
 	}
 	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+	if err := db.rw.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("user_version: %v", err)
 	}
 	if version != schemaVersion {

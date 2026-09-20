@@ -16,7 +16,7 @@ func TestOpenDBFutureSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('keep-1','written by current','p')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('keep-1','written by current','p')"); err != nil {
 		db.Close()
 		t.Fatalf("seed insert: %v", err)
 	}
@@ -105,7 +105,7 @@ func TestOpenDBCurrentSchema(t *testing.T) {
 		t.Fatalf("openDB failed: %v", err)
 	}
 	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+	if err := db.rw.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		db.Close()
 		t.Fatalf("query user_version: %v", err)
 	}
@@ -119,7 +119,7 @@ func TestOpenDBCurrentSchema(t *testing.T) {
 	}
 	defer db2.Close()
 	var mode string
-	if err := db2.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
+	if err := db2.rw.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil {
 		t.Fatalf("query journal_mode: %v", err)
 	}
 	if mode != "wal" {
@@ -208,7 +208,7 @@ func TestOpenDBAdoptsLegacyUnversioned(t *testing.T) {
 	defer db.Close()
 
 	var version int
-	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+	if err := db.rw.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
 	if version != schemaVersion {
@@ -245,7 +245,7 @@ func TestClaimIndexUsedBySweep(t *testing.T) {
 			}
 			defer db.Close()
 
-			rows, err := db.Query("EXPLAIN QUERY PLAN "+buryExhaustedSQL+" RETURNING id", 2)
+			rows, err := db.rw.Query("EXPLAIN QUERY PLAN "+buryExhaustedSQL+" RETURNING id", 2)
 			if err != nil {
 				t.Fatalf("query plan: %v", err)
 			}

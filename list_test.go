@@ -96,10 +96,10 @@ func TestListTotalCountMatchesFilters(t *testing.T) {
 		}
 	}
 	// One task is leased, one has an expired lease and is pending again.
-	if _, err := db.Exec("UPDATE tasks SET status='leased', worker='w1', lease_expires=unixepoch()+300 WHERE body='task 0'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET status='leased', worker='w1', lease_expires=unixepoch()+300 WHERE body='task 0'"); err != nil {
 		t.Fatalf("lease task 0 failed: %v", err)
 	}
-	if _, err := db.Exec("UPDATE tasks SET status='leased', worker='w2', lease_expires=unixepoch()-10 WHERE body='task 1'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET status='leased', worker='w2', lease_expires=unixepoch()-10 WHERE body='task 1'"); err != nil {
 		t.Fatalf("expire task 1 failed: %v", err)
 	}
 
@@ -142,7 +142,7 @@ func TestListTotalCountBeyondDefaultLimit(t *testing.T) {
 		if i < 120 {
 			status = "done"
 		}
-		if _, err := db.Exec("INSERT INTO tasks (id, body, project, status) VALUES (?, ?, 'p-big', ?)",
+		if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project, status) VALUES (?, ?, 'p-big', ?)",
 			fmt.Sprintf("id-%03d", i), fmt.Sprintf("task %d", i), status); err != nil {
 			t.Fatalf("insert task %d failed: %v", i, err)
 		}

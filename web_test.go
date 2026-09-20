@@ -764,7 +764,7 @@ func TestWebUIPagination(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	tx, err := db.Begin()
+	tx, err := db.rw.Begin()
 	if err != nil {
 		t.Fatalf("db.Begin failed: %v", err)
 	}

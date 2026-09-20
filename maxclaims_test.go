@@ -45,7 +45,7 @@ func TestClaimMaxClaims(t *testing.T) {
 		if item.Status != "leased" || item.ClaimCount != want.count {
 			t.Fatalf("claim by %s: got status=%s claim_count=%d, want leased/%d", want.worker, item.Status, item.ClaimCount, want.count)
 		}
-		if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
+		if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
 			t.Fatalf("expire lease failed: %v", err)
 		}
 	}
@@ -100,7 +100,7 @@ func TestClaimMaxClaimsUnlimitedByDefault(t *testing.T) {
 		if code != http.StatusOK {
 			t.Fatalf("claim by %s expected 200, got %d: %s", worker, code, body)
 		}
-		if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
+		if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = ?", created.ID); err != nil {
 			t.Fatalf("expire lease failed: %v", err)
 		}
 	}
@@ -137,7 +137,7 @@ func TestClaimByIDMaxClaims(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("first claim expected 200, got %d: %s", code, body)
 	}
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = 'poison'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = 'poison'"); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -190,7 +190,7 @@ func TestClaimMaxClaimsSkipsBuriedHead(t *testing.T) {
 	if first.ID != "poison" {
 		t.Fatalf("expected poison claimed first, got %s", first.ID)
 	}
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = 'poison'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = 'poison'"); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -238,7 +238,7 @@ func TestKickResetsClaimCount(t *testing.T) {
 	if code != http.StatusOK {
 		t.Fatalf("first claim expected 200, got %d: %s", code, body)
 	}
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = 'poison'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = 0 WHERE id = 'poison'"); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 	code, body = post(t, srv.URL+"/tasks/claim", map[string]string{"worker": "w2"})

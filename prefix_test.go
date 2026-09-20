@@ -248,13 +248,13 @@ func TestAmbiguousPrefixCapsMatchesNotCount(t *testing.T) {
 		prefix := fmt.Sprintf("cap%d-", total)
 		for i := 0; i < total; i++ {
 			id := fmt.Sprintf("%s%03d", prefix, i)
-			if _, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)",
+			if _, err := db.rw.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)",
 				id, "asset.obj", "", defaultPriority, "proj"); err != nil {
 				t.Fatalf("insert %s failed: %v", id, err)
 			}
 		}
 
-		_, err := resolveTaskID(db, prefix)
+		_, err := resolveTaskID(db.ro, prefix)
 		var mm *errMultipleMatch
 		if !errors.As(err, &mm) {
 			t.Fatalf("resolveTaskID(%s) want ambiguous error, got %v", prefix, err)

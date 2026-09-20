@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,7 +9,7 @@ import (
 	"time"
 )
 
-func touchFixture(t *testing.T, lease int) (*sql.DB, *httptest.Server, string) {
+func touchFixture(t *testing.T, lease int) (*store, *httptest.Server, string) {
 	t.Helper()
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {
@@ -88,7 +87,7 @@ func TestTouchTask(t *testing.T) {
 		t.Fatalf("touch nonexistent expected 404, got %d: %s", code, body)
 	}
 
-	if _, err := db.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", taskID); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", taskID); err != nil {
 		t.Fatalf("update expired failed: %v", err)
 	}
 	code, body = post(t, srv.URL+"/tasks/"+taskID+"/touch", map[string]any{
@@ -135,7 +134,7 @@ func TestTouchReturnsLeaseEnvelope(t *testing.T) {
 	}
 
 	var stored int64
-	if err := db.QueryRow("SELECT lease_expires FROM tasks WHERE id = ?", taskID).Scan(&stored); err != nil {
+	if err := db.rw.QueryRow("SELECT lease_expires FROM tasks WHERE id = ?", taskID).Scan(&stored); err != nil {
 		t.Fatalf("query lease_expires failed: %v", err)
 	}
 	if stored != env.LeaseExpires {

@@ -114,19 +114,58 @@ func openDBConn(path string, readOnly bool) (*sql.DB, error) {
 	}
 	q.Add("_pragma", "busy_timeout(5000)")
 	u.RawQuery = q.Encode()
-	db, err := sql.Open("sqlite", u.String())
+	return sql.Open("sqlite", u.String())
+}
+
+const maxReaders = 8
+
+type store struct {
+	rw *sql.DB
+	ro *sql.DB
+}
+
+func (s *store) Close() error {
+	var err error
+	if s.ro != s.rw {
+		err = s.ro.Close()
+	}
+	if rwErr := s.rw.Close(); err == nil {
+		err = rwErr
+	}
+	return err
+}
+
+func openDB(path string) (*store, error) {
+	rw, err := openRW(path)
 	if err != nil {
 		return nil, err
 	}
-	db.SetMaxOpenConns(1)
-	return db, nil
+	if _, memory := resolveDBPath(path); memory {
+		return &store{rw: rw, ro: rw}, nil
+	}
+	ro, err := openDBConn(path, true)
+	if err != nil {
+		rw.Close()
+		return nil, err
+	}
+	ro.SetMaxOpenConns(maxReaders)
+	ro.SetMaxIdleConns(maxReaders)
+	ro.SetConnMaxIdleTime(30 * time.Second)
+	if err := ro.Ping(); err != nil {
+		ro.Close()
+		rw.Close()
+		return nil, err
+	}
+	return &store{rw: rw, ro: ro}, nil
 }
 
-func openDB(path string) (*sql.DB, error) {
+func openRW(path string) (*sql.DB, error) {
 	db, err := openDBConn(path, false)
 	if err != nil {
 		return nil, err
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		db.Close()
@@ -807,11 +846,11 @@ const buryExhaustedSQL = `UPDATE tasks SET status='buried', worker=NULL, lease_e
 WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
   AND claim_count > 0 AND claim_count >= ?`
 
-func newHandler(db *sql.DB, lease int) http.Handler {
+func newHandler(db *store, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, 0, "")
 }
 
-func newHandlerWithCORS(db *sql.DB, lease, maxClaims int, corsOrigin string) http.Handler {
+func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http.Handler {
 	mux := http.NewServeMux()
 
 	buryExhausted := func(id string) error {
@@ -824,7 +863,7 @@ func newHandlerWithCORS(db *sql.DB, lease, maxClaims int, corsOrigin string) htt
 			query += " AND id = ?"
 			args = append(args, id)
 		}
-		rows, err := db.Query(query+" RETURNING id", args...)
+		rows, err := db.rw.Query(query+" RETURNING id", args...)
 		if err != nil {
 			return err
 		}
@@ -875,7 +914,7 @@ FROM tasks`
 			args = append(args, project)
 		}
 		var pending, leased, done, buried, total int
-		if err := db.QueryRow(query, args...).Scan(&pending, &leased, &done, &buried, &total); err != nil {
+		if err := db.ro.QueryRow(query, args...).Scan(&pending, &leased, &done, &buried, &total); err != nil {
 			internalError(w, err)
 			return
 		}
@@ -936,7 +975,7 @@ FROM tasks`
 			writeError(w, http.StatusBadRequest, "invalid id")
 			return
 		}
-		_, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, priority, req.Project)
+		_, err := db.rw.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)", req.ID, req.AssetPath, req.Body, priority, req.Project)
 		if err != nil {
 			var se *sqlite.Error
 			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
@@ -991,7 +1030,7 @@ WHERE id = (
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow(query, args...).
+		err := db.rw.QueryRow(query, args...).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			w.WriteHeader(http.StatusNoContent)
@@ -1012,7 +1051,7 @@ WHERE id = (
 		if !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
@@ -1031,10 +1070,10 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow(query, worker, lease, id, maxClaims, maxClaims).
+		err := db.rw.QueryRow(query, worker, lease, id, maxClaims, maxClaims).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
-			writeTaskStateError(w, db, id, "")
+			writeTaskStateError(w, db.ro, id, "")
 			return
 		}
 		if err != nil {
@@ -1060,7 +1099,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
@@ -1068,7 +1107,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		if _, ok := updateLeased(w, db, "status='done', primitives=?", id, req.Worker, prim); !ok {
+		if _, ok := updateLeased(w, db.rw, "status='done', primitives=?", id, req.Worker, prim); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1080,11 +1119,11 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			writeError(w, http.StatusBadRequest, "unexpected request body")
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
-		res, err := db.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL
+		res, err := db.rw.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL
 WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unixepoch())`, id)
 		if err != nil {
 			internalError(w, err)
@@ -1096,7 +1135,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if aff == 0 {
-			writeTaskStateError(w, db, id, "")
+			writeTaskStateError(w, db.ro, id, "")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1106,11 +1145,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
-		env, ok := updateLeased(w, db, "lease_expires = unixepoch() + ?", id, worker, lease)
+		env, ok := updateLeased(w, db.rw, "lease_expires = unixepoch() + ?", id, worker, lease)
 		if !ok {
 			return
 		}
@@ -1122,11 +1161,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
-		if _, ok := updateLeased(w, db, "status='pending', worker=NULL, lease_expires=NULL", id, worker); !ok {
+		if _, ok := updateLeased(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL", id, worker); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1147,11 +1186,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, "invalid priority")
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
-		if _, ok := updateLeased(w, db, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.Priority); !ok {
+		if _, ok := updateLeased(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.Priority); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1163,11 +1202,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, "unexpected request body")
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0 WHERE id=? AND status='buried'", id)
+		res, err := db.rw.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0 WHERE id=? AND status='buried'", id)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1178,7 +1217,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if aff == 0 {
-			writeTaskStateError(w, db, id, "")
+			writeTaskStateError(w, db.ro, id, "")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1317,7 +1356,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			query += " OFFSET ?"
 			args = append(args, offset)
 		}
-		rows, err := db.Query(query, args...)
+		rows, err := db.ro.Query(query, args...)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1353,7 +1392,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		// skipped, so that case still has to count.
 		total := offset + len(tasks)
 		if len(tasks) == limit || (offset > 0 && len(tasks) == 0) {
-			if err := db.QueryRow("SELECT COUNT(*) FROM tasks"+whereSQL, countArgs...).Scan(&total); err != nil {
+			if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks"+whereSQL, countArgs...).Scan(&total); err != nil {
 				internalError(w, err)
 				return
 			}
@@ -1419,7 +1458,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	}
 
 	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
@@ -1429,7 +1468,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", id).
+		err := db.ro.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", id).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "task not found")
@@ -1448,7 +1487,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		json.NewEncoder(w).Encode(item)
 	}
 	projectsHandler := func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC")
+		rows, err := db.ro.Query("SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC")
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1473,7 +1512,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		json.NewEncoder(w).Encode(projects)
 	}
 	workersHandler := func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?)) ORDER BY worker ASC", time.Now().Unix())
+		rows, err := db.ro.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?)) ORDER BY worker ASC", time.Now().Unix())
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1535,13 +1574,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, "missing asset_path or body")
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
 		}
 		if (clearBody && req.AssetPath == nil) || (clearAsset && req.Body == nil) {
 			var curBody, curAssetPath string
-			err := db.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", id).Scan(&curBody, &curAssetPath)
+			err := db.rw.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", id).Scan(&curBody, &curAssetPath)
 			if errors.Is(err, sql.ErrNoRows) {
 				writeError(w, http.StatusNotFound, "task not found")
 				return
@@ -1555,7 +1594,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				return
 			}
 		}
-		res, err := db.Exec(`UPDATE tasks
+		res, err := db.rw.Exec(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path)
 WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
 			req.Body, req.Priority, req.Project, req.AssetPath, id)
@@ -1569,14 +1608,14 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if n == 0 {
-			writeTaskStateError(w, db, id, "")
+			writeTaskStateError(w, db.ro, id, "")
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 
 	deleteTaskHandler := func(w http.ResponseWriter, r *http.Request) {
-		tx, err := db.Begin()
+		tx, err := db.rw.Begin()
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1795,7 +1834,7 @@ func parseFlags(args []string, stdout, stderr io.Writer) (config, error) {
 	return cfg, nil
 }
 
-func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease, maxClaims int, corsOrigin string) error {
+func runServer(ctx context.Context, l net.Listener, db *store, lease, maxClaims int, corsOrigin string) error {
 	srv := &http.Server{
 		Handler:           newHandlerWithCORS(db, lease, maxClaims, corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -1913,6 +1952,7 @@ func reportBackup(fsPath string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	bk.SetMaxOpenConns(1)
 	defer bk.Close()
 	var tasks int
 	if err := bk.QueryRow("SELECT count(*) FROM tasks").Scan(&tasks); err != nil {
@@ -1940,6 +1980,7 @@ func run(args []string) error {
 		if err != nil {
 			return err
 		}
+		db.SetMaxOpenConns(1)
 		defer db.Close()
 		return backupDB(db, cfg.backupPath, os.Stdout)
 	}

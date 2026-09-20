@@ -20,7 +20,7 @@ func TestBackupCreatesParentDir(t *testing.T) {
 	}
 	defer db.Close()
 
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'test body', 'p1')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'test body', 'p1')"); err != nil {
 		t.Fatalf("insert task failed: %v", err)
 	}
 
@@ -31,7 +31,7 @@ func TestBackupCreatesParentDir(t *testing.T) {
 		t.Fatalf("expected backupDir %q to not exist initially", backupDir)
 	}
 
-	if err := backupDB(db, backupPath, io.Discard); err != nil {
+	if err := backupDB(db.rw, backupPath, io.Discard); err != nil {
 		t.Fatalf("backupDB failed: %v", err)
 	}
 
@@ -46,7 +46,7 @@ func TestBackupCreatesParentDir(t *testing.T) {
 	defer bkDB.Close()
 
 	var count int
-	if err := bkDB.QueryRow("SELECT count(*) FROM tasks WHERE id = 't1'").Scan(&count); err != nil {
+	if err := bkDB.rw.QueryRow("SELECT count(*) FROM tasks WHERE id = 't1'").Scan(&count); err != nil {
 		t.Fatalf("query backup tasks failed: %v", err)
 	}
 	if count != 1 {
@@ -80,7 +80,7 @@ func TestRunBackupExistingSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'b', 'p1')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'b', 'p1')"); err != nil {
 		t.Fatalf("insert task failed: %v", err)
 	}
 	db.Close()
@@ -100,7 +100,7 @@ func TestRunBackupExistingSource(t *testing.T) {
 			t.Fatalf("open backup of %q failed: %v", dbArg, err)
 		}
 		var count int
-		err = bkDB.QueryRow("SELECT count(*) FROM tasks WHERE id = 't1'").Scan(&count)
+		err = bkDB.rw.QueryRow("SELECT count(*) FROM tasks WHERE id = 't1'").Scan(&count)
 		bkDB.Close()
 		if err != nil {
 			t.Fatalf("query backup of %q failed: %v", dbArg, err)
@@ -140,11 +140,11 @@ func TestRunBackupDoesNotMigrateOrMutateSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'hello', 'p1')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'hello', 'p1')"); err != nil {
 		db.Close()
 		t.Fatalf("insert task failed: %v", err)
 	}
-	if _, err := db.Exec("PRAGMA user_version = 2"); err != nil {
+	if _, err := db.rw.Exec("PRAGMA user_version = 2"); err != nil {
 		db.Close()
 		t.Fatalf("set user_version failed: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestBackupOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'first', 'p1')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'first', 'p1')"); err != nil {
 		db.Close()
 		t.Fatalf("insert task failed: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestBackupOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openDB second time failed: %v", err)
 	}
-	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t2', 'second', 'p1')"); err != nil {
+	if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES ('t2', 'second', 'p1')"); err != nil {
 		db.Close()
 		t.Fatalf("insert second task failed: %v", err)
 	}
@@ -267,7 +267,7 @@ func TestBackupOverwrite(t *testing.T) {
 	defer bkDB.Close()
 
 	var count int
-	if err := bkDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+	if err := bkDB.rw.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("query overwritten backup failed: %v", err)
 	}
 	if count != 2 {
@@ -275,7 +275,7 @@ func TestBackupOverwrite(t *testing.T) {
 	}
 
 	var integrity string
-	if err := bkDB.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+	if err := bkDB.rw.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
 		t.Fatalf("query integrity_check failed: %v", err)
 	}
 	if integrity != "ok" {
@@ -291,7 +291,7 @@ func seedBackupSource(t *testing.T, path string, ids ...string) {
 	}
 	defer db.Close()
 	for _, id := range ids {
-		if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES (?, 'body', 'p1')", id); err != nil {
+		if _, err := db.rw.Exec("INSERT INTO tasks (id, body, project) VALUES (?, 'body', 'p1')", id); err != nil {
 			t.Fatalf("insert %q failed: %v", id, err)
 		}
 	}
@@ -345,11 +345,11 @@ func TestRunBackupRefusesSourceFile(t *testing.T) {
 		t.Fatalf("reopen source failed: %v", err)
 	}
 	defer db.Close()
-	if err := backupDB(db, srcPath, io.Discard); err == nil {
+	if err := backupDB(db.rw, srcPath, io.Discard); err == nil {
 		t.Fatal("expected backupDB onto its own source to be refused")
 	}
 	var count int
-	if err := db.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+	if err := db.rw.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("query source failed: %v", err)
 	}
 	if count != 1 {
@@ -370,7 +370,7 @@ func TestBackupReportsDestination(t *testing.T) {
 
 	dest := filepath.Join(dir, "out.db")
 	var out bytes.Buffer
-	if err := backupDB(db, dest, &out); err != nil {
+	if err := backupDB(db.rw, dest, &out); err != nil {
 		t.Fatalf("backupDB failed: %v", err)
 	}
 
@@ -410,7 +410,7 @@ func TestBackupSurvivesReportFailure(t *testing.T) {
 	}
 	defer bkDB.Close()
 	var count int
-	if err := bkDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+	if err := bkDB.rw.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
 		t.Fatalf("query backup failed: %v", err)
 	}
 	if count != 1 {
