@@ -222,7 +222,7 @@ func (m model) View() tea.View {
 	case modeConfirm:
 		return center(m.confirm.View(w, h, m.theme))
 	case modeHelp:
-		return center(helpView(w, h, m.theme))
+		return center(m.help.View(h, m.theme))
 	}
 
 	tRows, dRows := m.layout()

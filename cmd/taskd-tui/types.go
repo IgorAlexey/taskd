@@ -152,6 +152,7 @@ type model struct {
 
 	form    formModel
 	confirm confirmModel
+	help    helpModel
 }
 
 // Layout constants shared by view and model (paging, offset clamping).

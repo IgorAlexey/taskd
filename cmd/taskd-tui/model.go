@@ -107,6 +107,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.mode == modeForm {
 			m.form.fit(msg.Width, msg.Height, m.theme)
 		}
+		if m.mode == modeHelp {
+			yOffset := m.help.vp.YOffset()
+			m.help = newHelpModel(msg.Width, msg.Height, m.help.prev, m.theme)
+			m.help.vp.SetYOffset(yOffset)
+		}
 		vw := m.width - 2
 		if vw < 1 {
 			vw = 1
@@ -242,6 +247,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseWheelMsg:
+		if m.mode == modeHelp {
+			var cmd tea.Cmd
+			m.help, cmd = m.help.Update(msg)
+			return m, cmd
+		}
 		switch msg.Button {
 		case tea.MouseWheelUp:
 			if m.mode == modeDetail || m.mode == modeZoom {
@@ -328,8 +338,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case modeHelp:
-			m.mode = modeTable
-			return m, nil
+			if msg.Code == tea.KeyEscape || msg.Text == "?" || msg.Text == "q" || msg.Code == tea.KeyEnter {
+				m.mode = m.help.prev
+				if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+					m.mode = modeTable
+				}
+				return m, nil
+			}
+			var cmd tea.Cmd
+			m.help, cmd = m.help.Update(msg)
+			return m, cmd
 
 		case modeSearch:
 			switch {
@@ -403,6 +421,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.detail.HalfPageUp()
+				return m, nil
+			case msg.Text == "?":
+				m.help = newHelpModel(m.width, m.height, m.mode, m.theme)
+				m.mode = modeHelp
 				return m, nil
 			default:
 				var cmd tea.Cmd
@@ -659,6 +681,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				poll := m.startPoll()
 				return m, poll
 			case msg.Text == "?":
+				m.help = newHelpModel(m.width, m.height, m.mode, m.theme)
 				m.mode = modeHelp
 				return m, nil
 			}

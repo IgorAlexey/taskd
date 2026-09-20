@@ -6,6 +6,7 @@ import (
 
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -570,45 +571,51 @@ func padRightVisual(s string, w int) string {
 	return s
 }
 
-func helpView(width, height int, th theme) string {
+type helpModel struct {
+	vp       viewport.Model
+	prev     mode
+	boxWidth int
+}
+
+func newHelpModel(width, height int, prev mode, th theme) helpModel {
 	type keyRef struct {
 		key  string
 		desc string
 	}
-	const col1KeyW = 13
+	const col1KeyW = 11
 	const col1DescW = 10
-	const col2KeyW = 4
+	const col2KeyW = 5
 
 	col1 := []keyRef{
-		{"j/k, ↑/↓", "move"},
-		{"g/G", "first/last"},
-		{"ctrl-d/ctrl-u", "half page"},
-		{"PgUp/PgDn", "page"},
-		{"p", "project"},
-		{"/", "search"},
-		{"Tab", "detail"},
-		{"z", "zoom"},
-		{"n", "new"},
-		{"e", "edit"},
-		{"ctrl-s", "save form"},
+		{"[j/k]", "move"},
+		{"[g/G]", "first/last"},
+		{"[ctrl-d/u]", "half page"},
+		{"[PgUp/Dn]", "page"},
+		{"[p]", "project"},
+		{"[/]", "search"},
+		{"[Tab]", "detail"},
+		{"[z]", "zoom"},
+		{"[n]", "new"},
+		{"[e]", "edit"},
+		{"[ctrl-s]", "save form"},
 	}
 
 	col2 := []keyRef{
-		{"0-4", "filter (all/pending/leased/done/buried)"},
+		{"[0-4]", "filter (status)"},
 		{"+/-", "priority"},
-		{"c", "claim"},
-		{"u", "release"},
-		{"t", "touch lease"},
-		{"D", "delete"},
-		{"x", "complete"},
-		{"y/Y", "copy id/body"},
-		{"r", "refresh"},
-		{"?", "help"},
-		{"q", "quit"},
+		{"[c]", "claim"},
+		{"[u]", "release"},
+		{"[t]", "touch lease"},
+		{"[D]", "delete"},
+		{"[x]", "complete"},
+		{"[y/Y]", "copy id/body"},
+		{"[r]", "refresh"},
+		{"[?]", "help"},
+		{"[q]", "quit"},
 	}
 
-	var rows []string
-	rows = append(rows, th.accent.Render("Keyboard Shortcuts"), "")
+	var head []string
+	head = append(head, th.accent.Render("Keyboard Shortcuts"), "")
 	n := max(len(col1), len(col2))
 	for i := range n {
 		var left, right string
@@ -620,14 +627,77 @@ func helpView(width, height int, th theme) string {
 		if i < len(col2) {
 			right = th.accent.Render(padRightVisual(col2[i].key, col2KeyW)) + " " + th.dim.Render(col2[i].desc)
 		}
-		rows = append(rows, left+"  "+right)
+		head = append(head, left+"  "+right)
 	}
-	rows = append(rows, "", th.dim.Render("Press ? or Esc to close"))
+	head = append(head, "")
+	keep := []string{th.dim.Render("Press ? or Esc to Close")}
 
-	// Wrap to the box first, then fit the lines to the terminal before
-	// drawing the border; the closing hint keeps all its lines.
-	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...)) + 4
+	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, append(head, keep...)...)) + 4
 	boxWidth, inner := boxSize(width, 20, natural)
-	head := wrapRows(rows[:len(rows)-1], inner)
-	return box(head, wrapRows(rows[len(rows)-1:], inner), boxWidth, height, lipgloss.Left, th)
+
+	wrappedHead := wrapRows(head, inner)
+	room := max(1, height-2)
+	headRoom := min(len(wrappedHead), max(1, room-len(keep)))
+	vp := viewport.New()
+	vp.SetWidth(inner)
+	vp.SetHeight(headRoom)
+	vp.SetContent(strings.Join(wrappedHead, "\n"))
+	return helpModel{
+		vp:       vp,
+		prev:     prev,
+		boxWidth: boxWidth,
+	}
+}
+
+func (h helpModel) Update(msg tea.Msg) (helpModel, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyPressMsg:
+		switch {
+		case msg.Text == "j" || msg.Code == tea.KeyDown:
+			h.vp.ScrollDown(1)
+			return h, nil
+		case msg.Text == "k" || msg.Code == tea.KeyUp:
+			h.vp.ScrollUp(1)
+			return h, nil
+		case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd':
+			h.vp.HalfPageDown()
+			return h, nil
+		case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
+			h.vp.HalfPageUp()
+			return h, nil
+		case msg.Code == tea.KeyPgDown:
+			h.vp.PageDown()
+			return h, nil
+		case msg.Code == tea.KeyPgUp:
+			h.vp.PageUp()
+			return h, nil
+		case msg.Text == "g" || msg.Code == tea.KeyHome:
+			h.vp.GotoTop()
+			return h, nil
+		case msg.Text == "G" || msg.Code == tea.KeyEnd:
+			h.vp.GotoBottom()
+			return h, nil
+		}
+	case tea.MouseWheelMsg:
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			h.vp.ScrollUp(3)
+			return h, nil
+		case tea.MouseWheelDown:
+			h.vp.ScrollDown(3)
+			return h, nil
+		}
+	}
+	var cmd tea.Cmd
+	h.vp, cmd = h.vp.Update(msg)
+	return h, cmd
+}
+
+func (h helpModel) View(height int, th theme) string {
+	if h.boxWidth < 5 {
+		return ""
+	}
+	head := strings.Split(h.vp.View(), "\n")
+	keep := []string{th.dim.Render("Press ? or Esc to Close")}
+	return box(head, keep, h.boxWidth, height, lipgloss.Left, th)
 }
