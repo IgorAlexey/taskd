@@ -1274,3 +1274,84 @@ func TestWebUIEditTaskFields(t *testing.T) {
 		t.Error("expected projects list to be reloaded after saving task edit")
 	}
 }
+
+func TestWebUIRowArrowKeyNavigation(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, "tr.setAttribute('tabindex', '-1')") {
+		t.Fatal("expected tr to have tabindex -1 in web/index.html")
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+	out, err := exec.Command(node, "testdata/navigation.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+	var got struct {
+		DownFromRow1Selected    string
+		DownFromRow1Focused     string
+		DownFromRow2Selected    string
+		DownFromRow2Focused     string
+		DownAtBottomSelected    string
+		DownAtBottomFocused     string
+		UpFromRow3Selected      string
+		UpFromRow3Focused       string
+		UpFromRow2Selected      string
+		UpFromRow2Focused       string
+		UpAtTopSelected         string
+		UpAtTopFocused          string
+		DownFromButton1Selected string
+		DownFromButton1Focused  string
+		UpFromButton2Selected   string
+		UpFromButton2Focused    string
+		ModifierIgnored         bool
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.DownFromRow1Selected != "task-2" || got.DownFromRow1Focused != "task-2" {
+		t.Errorf("ArrowDown from row-1: selected=%q focused=%q, want task-2",
+			got.DownFromRow1Selected, got.DownFromRow1Focused)
+	}
+	if got.DownFromRow2Selected != "task-3" || got.DownFromRow2Focused != "task-3" {
+		t.Errorf("ArrowDown from row-2: selected=%q focused=%q, want task-3",
+			got.DownFromRow2Selected, got.DownFromRow2Focused)
+	}
+	if got.DownAtBottomSelected != "task-3" || got.DownAtBottomFocused != "task-3" {
+		t.Errorf("ArrowDown at bottom: selected=%q focused=%q, want task-3",
+			got.DownAtBottomSelected, got.DownAtBottomFocused)
+	}
+	if got.UpFromRow3Selected != "task-2" || got.UpFromRow3Focused != "task-2" {
+		t.Errorf("ArrowUp from row-3: selected=%q focused=%q, want task-2",
+			got.UpFromRow3Selected, got.UpFromRow3Focused)
+	}
+	if got.UpFromRow2Selected != "task-1" || got.UpFromRow2Focused != "task-1" {
+		t.Errorf("ArrowUp from row-2: selected=%q focused=%q, want task-1",
+			got.UpFromRow2Selected, got.UpFromRow2Focused)
+	}
+	if got.UpAtTopSelected != "task-1" || got.UpAtTopFocused != "task-1" {
+		t.Errorf("ArrowUp at top: selected=%q focused=%q, want task-1",
+			got.UpAtTopSelected, got.UpAtTopFocused)
+	}
+	if got.DownFromButton1Selected != "task-2" || got.DownFromButton1Focused != "task-2" {
+		t.Errorf("ArrowDown from button-1: selected=%q focused=%q, want task-2",
+			got.DownFromButton1Selected, got.DownFromButton1Focused)
+	}
+	if got.UpFromButton2Selected != "task-1" || got.UpFromButton2Focused != "task-1" {
+		t.Errorf("ArrowUp from button-2: selected=%q focused=%q, want task-1",
+			got.UpFromButton2Selected, got.UpFromButton2Focused)
+	}
+	if !got.ModifierIgnored {
+		t.Error("expected modified arrow key (Ctrl+ArrowDown) to be ignored")
+	}
+}
