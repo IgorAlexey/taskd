@@ -1688,7 +1688,7 @@ func TestCLIUsageAndUnexpectedArgs(t *testing.T) {
 	}
 	usage := buf.String()
 
-	for _, want := range []string{"Usage of taskd", "taskd", "/tasks/claim", "Endpoints:", "Examples:", "-addr", "-db"} {
+	for _, want := range []string{"Usage of taskd", "taskd", "/tasks/claim", "Endpoints:", "Examples:", "-addr", "-db", "/workers", "primitives"} {
 		if !strings.Contains(usage, want) {
 			t.Fatalf("usage output missing %q:\n%s", want, usage)
 		}

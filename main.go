@@ -1625,11 +1625,13 @@ type config struct {
 	corsOrigin string
 }
 
-func printUsage(fs *flag.FlagSet) {
-	w := fs.Output()
+func printUsage(fs *flag.FlagSet, w io.Writer) {
 	fmt.Fprintf(w, "Usage of %s:\n\n", fs.Name())
 	fmt.Fprintf(w, "taskd is a lightweight task queue daemon backed by SQLite.\n\nOptions:\n")
+	oldOut := fs.Output()
+	fs.SetOutput(w)
 	fs.PrintDefaults()
+	fs.SetOutput(oldOut)
 	fmt.Fprintf(w, `
 HTTP Endpoints:
   GET    /tasks              list tasks
@@ -1638,7 +1640,7 @@ HTTP Endpoints:
   GET    /tasks/{id}         get task details
   PATCH  /tasks/{id}         update task body or priority
   POST   /tasks/{id}/claim   claim a specific task
-  POST   /tasks/{id}/done    complete task with result
+  POST   /tasks/{id}/done    complete task with primitives
   POST   /tasks/{id}/close   close task without result
   POST   /tasks/{id}/touch   extend lease, returns new expiration
   POST   /tasks/{id}/release release leased task back to pending
@@ -1646,6 +1648,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task
   GET    /projects           list active projects
+  GET    /workers            list active workers
   GET    /stats              task queue statistics
   GET    /ui                 web interface
 
@@ -1660,22 +1663,31 @@ Examples:
 func parseFlags(args []string, out ...io.Writer) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("taskd", flag.ContinueOnError)
+	var w io.Writer = os.Stderr
 	if len(out) > 0 && out[0] != nil {
-		fs.SetOutput(out[0])
+		w = out[0]
+		fs.SetOutput(w)
 	}
-	fs.Usage = func() {
-		printUsage(fs)
-	}
+	fs.Usage = func() {}
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			target := io.Writer(os.Stdout)
+			if len(out) > 0 && out[0] != nil {
+				target = out[0]
+			}
+			printUsage(fs, target)
+		} else {
+			printUsage(fs, w)
+		}
 		return cfg, err
 	}
 	if len(fs.Args()) > 0 {
-		fs.Usage()
+		printUsage(fs, w)
 		return cfg, fmt.Errorf("unexpected argument: %s", fs.Args()[0])
 	}
 	cfg.dbPath = strings.TrimSpace(cfg.dbPath)
