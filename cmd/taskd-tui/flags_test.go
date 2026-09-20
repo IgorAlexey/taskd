@@ -172,3 +172,72 @@ func TestParseAndValidateURL_DefaultScheme(t *testing.T) {
 		})
 	}
 }
+
+func TestFlagsInvalidProject(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		env     map[string]string
+		wantErr string
+	}{
+		{
+			name:    "invalid flag characters",
+			args:    []string{"-project", "invalid name!"},
+			wantErr: "taskd-tui: invalid project name \"invalid name!\": must contain only [A-Za-z0-9._-]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "invalid flag chars with equal",
+			args:    []string{"-project=bad/name"},
+			wantErr: "taskd-tui: invalid project name \"bad/name\": must contain only [A-Za-z0-9._-]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "invalid env characters",
+			env:     map[string]string{"TASKD_PROJECT": "bad name?"},
+			wantErr: "taskd-tui: invalid project name \"bad name?\": must contain only [A-Za-z0-9._-]\ntry 'taskd-tui -h' for usage\n",
+		},
+		{
+			name:    "project name exceeds 64 chars",
+			args:    []string{"-project", strings.Repeat("a", 65)},
+			wantErr: "taskd-tui: invalid project name \"" + strings.Repeat("a", 65) + "\": must not exceed 64 characters\ntry 'taskd-tui -h' for usage\n",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for k, v := range tc.env {
+				t.Setenv(k, v)
+			}
+			_, err := parseFlags(tc.args)
+			if err == nil {
+				t.Fatalf("expected error for %v, got nil", tc.args)
+			}
+			var stderr bytes.Buffer
+			if code := reportError(&stderr, err); code != 2 {
+				t.Fatalf("exit = %d, want 2 (err %v)", code, err)
+			}
+			if stderr.String() != tc.wantErr {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tc.wantErr)
+			}
+		})
+	}
+
+	t.Run("valid project flag", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-project", "valid-project.123"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.project != "valid-project.123" {
+			t.Fatalf("project = %q, want valid-project.123", cfg.project)
+		}
+	})
+
+	t.Run("valid flag overrides invalid env", func(t *testing.T) {
+		t.Setenv("TASKD_PROJECT", "invalid project!")
+		cfg, err := parseFlags([]string{"-project", "override-valid"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.project != "override-valid" {
+			t.Fatalf("project = %q, want override-valid", cfg.project)
+		}
+	})
+}

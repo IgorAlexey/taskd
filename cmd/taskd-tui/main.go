@@ -56,6 +56,21 @@ func usagef(format string, a ...any) *usageError {
 	return &usageError{err: fmt.Errorf(format, a...)}
 }
 
+const maxProjectLen = 64
+
+func validateProject(p string) error {
+	if len(p) > maxProjectLen {
+		return fmt.Errorf("invalid project name %q: must not exceed 64 characters", p)
+	}
+	for i := 0; i < len(p); i++ {
+		c := p[i]
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
+			return fmt.Errorf("invalid project name %q: must contain only [A-Za-z0-9._-]", p)
+		}
+	}
+	return nil
+}
+
 func parseFlags(args []string) (config, error) {
 	defaultURL := os.Getenv("TASKD_URL")
 	if defaultURL == "" {
@@ -190,6 +205,11 @@ func parseFlags(args []string) (config, error) {
 	cfg.refresh = refresh
 	cfg.icons = !ascii
 
+	if cfg.project != "" {
+		if err := validateProject(cfg.project); err != nil {
+			return cfg, usagef("%w", err)
+		}
+	}
 	return cfg, nil
 }
 
