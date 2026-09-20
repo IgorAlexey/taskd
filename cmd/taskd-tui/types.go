@@ -17,6 +17,7 @@ type task struct {
 	LeaseExpires int64           `json:"lease_expires"`
 	Priority     int             `json:"priority"`
 	ClaimCount   int             `json:"claim_count"`
+	CreatedAt    int64           `json:"created_at"`
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
 }
