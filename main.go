@@ -386,10 +386,14 @@ type apiError struct {
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {
+	writeAPIError(w, code, apiError{Error: msg})
+}
+
+func writeAPIError(w http.ResponseWriter, code int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(apiError{Error: msg})
+	json.NewEncoder(w).Encode(payload)
 }
 
 type route struct {
@@ -589,12 +593,26 @@ type queryer interface {
 
 var errTaskNotFound = errors.New("task not found")
 
+const maxPrefixMatches = 50
+
+type ambiguousMatch struct {
+	Error     string   `json:"error"`
+	Count     int      `json:"count,omitempty"`
+	Matches   []string `json:"matches"`
+	Truncated bool     `json:"truncated,omitempty"`
+}
+
 type errMultipleMatch struct {
-	matches []string
+	count     int
+	truncated bool
+	matches   []string
 }
 
 func (e *errMultipleMatch) Error() string {
-	return fmt.Sprintf("Multiple matching tasks found:\n%s", strings.Join(e.matches, "\n"))
+	if e.truncated {
+		return fmt.Sprintf("ambiguous id prefix: more than %d tasks match", maxPrefixMatches)
+	}
+	return fmt.Sprintf("ambiguous id prefix: %d tasks match", e.count)
 }
 
 func prefixRange(prefix string) (string, string) {
@@ -622,14 +640,14 @@ func resolveTaskID(q queryer, id string) (string, error) {
 	}
 
 	lower, upper := prefixRange(id)
-	var (
-		rows *sql.Rows
-	)
+	where := "id >= ?"
+	args := []any{lower}
 	if upper != "" {
-		rows, err = q.Query("SELECT id FROM tasks WHERE id >= ? AND id < ? ORDER BY id ASC LIMIT 10", lower, upper)
-	} else {
-		rows, err = q.Query("SELECT id FROM tasks WHERE id >= ? ORDER BY id ASC LIMIT 10", lower)
+		where += " AND id < ?"
+		args = append(args, upper)
 	}
+	args = append(args, maxPrefixMatches+1)
+	rows, err := q.Query("SELECT id FROM tasks WHERE "+where+" ORDER BY id ASC LIMIT ?", args...)
 	if err != nil {
 		return "", err
 	}
@@ -649,8 +667,11 @@ func resolveTaskID(q queryer, id string) (string, error) {
 	if len(matches) == 0 {
 		return "", errTaskNotFound
 	}
+	if len(matches) > maxPrefixMatches {
+		return "", &errMultipleMatch{truncated: true, matches: matches[:maxPrefixMatches]}
+	}
 	if len(matches) > 1 {
-		return "", &errMultipleMatch{matches: matches}
+		return "", &errMultipleMatch{count: len(matches), matches: matches}
 	}
 	return matches[0], nil
 }
@@ -662,7 +683,12 @@ func resolveTaskIDHTTP(w http.ResponseWriter, q queryer, id string) (string, boo
 	}
 	var mm *errMultipleMatch
 	if errors.As(err, &mm) {
-		writeError(w, http.StatusConflict, mm.Error())
+		writeAPIError(w, http.StatusConflict, ambiguousMatch{
+			Error:     mm.Error(),
+			Count:     mm.count,
+			Matches:   mm.matches,
+			Truncated: mm.truncated,
+		})
 		return "", false
 	}
 	if errors.Is(err, errTaskNotFound) {

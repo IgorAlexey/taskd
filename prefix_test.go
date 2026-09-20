@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -168,5 +170,113 @@ func TestMutatingPrefixRoutes(t *testing.T) {
 	code, _ = do(t, http.MethodGet, srv.URL+"/tasks/prefix-single-1", nil)
 	if code != http.StatusNotFound {
 		t.Fatalf("expected deleted task to be 404, got %d", code)
+	}
+}
+
+func TestAmbiguousPrefixReportsCount(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "test_ambiguous_count.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	var created []string
+	for i := 1; i <= 12; i++ {
+		id := fmt.Sprintf("t%d", i)
+		code, body := post(t, srv.URL+"/tasks", map[string]string{
+			"id":         id,
+			"asset_path": "asset.obj",
+			"project":    "proj",
+		})
+		if code != http.StatusCreated {
+			t.Fatalf("create %s failed: %d %s", id, code, body)
+		}
+		created = append(created, id)
+	}
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks/t", nil)
+	if code != http.StatusConflict {
+		t.Fatalf("GET /tasks/t expected 409, got %d: %s", code, body)
+	}
+	var res struct {
+		Error   string   `json:"error"`
+		Count   int      `json:"count"`
+		Matches []string `json:"matches"`
+	}
+	if err := json.Unmarshal(body, &res); err != nil {
+		t.Fatalf("unmarshal ambiguous body %s: %v", body, err)
+	}
+	if res.Count != 12 {
+		t.Fatalf("ambiguous count want 12, got %d (body %s)", res.Count, body)
+	}
+	if len(res.Matches) != 12 {
+		t.Fatalf("ambiguous matches want 12 entries, got %d: %v", len(res.Matches), res.Matches)
+	}
+	if res.Error != "ambiguous id prefix: 12 tasks match" {
+		t.Fatalf("ambiguous error want count sentence, got %q", res.Error)
+	}
+	if strings.Contains(res.Error, "\n") {
+		t.Fatalf("ambiguous error should not embed a list, got %q", res.Error)
+	}
+	seen := make(map[string]bool, len(res.Matches))
+	for _, m := range res.Matches {
+		seen[m] = true
+	}
+	for _, id := range created {
+		if !seen[id] {
+			t.Fatalf("ambiguous matches missing %s: %v", id, res.Matches)
+		}
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks/t1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks/t1 expected exact hit 200, got %d: %s", code, body)
+	}
+}
+
+func TestAmbiguousPrefixCapsMatchesNotCount(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "test_ambiguous_cap.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	for _, total := range []int{maxPrefixMatches, maxPrefixMatches + 7} {
+		prefix := fmt.Sprintf("cap%d-", total)
+		for i := 0; i < total; i++ {
+			id := fmt.Sprintf("%s%03d", prefix, i)
+			if _, err := db.Exec("INSERT INTO tasks (id, asset_path, body, priority, project) VALUES (?, ?, ?, ?, ?)",
+				id, "asset.obj", "", defaultPriority, "proj"); err != nil {
+				t.Fatalf("insert %s failed: %v", id, err)
+			}
+		}
+
+		_, err := resolveTaskID(db, prefix)
+		var mm *errMultipleMatch
+		if !errors.As(err, &mm) {
+			t.Fatalf("resolveTaskID(%s) want ambiguous error, got %v", prefix, err)
+		}
+		if len(mm.matches) != maxPrefixMatches {
+			t.Fatalf("resolveTaskID(%s) matches want cap %d, got %d", prefix, maxPrefixMatches, len(mm.matches))
+		}
+		truncated := total > maxPrefixMatches
+		if mm.truncated != truncated {
+			t.Fatalf("resolveTaskID(%s) truncated want %v, got %v", prefix, truncated, mm.truncated)
+		}
+		want := fmt.Sprintf("ambiguous id prefix: %d tasks match", total)
+		if truncated {
+			want = fmt.Sprintf("ambiguous id prefix: more than %d tasks match", maxPrefixMatches)
+			if mm.count != 0 {
+				t.Fatalf("resolveTaskID(%s) count should stay unset when truncated, got %d", prefix, mm.count)
+			}
+		} else if mm.count != total {
+			t.Fatalf("resolveTaskID(%s) count want %d, got %d", prefix, total, mm.count)
+		}
+		if mm.Error() != want {
+			t.Fatalf("resolveTaskID(%s) error want %q, got %q", prefix, want, mm.Error())
+		}
 	}
 }
