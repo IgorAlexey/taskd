@@ -1232,31 +1232,48 @@ func validNameByte(c byte) bool {
 }
 
 func validTaskID(id string) bool {
-	if id == "" || len(id) > maxTaskIDLen || id == "." || id == ".." {
-		return false
+	_, ok := checkTaskID(id)
+	return ok
+}
+
+func checkTaskID(id string) (string, bool) {
+	if id == "" {
+		return "invalid id", false
 	}
-	if strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") || strings.EqualFold(id, "kick") {
-		return false
+	if len(id) > maxTaskIDLen {
+		return fmt.Sprintf("invalid id: exceeds %d characters", maxTaskIDLen), false
+	}
+	if id == "." || id == ".." || strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") || strings.EqualFold(id, "kick") {
+		return fmt.Sprintf("invalid id %q, id is reserved", id), false
 	}
 	for i := range len(id) {
 		if !validNameByte(id[i]) {
-			return false
+			return "invalid id", false
 		}
 	}
-	return true
+	return "", true
 }
 
 func validProject(p string) bool {
-	if p == "" || len(p) > maxProjectLen {
-		return false
+	_, ok := checkProject(p)
+	return ok
+}
+
+func checkProject(p string) (string, bool) {
+	if p == "" {
+		return "invalid project", false
+	}
+	if len(p) > maxProjectLen {
+		return fmt.Sprintf("invalid project: exceeds %d characters", maxProjectLen), false
 	}
 	for i := range len(p) {
 		if !validNameByte(p[i]) {
-			return false
+			return "invalid project", false
 		}
 	}
-	return true
+	return "", true
 }
+
 func validateProjectFilter(w http.ResponseWriter, q url.Values) (string, bool) {
 	if !q.Has("project") {
 		return "", true
@@ -1266,9 +1283,11 @@ func validateProjectFilter(w http.ResponseWriter, q url.Values) (string, bool) {
 		writeError(w, http.StatusBadRequest, "project cannot be empty")
 		return "", false
 	}
-	if project != "*" && !validProject(project) {
-		writeError(w, http.StatusBadRequest, "invalid project")
-		return "", false
+	if project != "*" {
+		if msg, ok := checkProject(project); !ok {
+			writeError(w, http.StatusBadRequest, msg)
+			return "", false
+		}
 	}
 	return project, true
 }
@@ -1525,14 +1544,14 @@ FROM tasks`
 			writeFieldError(w, http.StatusBadRequest, "missing project", "project")
 			return
 		}
-		if !validProject(req.Project) {
-			writeFieldError(w, http.StatusBadRequest, "invalid project", "project")
+		if msg, ok := checkProject(req.Project); !ok {
+			writeFieldError(w, http.StatusBadRequest, msg, "project")
 			return
 		}
 		priority := defaultPriority
 		if req.Priority != nil {
 			if *req.Priority < 0 {
-				writeFieldError(w, http.StatusBadRequest, "invalid priority", "priority")
+				writeFieldError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority), "priority")
 				return
 			}
 			priority = *req.Priority
@@ -1544,8 +1563,8 @@ FROM tasks`
 				return
 			}
 			req.ID = hex.EncodeToString(b[:])
-		} else if !validTaskID(req.ID) {
-			writeFieldError(w, http.StatusBadRequest, "invalid id", "id")
+		} else if msg, ok := checkTaskID(req.ID); !ok {
+			writeFieldError(w, http.StatusBadRequest, msg, "id")
 			return
 		}
 		_, err := db.rw.Exec("INSERT INTO tasks (id, asset_path, body, priority, project, created_at) VALUES (?, ?, ?, ?, ?, unixepoch())", req.ID, req.AssetPath, req.Body, priority, req.Project)
@@ -1585,8 +1604,8 @@ FROM tasks`
 		req.Project = strings.TrimSpace(req.Project)
 		if req.Project == "" || req.Project == "*" {
 			req.Project = "*"
-		} else if !validProject(req.Project) {
-			writeError(w, http.StatusBadRequest, "invalid project")
+		} else if msg, ok := checkProject(req.Project); !ok {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1, version = version + 1
@@ -1840,7 +1859,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if req.Priority != nil && *req.Priority < 0 {
-			writeError(w, http.StatusBadRequest, "invalid priority")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority))
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
@@ -1886,7 +1905,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		switch status {
 		case "", "pending", "leased", "done", "buried", "live":
 		default:
-			writeError(w, http.StatusBadRequest, "invalid status")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid status %q, must be one of [pending, leased, done, buried, live]", status))
 			return
 		}
 		if status == "" {
@@ -1898,18 +1917,28 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		var priorityFilter *int
 		if q.Has("priority") {
-			v, err := strconv.Atoi(q.Get("priority"))
-			if err != nil || v < 0 {
-				writeError(w, http.StatusBadRequest, "invalid priority")
+			raw := q.Get("priority")
+			v, err := strconv.Atoi(raw)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %q: not an integer", raw))
+				return
+			}
+			if v < 0 {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", v))
 				return
 			}
 			priorityFilter = &v
 		}
 		limit := 100
 		if q.Has("limit") {
-			v, err := strconv.Atoi(q.Get("limit"))
-			if err != nil || v < 1 || v > 1000 {
-				writeError(w, http.StatusBadRequest, "invalid limit")
+			raw := q.Get("limit")
+			v, err := strconv.Atoi(raw)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid limit %q: not an integer", raw))
+				return
+			}
+			if v < 1 || v > 1000 {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid limit %d, must be between 1 and 1000", v))
 				return
 			}
 			limit = v
@@ -1920,9 +1949,14 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		offset := 0
 		if q.Has("offset") {
-			v, err := strconv.Atoi(q.Get("offset"))
-			if err != nil || v < 0 {
-				writeError(w, http.StatusBadRequest, "invalid offset")
+			raw := q.Get("offset")
+			v, err := strconv.Atoi(raw)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid offset %q: not an integer", raw))
+				return
+			}
+			if v < 0 {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid offset %d, must be 0 or greater", v))
 				return
 			}
 			offset = v
@@ -2383,13 +2417,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			*req.AssetPath = strings.TrimSpace(*req.AssetPath)
 		}
 		if req.Priority != nil && *req.Priority < 0 {
-			writeError(w, http.StatusBadRequest, "invalid priority")
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority))
 			return
 		}
 		if req.Project != nil {
 			*req.Project = strings.TrimSpace(*req.Project)
-			if !validProject(*req.Project) {
-				writeError(w, http.StatusBadRequest, "invalid project")
+			if msg, ok := checkProject(*req.Project); !ok {
+				writeError(w, http.StatusBadRequest, msg)
 				return
 			}
 		}
@@ -2550,11 +2584,11 @@ RETURNING status, project`,
 
 		var projectFilter string
 		if project != "" {
-			if project != "*" && !validProject(project) {
-				writeError(w, http.StatusBadRequest, "invalid project")
-				return
-			}
 			if project != "*" {
+				if msg, ok := checkProject(project); !ok {
+					writeError(w, http.StatusBadRequest, msg)
+					return
+				}
 				projectFilter = project
 			}
 		} else if q.Has("project") || req.Project != nil {
