@@ -157,11 +157,32 @@ func TestWebUIExpiredLeaseActions(t *testing.T) {
 }
 func TestWebUIConfirmActions(t *testing.T) {
 	ui := string(uiHTML)
-	if !strings.Contains(ui, "confirm('Complete this task as done?')") {
-		t.Error("expected completeTask to require confirmation before completion")
+	modals := []string{"confirm-modal", "claim-modal"}
+	for _, id := range modals {
+		if !strings.Contains(ui, `<dialog id="`+id+`"`) {
+			t.Errorf("expected <dialog id=%q> in web/index.html", id)
+		}
 	}
-	if !strings.Contains(ui, "confirm('Close this task as done without a result?')") {
-		t.Error("expected closeTask to require confirmation before closing")
+	if strings.Contains(ui, "window.confirm") || strings.Contains(ui, "window.prompt") {
+		t.Error("unexpected call to window.confirm or window.prompt in web/index.html")
+	}
+	if strings.Contains(ui, "confirm('") || strings.Contains(ui, "prompt('") {
+		t.Error("unexpected call to native confirm or prompt in web/index.html")
+	}
+	if !strings.Contains(ui, `id="confirm-action-btn"`) || !strings.Contains(ui, `id="confirm-cancel-btn"`) {
+		t.Error("expected confirm-action-btn and confirm-cancel-btn in confirm modal")
+	}
+	if !strings.Contains(ui, `id="claim-confirm-btn"`) || !strings.Contains(ui, `id="claim-cancel-btn"`) {
+		t.Error("expected claim-confirm-btn and claim-cancel-btn in claim modal")
+	}
+	if !strings.Contains(ui, `id="claim-worker-input"`) {
+		t.Error("expected claim-worker-input in claim modal")
+	}
+	if !strings.Contains(ui, "openConfirmModal({") {
+		t.Error("expected openConfirmModal in web/index.html")
+	}
+	if !strings.Contains(ui, "openClaimModal(") {
+		t.Error("expected openClaimModal in web/index.html")
 	}
 }
 func TestWebUIWorkerStats(t *testing.T) {

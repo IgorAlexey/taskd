@@ -14,8 +14,8 @@ func TestWebUIPersistClaimWorker(t *testing.T) {
 	if !strings.Contains(ui, "localStorage.setItem('taskd-claim-worker', worker)") {
 		t.Fatal("expected localStorage.setItem('taskd-claim-worker', worker) in web/index.html")
 	}
-	if !strings.Contains(ui, "prompt('Claim this task as which worker?', claimWorker)") {
-		t.Fatal("expected prompt with claimWorker default in web/index.html")
+	if !strings.Contains(ui, "input.value = claimWorker || ''") {
+		t.Fatal("expected claim modal input to use claimWorker default in web/index.html")
 	}
 	if !strings.Contains(ui, "currentNoteAuthor || claimWorker || ''") {
 		t.Fatal("expected authorInput to use claimWorker fallback in web/index.html")

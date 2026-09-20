@@ -489,14 +489,14 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  #kick-modal, #purge-modal, #shortcuts-modal {
+  #kick-modal, #purge-modal, #shortcuts-modal, #confirm-modal, #claim-modal {
     border: none;
     background: transparent;
     padding: 16px;
     max-width: 520px;
     width: 100%;
   }
-  #kick-modal::backdrop, #purge-modal::backdrop, #shortcuts-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
+  #kick-modal::backdrop, #purge-modal::backdrop, #shortcuts-modal::backdrop, #confirm-modal::backdrop, #claim-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
   kbd {
     background: var(--surface-raised);
     border: 1px solid var(--border);
@@ -995,6 +995,39 @@
         <button type="button" id="purge-cancel-btn" onclick="closePurgeModal()">Cancel</button>
         <button type="button" id="purge-confirm-btn" class="purge-confirm-btn danger" onclick="confirmPurge()" aria-busy="false">Purge</button>
       </div>
+    </div>
+  </dialog>
+  <dialog id="confirm-modal" class="modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc" data-state="closed">
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 id="confirm-modal-title">Confirm</h2>
+        <button type="button" id="confirm-modal-close" class="modal-close-btn" onclick="closeConfirmModal()" aria-label="Close dialog">&times;</button>
+      </div>
+      <p id="confirm-modal-desc" class="modal-body"></p>
+      <div class="modal-actions cluster">
+        <button type="button" id="confirm-cancel-btn" data-variant="secondary" onclick="closeConfirmModal()">Cancel</button>
+        <button type="button" id="confirm-action-btn" data-variant="primary" onclick="executeConfirmModal()" aria-busy="false">Confirm</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="claim-modal" class="modal" aria-labelledby="claim-modal-title" aria-describedby="claim-modal-desc" data-state="closed">
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 id="claim-modal-title">Claim Task</h2>
+        <button type="button" id="claim-modal-close" class="modal-close-btn" onclick="closeClaimModal()" aria-label="Close dialog">&times;</button>
+      </div>
+      <form id="claim-form" onsubmit="confirmClaim(event)">
+        <p id="claim-modal-desc" class="modal-body">
+          Claim this task as which worker?
+        </p>
+        <div class="field" style="margin-bottom: 16px;">
+          <input type="text" id="claim-worker-input" placeholder="Worker name" required maxlength="128" style="width: 100%;">
+        </div>
+        <div class="modal-actions cluster">
+          <button type="button" id="claim-cancel-btn" data-variant="secondary" onclick="closeClaimModal()">Cancel</button>
+          <button type="submit" id="claim-confirm-btn" data-variant="primary" aria-busy="false">Claim</button>
+        </div>
+      </form>
     </div>
   </dialog>
   <dialog id="shortcuts-modal" class="modal" aria-labelledby="shortcuts-modal-title" data-state="closed">
@@ -2643,6 +2676,81 @@
         if (btn && typeof btn.focus === 'function') btn.focus();
       });
     }
+    let pendingConfirmAction = null;
+
+    function openConfirmModal({ title, prompt, confirmText, danger, triggerBtn, onConfirm }) {
+      pendingConfirmAction = { onConfirm, triggerBtn };
+      const dlg = document.getElementById('confirm-modal');
+      if (!dlg) return;
+      setText(document.getElementById('confirm-modal-title'), title || 'Confirm');
+      setText(document.getElementById('confirm-modal-desc'), prompt || '');
+      const btn = document.getElementById('confirm-action-btn');
+      if (btn) {
+        setText(btn, confirmText || 'Confirm');
+        btn.setAttribute('data-variant', danger ? 'warning' : 'primary');
+      }
+      dlg.setAttribute('data-state', 'open');
+      if (typeof dlg.showModal === 'function') {
+        if (!dlg.open) dlg.showModal();
+      } else {
+        dlg.open = true;
+        dlg.hidden = false;
+      }
+    }
+
+    function closeConfirmModal() {
+      const dlg = document.getElementById('confirm-modal');
+      if (!dlg) return;
+      if (typeof dlg.close === 'function') {
+        if (dlg.open) dlg.close();
+      } else {
+        dlg.open = false;
+        dlg.hidden = true;
+        dlg.dispatchEvent(new Event('close'));
+      }
+    }
+
+    async function executeConfirmModal() {
+      if (!pendingConfirmAction || !pendingConfirmAction.onConfirm) return;
+      const { onConfirm } = pendingConfirmAction;
+      const btn = document.getElementById('confirm-action-btn');
+      const cancelBtn = document.getElementById('confirm-cancel-btn');
+      if (btn) {
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+      }
+      if (cancelBtn) cancelBtn.disabled = true;
+      try {
+        await onConfirm();
+        closeConfirmModal();
+      } catch (err) {
+        showFetchError(err);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.setAttribute('aria-busy', 'false');
+        }
+        if (cancelBtn) cancelBtn.disabled = false;
+      }
+    }
+
+    function setupActionModals() {
+      const setupModal = (modalId, closeFn, getTriggerBtn) => {
+        const dlg = document.getElementById(modalId);
+        if (!dlg) return;
+        dlg.addEventListener('click', (e) => {
+          if (e.target === dlg) closeFn();
+        });
+        dlg.addEventListener('close', () => {
+          dlg.setAttribute('data-state', 'closed');
+          const trigger = typeof getTriggerBtn === 'function' ? getTriggerBtn() : document.getElementById(getTriggerBtn);
+          if (trigger && typeof trigger.focus === 'function') trigger.focus();
+        });
+      };
+      setupModal('confirm-modal', closeConfirmModal, () => pendingConfirmAction && pendingConfirmAction.triggerBtn);
+      setupModal('claim-modal', closeClaimModal, 'claim-task-btn');
+    }
+
     function openShortcutsModal() {
       const dlg = document.getElementById('shortcuts-modal');
       if (!dlg) return;
@@ -2717,20 +2825,25 @@
       }
     }
 
-    async function completeTask(id, worker) {
+    function completeTask(id, worker) {
       if (!id) return;
       if (!worker) {
         showError('Cannot complete task: missing worker');
         return;
       }
-      if (!confirm('Complete this task as done?')) return;
-      await withButton('complete-task-btn', async () => {
-        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ worker: worker })
-        });
-        await finishTaskTransition(id);
+      openConfirmModal({
+        title: 'Complete Task',
+        prompt: 'Complete this task as done?',
+        confirmText: 'Complete',
+        triggerBtn: document.getElementById('complete-task-btn'),
+        onConfirm: async () => {
+          await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ worker: worker })
+          });
+          await finishTaskTransition(id);
+        }
       });
     }
 
@@ -2790,12 +2903,59 @@
     // keeps the selection and shows the lease it just took. The worker name
     // comes from the operator: the lease is theirs to touch or release, and
     // a shared placeholder would collide with a real runner.
-    async function claimTask(id) {
-      if (!id || typeof prompt !== 'function') return;
-      const answer = prompt('Claim this task as which worker?', claimWorker);
-      const worker = answer === null ? '' : answer.trim();
+    let taskToClaimId = null;
+
+    function openClaimModal(id) {
+      if (!id) return;
+      taskToClaimId = id;
+      const dlg = document.getElementById('claim-modal');
+      if (!dlg) return;
+      const input = document.getElementById('claim-worker-input');
+      if (input) {
+        input.value = claimWorker || '';
+      }
+      dlg.setAttribute('data-state', 'open');
+      if (typeof dlg.showModal === 'function') {
+        if (!dlg.open) dlg.showModal();
+      } else {
+        dlg.open = true;
+        dlg.hidden = false;
+      }
+      if (input && typeof input.focus === 'function') {
+        input.focus();
+        if (typeof input.select === 'function') input.select();
+      }
+    }
+
+    function closeClaimModal() {
+      const dlg = document.getElementById('claim-modal');
+      if (!dlg) return;
+      if (typeof dlg.close === 'function') {
+        if (dlg.open) dlg.close();
+      } else {
+        dlg.open = false;
+        dlg.hidden = true;
+        dlg.dispatchEvent(new Event('close'));
+      }
+    }
+
+    async function confirmClaim(event) {
+      if (event && typeof event.preventDefault === 'function') {
+        event.preventDefault();
+      }
+      const id = taskToClaimId;
+      if (!id) return;
+      const input = document.getElementById('claim-worker-input');
+      const worker = input ? input.value.trim() : '';
       if (!worker) return;
-      await withButton('claim-task-btn', async () => {
+      const btn = document.getElementById('claim-confirm-btn');
+      const cancelBtn = document.getElementById('claim-cancel-btn');
+      if (btn) {
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+      }
+      if (cancelBtn) cancelBtn.disabled = true;
+      try {
         const t = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/claim', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2805,12 +2965,26 @@
         try {
           localStorage.setItem('taskd-claim-worker', worker);
         } catch (_) {}
+        closeClaimModal();
         if (t && t.id) {
           currentTask = t;
           renderTaskDetails(t, true);
         }
         await Promise.all([loadStats(), loadTasks()]);
-      });
+      } catch (err) {
+        showFetchError(err);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.setAttribute('aria-busy', 'false');
+        }
+        if (cancelBtn) cancelBtn.disabled = false;
+      }
+    }
+
+    function claimTask(id) {
+      if (!id) return;
+      openClaimModal(id);
     }
 
     async function kickTask(id) {
@@ -2821,26 +2995,37 @@
       });
     }
 
-    async function closeTask(id) {
+    function closeTask(id) {
       if (!id) return;
-      if (typeof confirm === 'function' && !confirm('Close this task as done without a result?')) return;
-      await withButton('close-task-btn', async () => {
-        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST' });
-        await finishTaskTransition(id);
+      openConfirmModal({
+        title: 'Close Task',
+        prompt: 'Close this task as done without a result?',
+        confirmText: 'Close',
+        triggerBtn: document.getElementById('close-task-btn'),
+        onConfirm: async () => {
+          await fetchJSON('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST' });
+          await finishTaskTransition(id);
+        }
       });
     }
 
-    async function deleteTask(t) {
+    function deleteTask(t) {
       if (!t || !t.id || isActivelyLeased(t)) return;
       const hasResult = t.status === 'done' && t.primitives && (typeof t.primitives !== 'object' || Object.keys(t.primitives).length > 0);
       const prompt = hasResult
         ? 'Delete ' + t.id + ' and discard its recorded result? This cannot be undone.'
         : 'Are you sure you want to delete this task?';
-      if (typeof confirm === 'function' && !confirm(prompt)) return;
-      const url = '/tasks/' + encodeURIComponent(t.id) + (t.status === 'done' ? '?force=1' : '');
-      await withButton('delete-task-btn', async () => {
-        await fetchJSON(url, { method: 'DELETE' });
-        await clearSelectedTask();
+      openConfirmModal({
+        title: 'Delete Task',
+        prompt: prompt,
+        confirmText: 'Delete',
+        danger: true,
+        triggerBtn: document.getElementById('delete-task-btn'),
+        onConfirm: async () => {
+          const url = '/tasks/' + encodeURIComponent(t.id) + (t.status === 'done' ? '?force=1' : '');
+          await fetchJSON(url, { method: 'DELETE' });
+          await clearSelectedTask();
+        }
       });
     }
 
@@ -3293,6 +3478,7 @@
       setupBodyOverlay();
       setupPurgeModal();
       setupKickModal();
+      setupActionModals();
       setupShortcutsModal();
       setupSubmitForm();
       setupTableSorting();
