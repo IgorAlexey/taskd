@@ -1997,7 +1997,8 @@ HTTP Endpoints:
   GET    /ui                 web interface
 
 Examples:
-  taskd                                      run daemon on :8080 with taskd.db
+  taskd                                      run daemon on 127.0.0.1:8080 with taskd.db
+  taskd -addr :8080                          expose daemon on all interfaces
   taskd -addr :9090 -db custom.db            run on custom port and database
   taskd -lease 600                           use 10 minute task lease duration
   taskd -max-claims 3                        bury a task after 3 claims
@@ -2043,7 +2044,7 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
-	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
+	fs.StringVar(&cfg.addr, "addr", "127.0.0.1:8080", "listen address (e.g. :8080 to expose on all interfaces)")
 	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
 	fs.IntVar(&cfg.maxClaims, "max-claims", 0, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
@@ -2249,6 +2250,17 @@ func reportBackup(fsPath string, out io.Writer) error {
 	return nil
 }
 
+func listen(addr string) (net.Listener, error) {
+	l, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, err
+	}
+	if tcp, ok := l.Addr().(*net.TCPAddr); ok && tcp.IP.IsUnspecified() {
+		log.Print("warning: listening on all interfaces; taskd has no authentication")
+	}
+	log.Printf("listening on %s", l.Addr())
+	return l, nil
+}
 func run(args []string) error {
 	cfg, err := parseFlags(args)
 	if err != nil {
@@ -2281,11 +2293,10 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	l, err := net.Listen("tcp", cfg.addr)
+	l, err := listen(cfg.addr)
 	if err != nil {
 		return err
 	}
-	log.Printf("listening on %s", l.Addr())
 
 	return runServer(ctx, l, db, cfg.lease, cfg.maxClaims, cfg.corsOrigin)
 }
