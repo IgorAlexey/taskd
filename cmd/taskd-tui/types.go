@@ -165,6 +165,7 @@ type model struct {
 	query         string // / substring filter, case-insensitive
 	mode          mode
 	sortCol       sortColumn
+	sortDesc      bool
 	cols          tableCols
 	etag          string     // ETag of m.tasks for m.project
 	pages         int        // pages of the daemon cursor to walk; 1 is a live poll

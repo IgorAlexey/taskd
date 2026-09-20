@@ -373,3 +373,141 @@ func TestSortByClaims(t *testing.T) {
 		t.Fatalf("expected claim counts 0 and 1 rendered under claims sort, got:\n%s", viewZero)
 	}
 }
+func TestToggleSortDirection(t *testing.T) {
+	now := time.Now()
+	t1 := task{
+		ID:           "t1",
+		Priority:     2,
+		Status:       "pending",
+		Project:      "proj-z",
+		Worker:       "worker-b",
+		LeaseExpires: now.Add(2000 * time.Second).Unix(),
+		Body:         "pending task z",
+	}
+	t2 := task{
+		ID:           "t2",
+		Priority:     0,
+		Status:       "leased",
+		Project:      "proj-a",
+		Worker:       "worker-a",
+		LeaseExpires: now.Add(1000 * time.Second).Unix(),
+		Body:         "leased task a",
+	}
+	t3 := task{
+		ID:           "t3",
+		Priority:     1,
+		Status:       "done",
+		Project:      "proj-m",
+		Worker:       "",
+		LeaseExpires: 0,
+		Body:         "done task m",
+	}
+
+	m := newModel(config{icons: true, refresh: time.Hour}, nil)
+	m.width = 120
+	m.height = 24
+	m.tasks = []task{t1, t2, t3}
+	m.rebuildShown()
+
+	if len(m.shown) != 3 {
+		t.Fatalf("expected 3 tasks shown, got %d", len(m.shown))
+	}
+	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
+		t.Fatalf("initial ascending shown = [%s, %s, %s], want [t2, t3, t1]",
+			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
+	}
+
+	colHeadY := headerRows + tabRows + 1
+	up, _ := m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 3, Y: colHeadY})
+	m = up.(model)
+
+	if !m.sortDesc {
+		t.Fatalf("expected m.sortDesc to be true after clicking sorted priority header")
+	}
+	if m.tasks[m.shown[0]].ID != "t1" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t2" {
+		t.Fatalf("reverse priority shown = [%s, %s, %s], want [t1, t3, t2]",
+			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
+	}
+
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "p▲") {
+		t.Fatalf("expected reverse glyph in colH, got view:\n%s", view)
+	}
+
+	up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 3, Y: colHeadY})
+	m = up.(model)
+	if m.sortDesc {
+		t.Fatalf("expected m.sortDesc to be false after second click")
+	}
+	if m.tasks[m.shown[0]].ID != "t2" || m.tasks[m.shown[1]].ID != "t3" || m.tasks[m.shown[2]].ID != "t1" {
+		t.Fatalf("ascending priority shown = [%s, %s, %s], want [t2, t3, t1]",
+			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
+	}
+	view = ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "p▼") {
+		t.Fatalf("expected normal sort glyph in colH, got view:\n%s", view)
+	}
+
+	up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 0, Y: colHeadY})
+	m = up.(model)
+	if m.sortCol != sortStatus || m.sortDesc {
+		t.Fatalf("expected sortStatus and sortDesc=false after switching column, got %v, %v", m.sortCol, m.sortDesc)
+	}
+
+	up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 0, Y: colHeadY})
+	m = up.(model)
+	if !m.sortDesc {
+		t.Fatalf("expected sortDesc=true after clicking active status column")
+	}
+	view = ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "▲ p") && !strings.Contains(view, "▲p") {
+		t.Fatalf("expected reverse glyph in status colH, got view:\n%s", view)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "i"})
+	m = up.(model)
+	if m.sortDesc {
+		t.Fatalf("expected sortDesc=false after pressing key i")
+	}
+	up, _ = m.Update(tea.KeyPressMsg{Text: "i"})
+	m = up.(model)
+	if !m.sortDesc {
+		t.Fatalf("expected sortDesc=true after pressing key i")
+	}
+
+	tTieA1 := task{ID: "tie-a1", Priority: 0, Project: "proj-a", CreatedAt: 100}
+	tTieA2 := task{ID: "tie-a2", Priority: 1, Project: "proj-a", CreatedAt: 200}
+	tTieB := task{ID: "tie-b", Priority: 0, Project: "proj-b", CreatedAt: 300}
+	mTie := newModel(config{icons: true, refresh: time.Hour}, nil)
+	mTie.sortCol = sortProject
+	mTie.sortDesc = true
+	mTie.tasks = []task{tTieA1, tTieA2, tTieB}
+	mTie.rebuildShown()
+	if len(mTie.shown) != 3 {
+		t.Fatalf("expected 3 tasks shown in tie-breaker test, got %d", len(mTie.shown))
+	}
+	if mTie.tasks[mTie.shown[0]].ID != "tie-b" || mTie.tasks[mTie.shown[1]].ID != "tie-a1" || mTie.tasks[mTie.shown[2]].ID != "tie-a2" {
+		t.Fatalf("expected primary descending with stable secondary tie-breaker [tie-b, tie-a1, tie-a2], got [%s, %s, %s]",
+			mTie.tasks[mTie.shown[0]].ID, mTie.tasks[mTie.shown[1]].ID, mTie.tasks[mTie.shown[2]].ID)
+	}
+
+	mAscii := newModel(config{icons: false, refresh: time.Hour}, nil)
+	mAscii.width = 120
+	mAscii.height = 24
+	mAscii.tasks = []task{t1, t2, t3}
+	mAscii.rebuildShown()
+
+	up, _ = mAscii.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 3, Y: colHeadY})
+	mAscii = up.(model)
+	if !mAscii.sortDesc {
+		t.Fatalf("expected mAscii.sortDesc to be true")
+	}
+	if mAscii.tasks[mAscii.shown[0]].ID != "t1" || mAscii.tasks[mAscii.shown[1]].ID != "t3" || mAscii.tasks[mAscii.shown[2]].ID != "t2" {
+		t.Fatalf("expected reverse priority order in ascii mode, got [%s, %s, %s]",
+			mAscii.tasks[mAscii.shown[0]].ID, mAscii.tasks[mAscii.shown[1]].ID, mAscii.tasks[mAscii.shown[2]].ID)
+	}
+	viewAscii := ansi.Strip(mAscii.View().Content)
+	if !strings.Contains(viewAscii, "p^") && !strings.Contains(viewAscii, "p▲") {
+		t.Fatalf("expected reverse glyph in ascii colH, got view:\n%s", viewAscii)
+	}
+}

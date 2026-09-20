@@ -390,10 +390,7 @@ func (m model) View() tea.View {
 		wScope, wClaims, wWorker := cols.scope, cols.claims, cols.worker
 		wLease, wLeft, wID, wTitle := cols.lease, cols.left, cols.id, cols.title
 		priHead := "p"
-		ind := m.glyph.sort
-		if ind == "" {
-			ind = "▼"
-		}
+		ind := m.sortIndicator()
 		if m.sortCol == sortPriority {
 			priHead += ind
 		}
@@ -1170,4 +1167,10 @@ func (m model) confirmTargets() []confirmTarget {
 		h = 24
 	}
 	return m.confirm.buttonBounds(w, h)
+}
+func (m model) sortIndicator() string {
+	if m.sortDesc {
+		return m.glyph.sortRev
+	}
+	return m.glyph.sort
 }

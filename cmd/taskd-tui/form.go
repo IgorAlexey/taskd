@@ -1030,6 +1030,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[p/P]", "project"},
 		{"[w/W]", "worker"},
 		{"[s/S]", "sort"},
+		{"[i]", "invert sort"},
 		{"[/]", "search"},
 		{"[z]", "zoom"},
 		{"[[/]]", "prev/next"},

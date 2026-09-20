@@ -28,6 +28,7 @@ type glyphs struct {
 	rule     string
 	caret    string
 	sort     string
+	sortRev  string
 }
 
 var nerdGlyphs = glyphs{
@@ -54,6 +55,7 @@ var nerdGlyphs = glyphs{
 	rule:     "─",
 	caret:    "▏",
 	sort:     "▼",
+	sortRev:  "▲",
 }
 
 var asciiGlyphs = glyphs{
@@ -80,6 +82,7 @@ var asciiGlyphs = glyphs{
 	rule:     "-",
 	caret:    "_",
 	sort:     "*",
+	sortRev:  "^",
 }
 
 type theme struct {

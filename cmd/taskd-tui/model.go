@@ -840,10 +840,16 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		return m, cmd, true
 	case "s":
 		m.sortCol = (m.sortCol + 1) % sortColCount
+		m.sortDesc = false
 		m.rebuild()
 		return m, nil, true
 	case "S":
 		m.sortCol = (m.sortCol - 1 + sortColCount) % sortColCount
+		m.sortDesc = false
+		m.rebuild()
+		return m, nil, true
+	case "i", "I":
+		m.sortDesc = !m.sortDesc
 		m.rebuild()
 		return m, nil, true
 	case "n":
@@ -1033,6 +1039,9 @@ func (m *model) rebuildShown() {
 				c = cmp.Compare(statusRank(ti.Status), statusRank(tj.Status))
 			}
 		}
+		if m.sortDesc {
+			c = -c
+		}
 		if c != 0 {
 			return c
 		}
@@ -1136,32 +1145,36 @@ func (m *model) updateCols() {
 	m.cols = budgetColumns(m.width, maxPri, maxScope, maxWorker, maxClaims, sb.hasScrollbar)
 }
 
+func (m *model) setSortCol(col sortColumn) {
+	if m.sortCol == col {
+		m.sortDesc = !m.sortDesc
+	} else {
+		m.sortCol = col
+		m.sortDesc = false
+	}
+	m.rebuild()
+}
+
 func (m *model) handleColHeadClick(x int) {
 	if x < 3 {
-		m.sortCol = sortStatus
-		m.rebuild()
+		m.setSortCol(sortStatus)
 		return
 	}
 	priHead := "p"
 	if m.sortCol == sortPriority {
-		priHead += m.glyph.sort
-		if m.glyph.sort == "" {
-			priHead += "▼"
-		}
+		priHead += m.sortIndicator()
 	}
 	pw := max(m.cols.priority, ansi.StringWidth(priHead))
 	priEnd := 4 + pw
 	if x < priEnd {
-		m.sortCol = sortPriority
-		m.rebuild()
+		m.setSortCol(sortPriority)
 		return
 	}
 	cols := m.cols
 	currX := priEnd
 	if cols.scope > 0 {
 		if x >= currX && x < currX+cols.scope {
-			m.sortCol = sortProject
-			m.rebuild()
+			m.setSortCol(sortProject)
 			return
 		}
 		currX += cols.scope + 1
@@ -1171,8 +1184,7 @@ func (m *model) handleColHeadClick(x int) {
 	if cols.claims > 0 {
 		currX += 1
 		if x >= currX && x < currX+cols.claims {
-			m.sortCol = sortClaims
-			m.rebuild()
+			m.setSortCol(sortClaims)
 			return
 		}
 		currX += cols.claims
@@ -1181,8 +1193,7 @@ func (m *model) handleColHeadClick(x int) {
 	if cols.worker > 0 {
 		currX += 1
 		if x >= currX && x < currX+cols.worker {
-			m.sortCol = sortWorker
-			m.rebuild()
+			m.setSortCol(sortWorker)
 			return
 		}
 		currX += cols.worker
@@ -1195,8 +1206,7 @@ func (m *model) handleColHeadClick(x int) {
 			leaseWidth += 1 + cols.left
 		}
 		if x >= currX && x < currX+leaseWidth {
-			m.sortCol = sortLease
-			m.rebuild()
+			m.setSortCol(sortLease)
 			return
 		}
 	}
@@ -1611,6 +1621,7 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 				return m.cycleWorker(1)
 			case "sort":
 				m.sortCol = (m.sortCol + 1) % sortColCount
+				m.sortDesc = false
 				m.rebuild()
 				return m, nil
 			}

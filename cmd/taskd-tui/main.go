@@ -296,6 +296,7 @@ Keyboard shortcuts:
   PgUp/PgDn           move page down / up
   0-5                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)
   s, S                cycle sort column forward / backward
+  i                   toggle sort direction
   p, P                cycle project filter forward / backward
   w, W                cycle worker filter forward / backward
   /                   search / filter by query
