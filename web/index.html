@@ -517,15 +517,7 @@
           <label for="filter-status-buried">Buried</label>
         </fieldset>
         <label for="filter-priority" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Priority:</label>
-        <select id="filter-priority" onchange="onFilterChange()">
-          <option value="">(all)</option>
-          <option value="0">0</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-        </select>
+        <input type="number" min="0" step="1" id="filter-priority" placeholder="all" onchange="onFilterChange()" style="padding: 4px 8px; font-size: 12px; width: 60px;">
         <label for="filter-worker" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Worker:</label>
         <select id="filter-worker" onchange="onFilterChange()">
           <option value="">(all)</option>
@@ -670,7 +662,7 @@
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: getStatusFilter(),
-        priority: prioEl ? prioEl.value : '',
+        priority: cleanPriority(prioEl ? prioEl.value : ''),
         worker: workerEl ? workerEl.value : '',
         q: searchEl ? searchEl.value.trim() : '',
         task: selectedTaskId || ''
@@ -704,6 +696,15 @@
       if (!select) return;
       const known = Array.from(select.options).some(o => o.value === value);
       select.value = known ? value : '';
+    }
+    function cleanPriority(val) {
+      if (val === null || val === undefined) return '';
+      const s = String(val).trim();
+      return /^\d+$/.test(s) ? s : '';
+    }
+    function setPriorityFilter(value) {
+      const el = document.getElementById('filter-priority');
+      if (el) el.value = cleanPriority(value);
     }
 
     // Sync filter-project selection to form-project input
@@ -744,7 +745,7 @@
       pendingProject = (projEl && projEl.value === state.project) ? '' : state.project;
       setFilter(projEl, state.project);
       setStatusFilter(state.status);
-      setFilter(document.getElementById('filter-priority'), state.priority);
+      setPriorityFilter(state.priority);
       const workerEl = document.getElementById('filter-worker');
       if (workerEl && state.worker) {
         const exists = Array.from(workerEl.options).some(o => o.value === state.worker);
@@ -767,6 +768,10 @@
     }
 
     function onFilterChange() {
+      const prioEl = document.getElementById('filter-priority');
+      if (prioEl && prioEl.value !== cleanPriority(prioEl.value)) {
+        prioEl.value = cleanPriority(prioEl.value);
+      }
       // The widget is what the reader sees, so it wins over a project
       // the URL named but /projects has not confirmed yet.
       pendingProject = '';
@@ -1063,7 +1068,7 @@
       const searchEl = document.getElementById('filter-search');
       const proj = projEl ? projEl.value : '';
       const status = getStatusFilter();
-      const prio = prioEl ? prioEl.value : '';
+      const prio = cleanPriority(prioEl ? prioEl.value : '');
       const worker = workerEl ? workerEl.value : '';
       const search = searchEl ? searchEl.value.trim() : '';
       while (true) {
