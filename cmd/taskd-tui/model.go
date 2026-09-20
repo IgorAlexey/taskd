@@ -1245,31 +1245,36 @@ func (m model) actionEdit() (model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m model) actionPriRaise() (model, tea.Cmd) {
-	t, ok := m.selected()
-	if !ok || t.Priority == 0 {
-		return m, nil
-	}
-	pri := t.Priority - 1
-	if pri < 1 {
-		pri = 1
-	}
-	if pri != t.Priority {
-		return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
-	}
-	return m, nil
-}
-
-func (m model) actionPriLower() (model, tea.Cmd) {
+func (m model) actionPriAdjust(delta int) (model, tea.Cmd) {
 	t, ok := m.selected()
 	if !ok {
 		return m, nil
 	}
-	pri := t.Priority + 1
-	if pri != t.Priority {
-		return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
+	if t.Status == "done" {
+		cmd := m.setMsg("cannot adjust priority on done task")
+		return m, cmd
 	}
-	return m, nil
+	if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+		cmd := m.setMsg("cannot adjust priority on actively leased task")
+		return m, cmd
+	}
+	if delta < 0 && t.Priority <= 0 {
+		cmd := m.setMsg("already at highest priority")
+		return m, cmd
+	}
+	pri := t.Priority + delta
+	if pri < 0 {
+		pri = 0
+	}
+	return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
+}
+
+func (m model) actionPriRaise() (model, tea.Cmd) {
+	return m.actionPriAdjust(-1)
+}
+
+func (m model) actionPriLower() (model, tea.Cmd) {
+	return m.actionPriAdjust(1)
 }
 
 func (m model) actionDelete() (model, tea.Cmd) {
