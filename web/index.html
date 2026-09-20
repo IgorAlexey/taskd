@@ -858,6 +858,8 @@
           <option value="">(all)</option>
           <option value="">(unassigned)</option>
         </select>
+        <label for="filter-asset-path" class="text-muted text-sm">Asset Path:</label>
+        <input type="text" id="filter-asset-path" name="asset_path" aria-label="Filter by asset path" onchange="onFilterChange()" class="input-sm">
         <label for="filter-search" class="text-muted text-sm">Search tasks:</label>
         <input type="text" id="filter-search" aria-label="Search tasks" oninput="onSearchInput()" class="input-sm">
         <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" class="btn-sm">Clear</button>
@@ -1114,6 +1116,7 @@
         status: q.get('status') || '',
         priority: q.get('priority') || '',
         worker: q.has('worker') ? q.get('worker') : null,
+        asset_path: q.get('asset_path') || '',
         q: q.get('q') || '',
         sort: sort,
         order: sort ? (cleanSortDir(q.get('order')) || 'asc') : '',
@@ -1145,11 +1148,13 @@
       const projEl = document.getElementById('filter-project');
       const prioEl = document.getElementById('filter-priority');
       const searchEl = document.getElementById('filter-search');
+      const assetEl = document.getElementById('filter-asset-path');
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: getStatusFilter(),
         priority: cleanPriority(prioEl ? prioEl.value : ''),
         worker: getWorkerFilter(),
+        asset_path: assetEl ? assetEl.value.trim() : '',
         q: searchEl ? searchEl.value.trim() : '',
         sort: sortCol || '',
         order: sortCol ? sortDir : '',
@@ -1166,6 +1171,7 @@
       if (state.status) q.set('status', state.status);
       if (state.priority) q.set('priority', state.priority);
       if (state.worker !== null && state.worker !== undefined) q.set('worker', state.worker);
+      if (state.asset_path) q.set('asset_path', state.asset_path);
       if (state.q) q.set('q', state.q);
       if (state.sort) q.set('sort', state.sort);
       if (state.order) q.set('order', state.order);
@@ -1292,6 +1298,8 @@
       }
       const searchEl = document.getElementById('filter-search');
       if (searchEl) searchEl.value = state.q || '';
+      const assetEl = document.getElementById('filter-asset-path');
+      if (assetEl) assetEl.value = state.asset_path || '';
       selectedTaskId = state.task || null;
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
@@ -1719,10 +1727,12 @@
       const projEl = document.getElementById('filter-project');
       const prioEl = document.getElementById('filter-priority');
       const searchEl = document.getElementById('filter-search');
+      const assetEl = document.getElementById('filter-asset-path');
       const proj = projEl ? projEl.value : '';
       const status = getStatusFilter();
       const prio = cleanPriority(prioEl ? prioEl.value : '');
       const worker = getWorkerFilter();
+      const assetPath = assetEl ? assetEl.value.trim() : '';
       const search = searchEl ? searchEl.value.trim() : '';
       while (true) {
         const offset = (currentPage - 1) * PAGE_SIZE;
@@ -1732,6 +1742,7 @@
         if (status) url += '&status=' + encodeURIComponent(status);
         if (prio !== '') url += '&priority=' + encodeURIComponent(prio);
         if (worker !== null) url += '&worker=' + encodeURIComponent(worker);
+        if (assetPath) url += '&asset_path=' + encodeURIComponent(assetPath);
         if (search) url += '&q=' + encodeURIComponent(search);
         if (sortCol) {
           url += '&sort=' + encodeURIComponent(sortCol);
