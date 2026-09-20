@@ -859,6 +859,7 @@ func (u *ui) confirmDiscard(f *tview.Form, dirty func() bool, close func()) func
 }
 
 func (u *ui) showCreateForm() {
+	prev := u.app.GetFocus()
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" new task ")
 	defaultProj := u.defaultProject()
@@ -873,7 +874,7 @@ func (u *ui) showCreateForm() {
 	close := func() {
 		u.form = nil
 		u.pages.RemovePage("create")
-		u.app.SetFocus(u.table)
+		u.restoreFocus(prev)
 	}
 	dirty := func() bool {
 		return proj.GetText() != defaultProj ||
@@ -934,6 +935,7 @@ func (u *ui) showCreateForm() {
 }
 
 func (u *ui) showEditForm(t task) {
+	prev := u.app.GetFocus()
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" edit task ")
 	proj := tview.NewInputField().SetLabel("Project").SetText(t.Project).SetFieldWidth(20)
@@ -946,7 +948,7 @@ func (u *ui) showEditForm(t task) {
 	close := func() {
 		u.form = nil
 		u.pages.RemovePage("edit")
-		u.app.SetFocus(u.table)
+		u.restoreFocus(prev)
 	}
 	dirty := func() bool {
 		return proj.GetText() != t.Project ||
@@ -1022,18 +1024,18 @@ func (u *ui) confirm(page, text, button string, do func()) {
 }
 
 func (u *ui) confirmWithCancel(page, text, button string, onCancel func(), do func()) {
+	prev := u.app.GetFocus()
 	m := tview.NewModal()
 	m.SetText(text)
 	m.AddButtons([]string{button, "Cancel"}).SetFocus(1)
 	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		u.modal = nil
 		u.pages.RemovePage(page)
+		u.restoreFocus(prev)
 		if buttonIndex == 0 {
 			do()
 		} else if onCancel != nil {
 			onCancel()
-		} else {
-			u.app.SetFocus(u.table)
 		}
 	})
 	u.modal = m
@@ -1090,11 +1092,7 @@ func (u *ui) showHelp() {
 	close := func() {
 		u.modal = nil
 		u.pages.RemovePage("help")
-		if prev != nil {
-			u.app.SetFocus(prev)
-		} else {
-			u.app.SetFocus(u.table)
-		}
+		u.restoreFocus(prev)
 	}
 	m.SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 		close()
@@ -1180,7 +1178,6 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 		return nil
 	}
-	t, ok := u.selected()
 	switch ev.Rune() {
 	case 'q':
 		u.app.Stop()
@@ -1208,6 +1205,18 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case 'l':
 		u.filter = "live"
 		u.render(u.all)
+	default:
+		if u.actionKeys(ev) {
+			return nil
+		}
+		return ev
+	}
+	return nil
+}
+
+func (u *ui) actionKeys(ev *tcell.EventKey) bool {
+	t, ok := u.selected()
+	switch ev.Rune() {
 	case 'r', 'R':
 		go u.refresh(u.project)
 	case 'p':
@@ -1282,9 +1291,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			u.showCompleteConfirm(t)
 		}
 	case 'z':
-		if ok {
-			u.toggleZoom()
-		}
+		u.toggleZoom()
 	case 'n':
 		u.showCreateForm()
 	case 'e':
@@ -1304,9 +1311,17 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	case 'Y':
 		u.copySelectedBody()
 	default:
-		return ev
+		return false
 	}
-	return nil
+	return true
+}
+
+func (u *ui) restoreFocus(prev tview.Primitive) {
+	if prev != nil {
+		u.app.SetFocus(prev)
+		return
+	}
+	u.app.SetFocus(u.table)
 }
 
 func (u *ui) toggleZoom() {
@@ -1318,6 +1333,9 @@ func (u *ui) toggleZoom() {
 		u.flex.ResizeItem(u.status, 2, 0)
 		u.app.SetFocus(u.table)
 	} else {
+		if _, ok := u.selected(); !ok {
+			return
+		}
 		u.zoomed = true
 		u.body.SetBorder(false)
 		u.flex.ResizeItem(u.table, 0, 0)
@@ -1343,6 +1361,17 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 		}
 		u.app.SetFocus(u.table)
 		return nil
+	case tcell.KeyCtrlD, tcell.KeyCtrlU:
+		_, _, _, h := u.body.GetInnerRect()
+		step := max(1, h/2)
+		row, col := u.body.GetScrollOffset()
+		if ev.Key() == tcell.KeyCtrlD {
+			row += step
+		} else {
+			row = max(0, row-step)
+		}
+		u.body.ScrollTo(row, col)
+		return nil
 	}
 	if ev.Rune() == 'q' {
 		u.app.Stop()
@@ -1352,23 +1381,8 @@ func (u *ui) bodyKeys(ev *tcell.EventKey) *tcell.EventKey {
 		u.showHelp()
 		return nil
 	}
-	if ev.Rune() == 'y' {
-		u.copySelectedID()
+	if u.actionKeys(ev) {
 		return nil
-	}
-	if ev.Rune() == 'Y' {
-		u.copySelectedBody()
-		return nil
-	}
-	if ev.Rune() == 'z' {
-		if u.zoomed {
-			u.toggleZoom()
-			return nil
-		}
-		if _, ok := u.selected(); ok {
-			u.toggleZoom()
-			return nil
-		}
 	}
 	return ev
 }
