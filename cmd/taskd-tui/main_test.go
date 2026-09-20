@@ -40,7 +40,20 @@ type closeCall struct {
 var (
 	closeMu    sync.Mutex
 	closeCalls []closeCall
+	doneMu     sync.Mutex
+	doneCalls  []doneCall
 )
+
+type doneCall struct {
+	uri    string
+	worker string
+}
+
+func doneCallsSnapshot() []doneCall {
+	doneMu.Lock()
+	defer doneMu.Unlock()
+	return slices.Clone(doneCalls)
+}
 
 func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	t.Helper()
@@ -60,6 +73,9 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	closeMu.Lock()
 	closeCalls = nil
 	closeMu.Unlock()
+	doneMu.Lock()
+	doneCalls = nil
+	doneMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
@@ -288,6 +304,38 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 			default:
 				tasks[i].Status = "done"
 				tasks[i].Worker, tasks[i].LeaseExpires = "", 0
+				w.WriteHeader(http.StatusNoContent)
+			}
+			return
+		}
+		http.Error(w, "task not found", http.StatusNotFound)
+	})
+	mux.HandleFunc("POST /tasks/{id}/done", func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Worker string `json:"worker"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Worker == "" {
+			http.Error(w, "missing worker", http.StatusBadRequest)
+			return
+		}
+		doneMu.Lock()
+		doneCalls = append(doneCalls, doneCall{uri: r.URL.RequestURI(), worker: req.Worker})
+		doneMu.Unlock()
+		id := r.PathValue("id")
+		mu.Lock()
+		defer mu.Unlock()
+		for i := range tasks {
+			if tasks[i].ID != id {
+				continue
+			}
+			switch {
+			case tasks[i].Status == "done":
+				http.Error(w, "task is done", http.StatusConflict)
+			case tasks[i].Status != "leased" || tasks[i].Worker != req.Worker || tasks[i].LeaseExpires < time.Now().Unix():
+				http.Error(w, "task not found or not leased by worker", http.StatusConflict)
+			default:
+				tasks[i].Status = "done"
+				tasks[i].LeaseExpires = 0
 				w.WriteHeader(http.StatusNoContent)
 			}
 			return

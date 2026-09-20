@@ -982,6 +982,10 @@ func (u *ui) showDeleteConfirm(t task) {
 func (u *ui) showCompleteConfirm(t task) {
 	text := fmt.Sprintf("Complete task %s?\nThe task is marked done without a worker result.", tview.Escape(taskLabel(t)))
 	u.confirm("complete", text, "Complete", func() {
+		if u.worker != "" && t.activelyLeased(time.Now().Unix()) && t.Worker == u.worker {
+			u.act("POST", "/tasks/"+t.ID+"/done", map[string]string{"worker": u.worker}, "completed task "+short(t.ID))
+			return
+		}
 		u.act("POST", "/tasks/"+t.ID+"/close", nil, "completed task "+short(t.ID))
 	})
 
@@ -1198,7 +1202,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 				u.setMsg("task is already done")
 				break
 			}
-			if t.activelyLeased(time.Now().Unix()) {
+			if t.activelyLeased(time.Now().Unix()) && (u.worker == "" || t.Worker != u.worker) {
 				u.setMsg("cannot complete actively leased task")
 				break
 			}
