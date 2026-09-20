@@ -240,3 +240,12 @@ func TestHelpNavigationAndBounds(t *testing.T) {
 		t.Fatalf("expected help offset 0 after PgUp, got %d", m.help.vp.YOffset())
 	}
 }
+
+func TestHelpOverlayWorkerShortcuts(t *testing.T) {
+	th := newTheme(true)
+	h := newHelpModel(100, 30, modeTable, th)
+	content := ansi.Strip(h.View(30, th))
+	if !strings.Contains(content, "[w/W]") || !strings.Contains(content, "worker") {
+		t.Fatalf("help overlay missing [w/W] worker; got:\n%s", content)
+	}
+}

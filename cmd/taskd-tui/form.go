@@ -654,6 +654,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[ctrl-d/u]", "half page"},
 		{"[PgUp/Dn]", "page"},
 		{"[p]", "project"},
+		{"[w/W]", "worker"},
 		{"[/]", "search"},
 		{"[Tab]", "detail"},
 		{"[z]", "zoom"},
