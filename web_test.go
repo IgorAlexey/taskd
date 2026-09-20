@@ -1053,3 +1053,119 @@ func TestWebUIConnectionRetry(t *testing.T) {
 			"want 3s", got.OutOfBandTicks)
 	}
 }
+
+func TestWebUIEditTaskFields(t *testing.T) {
+	ui := string(uiHTML)
+
+	for _, check := range []struct {
+		id    string
+		label string
+	}{
+		{"edit-task-project", "Project"},
+		{"edit-task-asset-path", "Asset Path"},
+	} {
+		if !strings.Contains(ui, `id="`+check.id+`"`) {
+			t.Fatalf("expected control with id=%q in web/index.html", check.id)
+		}
+		if !strings.Contains(ui, `for="`+check.id+`"`) {
+			t.Fatalf("expected a label with for=%q in web/index.html", check.id)
+		}
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatal("node is required to run the web UI harness")
+		}
+		t.Skip("node not installed")
+	}
+
+	out, err := exec.Command(node, "testdata/edit.js", "web/index.html").Output()
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
+			t.Fatalf("harness failed: %v\n%s", err, ee.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	var got struct {
+		InitialHasProject             bool
+		InitialHasAsset               bool
+		EditHasProjectInput           bool
+		EditHasAssetInput             bool
+		ProjectPrefilled              string
+		AssetPrefilled                string
+		InvalidProjectRejected        bool
+		InvalidProjectError           bool
+		WhitespaceBodyNoAssetRejected bool
+		PatchSent                     bool
+		PatchPayload                  struct {
+			Project   string `json:"project"`
+			AssetPath string `json:"asset_path"`
+			Priority  int    `json:"priority"`
+			Body      string `json:"body"`
+		}
+		IsEditingAfterSave       bool
+		DetailsHasUpdatedProject bool
+		DetailsHasUpdatedAsset   bool
+		TaskUpdated              bool
+		ProjectsReloaded         bool
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if !got.InitialHasProject || !got.InitialHasAsset {
+		t.Errorf("initial view details missing project or asset: %+v", got)
+	}
+	if !got.EditHasProjectInput {
+		t.Error("expected edit-task-project input in edit mode")
+	}
+	if !got.EditHasAssetInput {
+		t.Error("expected edit-task-asset-path input in edit mode")
+	}
+	if got.ProjectPrefilled != "orig-proj" {
+		t.Errorf("project prefilled = %q, want orig-proj", got.ProjectPrefilled)
+	}
+	if got.AssetPrefilled != "orig/asset.glb" {
+		t.Errorf("asset prefilled = %q, want orig/asset.glb", got.AssetPrefilled)
+	}
+	if !got.InvalidProjectRejected || !got.InvalidProjectError {
+		t.Errorf("invalid project should be rejected: rejected=%v, error=%v",
+			got.InvalidProjectRejected, got.InvalidProjectError)
+	}
+	if !got.WhitespaceBodyNoAssetRejected {
+		t.Error("expected save with whitespace body and no asset to be rejected")
+	}
+	if !got.PatchSent {
+		t.Fatal("expected PATCH request to be sent on save")
+	}
+	if got.PatchPayload.Project != "new-proj" {
+		t.Errorf("patch project = %q, want new-proj", got.PatchPayload.Project)
+	}
+	if got.PatchPayload.AssetPath != "models/updated.glb" {
+		t.Errorf("patch asset_path = %q, want models/updated.glb", got.PatchPayload.AssetPath)
+	}
+	if got.PatchPayload.Priority != 5 {
+		t.Errorf("patch priority = %d, want 5", got.PatchPayload.Priority)
+	}
+	if got.PatchPayload.Body != "updated body" {
+		t.Errorf("patch body = %q, want updated body", got.PatchPayload.Body)
+	}
+	if got.IsEditingAfterSave {
+		t.Error("expected isEditingTask to be false after save")
+	}
+	if !got.DetailsHasUpdatedProject {
+		t.Error("expected details pane to show updated project")
+	}
+	if !got.DetailsHasUpdatedAsset {
+		t.Error("expected details pane to show updated asset path")
+	}
+	if !got.TaskUpdated {
+		t.Error("expected task record in table to be updated")
+	}
+	if !got.ProjectsReloaded {
+		t.Error("expected projects list to be reloaded after saving task edit")
+	}
+}

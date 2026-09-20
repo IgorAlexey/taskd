@@ -1156,7 +1156,10 @@
               <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
             </div>
           </div>
-          <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
+          <div class="field">
+            <label for="edit-task-project" class="field-label">Project</label>
+            <input type="text" id="edit-task-project" value="${escapeHTML(t.project || '')}">
+          </div>
           <div class="field"><span class="field-label">Status</span><span class="badge badge-${escapeHTML(t.status || 'unknown')}">${escapeHTML(t.status || '')}</span></div>
           <div class="field">
             <label for="edit-task-priority" class="field-label">Priority</label>
@@ -1165,7 +1168,10 @@
           <div class="field"><span class="field-label">Claim Count</span><span>${escapeHTML(String(t.claim_count ?? 0))}</span></div>
           ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
           ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
-          ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
+          <div class="field">
+            <label for="edit-task-asset-path" class="field-label">Asset Path</label>
+            <input type="text" id="edit-task-asset-path" value="${escapeHTML(t.asset_path || '')}">
+          </div>
           <div class="field">
             <label for="edit-task-body" class="field-label">Body</label>
             <textarea id="edit-task-body">${escapeHTML(t.body || '')}</textarea>
@@ -1177,23 +1183,25 @@
           </div>
         `;
         const prioInput = document.getElementById('edit-task-priority');
+        const projInput = document.getElementById('edit-task-project');
+        const assetInput = document.getElementById('edit-task-asset-path');
         const bodyInput = document.getElementById('edit-task-body');
-        const onKeyDown = function(e) {
-          if (e.key === 'Escape') cancelTaskEdit();
+        const onInputKeyDown = function(e) {
+          if (e.key === 'Escape') {
+            cancelTaskEdit();
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            saveTaskEdit();
+          }
         };
-        if (prioInput) {
-          prioInput.addEventListener('keydown', onKeyDown);
-          prioInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              saveTaskEdit();
-            }
-          });
+        for (const el of [projInput, prioInput, assetInput]) {
+          if (el) el.addEventListener('keydown', onInputKeyDown);
         }
         if (bodyInput) {
-          bodyInput.addEventListener('keydown', onKeyDown);
           bodyInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            if (e.key === 'Escape') {
+              cancelTaskEdit();
+            } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
               saveTaskEdit();
             }
@@ -1346,10 +1354,21 @@
 
     async function saveTaskEdit() {
       if (!currentTask || currentTask.status === 'done') return;
-      const bodyInput = document.getElementById('edit-task-body');
+      const projInput = document.getElementById('edit-task-project');
       const prioInput = document.getElementById('edit-task-priority');
-      const body = bodyInput ? bodyInput.value : (currentTask.body || '');
+      const assetInput = document.getElementById('edit-task-asset-path');
+      const bodyInput = document.getElementById('edit-task-body');
+
+      const proj = projInput ? projInput.value.trim() : (currentTask.project || '');
       const prioText = prioInput ? prioInput.value.trim() : '';
+      const asset = assetInput ? assetInput.value.trim() : (currentTask.asset_path || '');
+      const body = bodyInput ? bodyInput.value : (currentTask.body || '');
+
+      const projErr = projectError(proj);
+      if (projErr) {
+        showError(projErr.message);
+        return;
+      }
       if (prioText === '') {
         showError('Priority must be specified');
         return;
@@ -1359,8 +1378,9 @@
         showError('Priority must be a whole number, 0 or greater');
         return;
       }
-      if (body.trim() === '' && !currentTask.asset_path) {
-        showError('Either Body or Asset Path must be provided');
+      const bErr = bodyError(body, asset);
+      if (bErr) {
+        showError(bErr.message);
         return;
       }
       const saveBtn = document.getElementById('save-task-btn');
@@ -1368,8 +1388,10 @@
       if (saveBtn) saveBtn.disabled = true;
       if (cancelBtn) cancelBtn.disabled = true;
       const payload = {
-        body: body,
-        priority: priority
+        project: proj,
+        priority: priority,
+        asset_path: asset,
+        body: body
       };
       try {
         const res = await fetchRaw('/tasks/' + encodeURIComponent(currentTask.id), {
@@ -1385,8 +1407,7 @@
         isEditingTask = false;
         shownTaskRaw = '';
         await loadTaskDetails(currentTask.id);
-        await loadTasks();
-        await loadStats();
+        await Promise.all([loadProjects(), loadTasks(), loadStats()]);
       } catch (err) {
         if (saveBtn) saveBtn.disabled = false;
         if (cancelBtn) cancelBtn.disabled = false;
