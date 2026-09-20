@@ -112,3 +112,45 @@ func TestDetailPaneInnerPadding(t *testing.T) {
 		}
 	}
 }
+
+func TestDetailLongTokensViewportClamping(t *testing.T) {
+	now := time.Unix(1700000000, 0)
+	title100 := strings.Repeat("T", 100)
+	token120 := strings.Repeat("B", 120)
+	longWorker := strings.Repeat("w", 50) + ":" + strings.Repeat("b", 50)
+	longAsset := strings.Repeat("a", 100)
+	longTask := task{
+		ID:           "long-task-id-1",
+		Project:      strings.Repeat("p", 40),
+		Status:       "leased",
+		Worker:       longWorker,
+		AssetPath:    longAsset,
+		LeaseExpires: now.Unix() + 1800,
+		Priority:     2,
+		Body:         title100 + "\n" + token120,
+	}
+
+	for _, mde := range []mode{modeTable, modeDetail, modeZoom} {
+		m := newModel(config{icons: false}, nil)
+		m.width = 80
+		m.height = 24
+		m.now = now
+		m.mode = mde
+		m.tasks = []task{longTask}
+		m.rebuildShown()
+		m.cursor = 0
+		m.syncDetail()
+
+		v := m.View()
+		lines := strings.Split(v.Content, "\n")
+		if len(lines) > 24 {
+			t.Fatalf("mode %v: rendered line count = %d, want <= 24 to prevent alt-screen scroll", mde, len(lines))
+		}
+		for i, l := range lines {
+			w := ansi.StringWidth(l)
+			if w > 80 {
+				t.Fatalf("mode %v line %d: width = %d > 80: %q", mde, i, w, ansi.Strip(l))
+			}
+		}
+	}
+}
