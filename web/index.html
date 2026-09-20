@@ -41,7 +41,7 @@
 html { background: var(--bg); color: var(--fg); }
 html { font: 18px/1.5 var(--read); font-variant-numeric: lining-nums; }
 html, body { height: 100%; }
-body { margin: 0 auto; max-width: 88rem; padding: 1.25rem 2rem 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100dvh; overflow: hidden; box-sizing: border-box; }
+body { margin: 0 auto; max-width: 88rem; padding: 0.85rem 2rem 0; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; overflow: hidden; box-sizing: border-box; }
 table { font-family: var(--work); font-size: var(--work-size); }
 
 /* One control. Buttons, menus and fields share a height, a border, a radius and a face;
@@ -50,7 +50,7 @@ button, select, input, textarea {
   font: var(--work-size)/1.2 var(--work); color: var(--fg); box-sizing: border-box; margin: 0;
   border: 1px solid var(--edge); border-radius: 3px;
 }
-button, select, input { height: 2rem; padding: 0 0.7rem; }
+button, select, input { height: 1.85rem; padding: 0 0.65rem; }
 textarea { padding: 0.5rem 0.7rem; line-height: 1.45; }
 input, textarea { background: var(--bg); }
 ::placeholder { color: var(--quiet); opacity: 1; }
@@ -61,45 +61,52 @@ button:active { background: var(--press); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 a, a:visited { color: var(--link); text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
 strong, .warn { color: var(--warn); }
-header, #pane, table, th, .actions, form.reply { border-color: var(--rule) !important; }
 code { font: 0.88em ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 p { margin: 0 0 1rem; }
 
-header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid; }
-h1 { font-size: 1.45rem; font-weight: normal; line-height: 1.1; margin: 0; }
-header p { margin: 0; flex: 1 1 24rem; }
-header form { display: flex; align-items: center; gap: 0.6rem; }
-header input { width: 14rem; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--rule); }
+h1 { font: 700 0.95rem/1 var(--work); color: var(--fg); margin: 0; padding-right: 0.65rem; border-right: 1px solid var(--rule); flex-shrink: 0; }
+header p#status { font-family: var(--work); font-size: 0.84rem; color: var(--quiet); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 0%; min-width: 0; }
+header p#status a { color: inherit; text-decoration: none; }
+header p#status a:hover { text-decoration: underline; color: var(--fg); }
+header p#status .warn { color: var(--warn); font-weight: 600; }
+header form { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; flex-shrink: 0; }
+header input { width: 12rem; }
 
 /* icons: one inline sprite, filled, drawn on a 16-unit grid, sized to the text beside them */
 .icon { width: 1em; height: 1em; vertical-align: -0.12em; fill: currentColor; }
 h2 .icon { width: 0.8em; height: 0.8em; margin-right: 0.35rem; vertical-align: -0.04em; }
 
 /* light and dark: two pressed-state icon buttons that share one border */
-#theme { display: inline-flex; border: 1px solid var(--edge); border-radius: 3px; overflow: hidden; }
-#theme button { border: 0; border-radius: 0; height: calc(2rem - 2px); width: 2.2rem; padding: 0; display: inline-grid; place-items: center; }
+#theme { display: inline-flex; border: 1px solid var(--edge); border-radius: 4px; overflow: hidden; }
+#theme button { border: 0; border-radius: 0; height: calc(1.85rem - 2px); width: 1.85rem; padding: 0; display: inline-grid; place-items: center; }
 #theme button + button { border-left: 1px solid var(--edge); }
 #theme button[aria-pressed="true"] { background: var(--tint); color: var(--link); }
-#theme .icon { width: 1.05rem; height: 1.05rem; }
+#theme .icon { width: 0.95rem; height: 0.95rem; }
 
-/* one tab per project; the fire alarm above stays global, everything below is one project */
-nav { display: flex; align-items: end; gap: 0.25rem; font: var(--work-size)/1.2 var(--work); border-bottom: 1px solid var(--rule); overflow-x: auto; }
-nav button { border: 1px solid transparent; border-bottom: 0; border-radius: 3px 3px 0 0; background: none; height: 2.2rem; padding: 0 0.9rem; margin-bottom: -1px; color: var(--quiet); }
+/* one tab per project, quiet pills without borders or faux-folder bottom cuts */
+nav { display: flex; align-items: center; gap: 0.2rem; overflow-x: auto; min-width: 0; flex: 0 1 auto; }
+nav button {
+  border: none; background: none; border-radius: 4px;
+  height: 1.85rem; padding: 0 0.65rem; margin: 0;
+  color: var(--quiet); font-size: 0.85rem; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 0.35rem; flex-shrink: 0;
+}
 nav button:hover { background: var(--hover); color: var(--fg); }
-nav button[aria-selected="true"] { background: var(--bg); color: var(--fg); border-color: var(--rule); border-bottom: 1px solid var(--bg); }
-nav button.add { padding: 0 0.6rem; }
+nav button[aria-selected="true"] { background: var(--control); color: var(--fg); font-weight: 600; }
+nav button.add { padding: 0 0.45rem; color: var(--quiet); }
 
 main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); min-height: 0; }
 #list, #pane { overflow-y: auto; min-height: 0; padding-bottom: 4rem; }
 #list { padding-right: 2.5rem; }
-#pane { border-left: 1px solid; padding: 1.1rem 0.25rem 4rem 2.5rem; }
+#pane { border-left: 1px solid var(--rule); padding: 1.1rem 0.25rem 4rem 2.5rem; }
 
 /* the list */
 section { margin-bottom: 2.25rem; }
 h2 { font-size: 1.45rem; font-weight: normal; font-style: italic; line-height: 1.2; margin: 0; }
 #list h2 { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 1.1rem 0 0.5rem; }
-table { width: 100%; border-collapse: collapse; border-bottom: 1px solid; }
-th { font-weight: normal; text-align: left; border-bottom: 1px solid; }
+table { width: 100%; border-collapse: collapse; }
+th { font-weight: normal; text-align: left; border-bottom: 1px solid var(--rule); padding-bottom: 0.35rem; }
 th, td { padding: 0.28rem 1.25rem 0.28rem 0; vertical-align: baseline; white-space: nowrap; }
 th:first-child, td:first-child { padding-left: 0.4rem; }
 th:last-child, td:last-child { padding-right: 0.4rem; }
@@ -117,11 +124,12 @@ tbody tr[aria-current] td { background: var(--tint); }
 #pane > * { max-width: 36rem; }
 .body { white-space: pre-wrap; }
 #pane ol { margin: 0 0 1rem; padding-left: 1.3rem; }
-.actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
+.actions, form.reply { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+form.reply + .actions { margin-top: 1rem; padding-top: 0; border-top: none; }
+.actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem 1rem; }
 .actions p { flex: 1 1 100%; margin: 0.4rem 0 0; }
 form.add textarea, form.reply textarea, form.edit textarea { display: block; width: 100%; min-height: 7rem; resize: vertical; margin-bottom: 0.9rem; }
 form.add textarea { height: 42dvh; }
-form.reply { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
 form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5rem; }
 /* every labelled control in the pane: label above, control below, one row that wraps */
 #pane label { display: block; }
@@ -137,7 +145,8 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
 
 @media (max-width: 820px) {
   body { height: auto; overflow: visible; padding: 1rem 1rem 3rem; display: block; }
-  main { display: flex; flex-direction: column; }
+  header { flex-wrap: wrap; gap: 0.6rem 1rem; }
+  header p#status { flex-basis: 100%; order: 3; }
   #list, #pane { overflow: visible; padding: 0; border: 0; }
   #pane { order: 2; border-top: 1px solid; padding-top: 1rem; }
   body.reading #pane { order: -1; border-top: 0; border-bottom: 1px solid; margin-bottom: 1rem; padding-bottom: 1rem; }
@@ -161,6 +170,7 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
 
 <header>
   <h1>taskd</h1>
+  <nav id="tabs" aria-label="Projects"></nav>
   <p id="status"></p>
   <form id="tools">
     <input type="search" id="q" aria-label="Filter tasks" placeholder="Filter">
@@ -171,9 +181,6 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
     </span>
   </form>
 </header>
-
-<nav id="tabs" aria-label="Projects"></nav>
-
 <main>
   <div id="list"></div>
   <div id="pane" aria-live="polite"></div>
