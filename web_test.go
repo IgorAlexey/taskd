@@ -365,11 +365,14 @@ func TestWebUITaskActions(t *testing.T) {
 		ConfirmDeletePending    *struct{ URL, Method string }
 		PendingDeletedPaneReset bool
 		LeasedHasDelete         bool
+		LeasedDeleteDisabled    bool
+		LeasedDeleteTitle       bool
+		LeasedDeleteAsked       bool
+		LeasedDeleteCalls       int
 		LeasedHasComplete       bool
 		LeasedHasRelease        bool
 		LeasedHasClaim          bool
 		LeasedHasClose          bool
-		LeasedDeleteErrorBanner bool
 		LeasedDeletePaneKept    bool
 		ErrorBannerSurvivesPoll bool
 		ReleaseCall             *struct {
@@ -436,14 +439,17 @@ func TestWebUITaskActions(t *testing.T) {
 		t.Errorf("pane not reset after pending delete")
 	}
 
-	if !got.LeasedHasDelete || !got.LeasedHasComplete || !got.LeasedHasRelease {
-		t.Errorf("leased buttons mismatch: %+v", got)
+	if !got.LeasedHasDelete || !got.LeasedDeleteDisabled || !got.LeasedDeleteTitle {
+		t.Errorf("leased delete button mismatch: %+v", got)
 	}
 	if got.LeasedHasClaim || got.LeasedHasClose {
 		t.Errorf("leased must not offer claim or close: %+v", got)
 	}
-	if !got.LeasedDeleteErrorBanner || !got.LeasedDeletePaneKept {
-		t.Errorf("leased delete 409 mismatch: banner=%v paneKept=%v", got.LeasedDeleteErrorBanner, got.LeasedDeletePaneKept)
+	if got.LeasedDeleteAsked || got.LeasedDeleteCalls != 0 || !got.LeasedDeletePaneKept {
+		t.Errorf("leased delete should not trigger confirm or call DELETE: asked=%v calls=%d paneKept=%v", got.LeasedDeleteAsked, got.LeasedDeleteCalls, got.LeasedDeletePaneKept)
+	}
+	if !got.LeasedHasComplete || !got.LeasedHasRelease {
+		t.Errorf("leased buttons mismatch: %+v", got)
 	}
 	if !got.ErrorBannerSurvivesPoll {
 		t.Error("expected error banner to survive subsequent successful fetch")

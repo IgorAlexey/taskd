@@ -1231,7 +1231,7 @@
             <button type="button" id="claim-task-btn" class="primary">Claim Task</button>
             <button type="button" id="close-task-btn">Close Task</button>
           ` : ''}
-          <button type="button" id="delete-task-btn" class="danger">Delete Task</button>
+          <button type="button" id="delete-task-btn" class="danger"${t.status === 'leased' ? ' disabled aria-disabled="true" title="Leased tasks cannot be deleted"' : ''}>Delete Task</button>
         </div>
       `;
       if (sameTask) pane.scrollTop = prevScrollTop;
@@ -1323,7 +1323,7 @@
     }
 
     async function deleteTask(id, status) {
-      if (!id) return;
+      if (!id || status === 'leased') return;
       if (typeof confirm === 'function' && !confirm('Are you sure you want to delete this task?')) return;
       const url = '/tasks/' + encodeURIComponent(id) + (status === 'done' ? '?force=1' : '');
       try {

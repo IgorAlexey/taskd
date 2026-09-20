@@ -184,19 +184,21 @@ const api = new Function(
   await new Promise(r => setTimeout(r, 10));
   const leasedHTML = els['task-details-content'].innerHTML;
   results.leasedHasDelete = leasedHTML.includes('id="delete-task-btn"');
+  results.leasedDeleteDisabled = /id="delete-task-btn"[^>]*disabled/.test(leasedHTML) &&
+    /id="delete-task-btn"[^>]*aria-disabled="true"/.test(leasedHTML);
+  results.leasedDeleteTitle = /id="delete-task-btn"[^>]*title="[^"]+"/.test(leasedHTML);
   results.leasedHasComplete = leasedHTML.includes('id="complete-task-btn"');
   results.leasedHasRelease = leasedHTML.includes('id="release-task-btn"');
   results.leasedHasClaim = leasedHTML.includes('id="claim-task-btn"');
   results.leasedHasClose = leasedHTML.includes('id="close-task-btn"');
 
   confirmAnswer = true;
+  confirmAsked = 0;
   calls.length = 0;
   await els['delete-task-btn'].onclick();
-  results.leasedDeleteErrorBanner = els['error-banner'].textContent.includes('task is leased');
+  results.leasedDeleteAsked = confirmAsked > 0;
+  results.leasedDeleteCalls = calls.filter(c => c.method === 'DELETE').length;
   results.leasedDeletePaneKept = !els['task-details-content'].innerHTML.includes('Select a task');
-
-  await api.loadTasks();
-  results.errorBannerSurvivesPoll = els['error-banner'].textContent.includes('task is leased') && els['error-banner'].style.display !== 'none';
 
   calls.length = 0;
   await els['release-task-btn'].onclick();
@@ -266,6 +268,11 @@ const api = new Function(
   await els['delete-task-btn'].onclick();
   results.doneDeleteCall = calls.find(c => c.method === 'DELETE');
   results.doneDeletedPaneReset = els['task-details-content'].innerHTML.includes('Select a task');
+
+  els['error-banner'].textContent = 'error persistence test';
+  els['error-banner'].style.display = 'flex';
+  await api.loadTasks();
+  results.errorBannerSurvivesPoll = els['error-banner'].textContent.includes('error persistence test') && els['error-banner'].style.display !== 'none';
 
   process.stdout.write(JSON.stringify(results, null, 2));
 })();
