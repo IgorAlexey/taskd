@@ -656,6 +656,7 @@
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
       if (!selectedTaskId) resetTaskDetails();
+      else loadTaskDetails(selectedTaskId);
       syncFilterProjectToForm();
     }
 
@@ -987,7 +988,6 @@
               emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks found</td>';
               tbody.appendChild(emptyRow);
             }
-            if (selectedTaskId) loadTaskDetails(selectedTaskId);
             return;
           }
 
@@ -1029,7 +1029,6 @@
           }
         }
 
-        if (selectedTaskId) loadTaskDetails(selectedTaskId);
         return;
       } catch (e) {
         logFailure('Failed to load tasks:', e);
@@ -1049,7 +1048,7 @@
           tr.setAttribute('aria-selected', tr.dataset.taskId === id ? 'true' : 'false');
         }
       }
-      loadTaskDetails(id);
+      return loadTaskDetails(id);
     }
 
     async function prevPage() {
@@ -1271,7 +1270,7 @@
       if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
     }
 
-    async function finishTaskAction() {
+    async function clearSelectedTask() {
       selectedTaskId = null;
       syncURL(false);
       resetTaskDetails();
@@ -1284,6 +1283,16 @@
       await Promise.all([loadStats(), loadTasks()]);
     }
 
+    async function finishTaskTransition(id) {
+      showError(null);
+      isEditingTask = false;
+      shownTaskRaw = '';
+      const tid = id || selectedTaskId;
+      const tasks = [loadProjects(), loadStats(), loadTasks()];
+      if (tid) tasks.push(loadTaskDetails(tid));
+      await Promise.all(tasks);
+    }
+
     async function completeTask(id, worker) {
       if (!id || !worker) return;
       try {
@@ -1292,7 +1301,7 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worker: worker })
         });
-        await finishTaskAction();
+        await finishTaskTransition(id);
       } catch (_) {}
     }
 
@@ -1304,15 +1313,14 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worker: worker })
         });
-        await finishTaskAction();
+        await finishTaskTransition(id);
       } catch (_) {}
     }
 
     // A claim hands the task to whoever pressed the button, so the pane
-    // keeps the selection and shows the lease it just took instead of
-    // deselecting the way complete and release do. The worker name comes
-    // from the operator: the lease is theirs to touch or release, and a
-    // shared placeholder would collide with a real runner.
+    // keeps the selection and shows the lease it just took. The worker name
+    // comes from the operator: the lease is theirs to touch or release, and
+    // a shared placeholder would collide with a real runner.
     async function claimTask(id) {
       if (!id || typeof prompt !== 'function') return;
       const answer = prompt('Claim this task as which worker?', claimWorker);
@@ -1338,7 +1346,7 @@
       if (typeof confirm === 'function' && !confirm('Close this task as done without a result?')) return;
       try {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST' });
-        await finishTaskAction();
+        await finishTaskTransition(id);
       } catch (_) {}
     }
 
@@ -1348,7 +1356,7 @@
       const url = '/tasks/' + encodeURIComponent(id) + (status === 'done' ? '?force=1' : '');
       try {
         await fetchJSON(url, { method: 'DELETE' });
-        await finishTaskAction();
+        await clearSelectedTask();
       } catch (_) {}
 
     }
@@ -1415,11 +1423,7 @@
           const txt = await res.text();
           throw new Error(txt || res.statusText || ('HTTP ' + res.status));
         }
-        showError(null);
-        isEditingTask = false;
-        shownTaskRaw = '';
-        await loadTaskDetails(currentTask.id);
-        await Promise.all([loadProjects(), loadTasks(), loadStats()]);
+        await finishTaskTransition();
       } catch (err) {
         if (saveBtn) saveBtn.disabled = false;
         if (cancelBtn) cancelBtn.disabled = false;

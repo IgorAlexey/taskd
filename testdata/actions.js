@@ -5,6 +5,7 @@ const script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
 
 function element() {
   let html = '';
+  const attrs = {};
   const el = {
     value: '',
     textContent: '',
@@ -19,8 +20,8 @@ function element() {
     appendChild(o) { this.options.push(o); },
     querySelector() { return null; },
     querySelectorAll() { return []; },
-    setAttribute() {},
-    getAttribute() { return null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    getAttribute(k) { return attrs[k]; },
     focus() {},
   };
   Object.defineProperty(el, 'innerHTML', {
@@ -46,6 +47,12 @@ const tasks = [
   { id: 't-leased', project: 'p1', status: 'leased', worker: 'w-1', lease_expires: 1999999999, priority: 1, body: 'leased task' },
   { id: 't-done', project: 'p1', status: 'done', priority: 1, body: 'done task' },
 ];
+
+const rows = tasks.map(t => {
+  const r = element();
+  r.dataset = { taskId: t.id };
+  return r;
+});
 
 let confirmAnswer = true;
 let confirmAsked = 0;
@@ -80,6 +87,8 @@ const els = {
   'stat-total': element(),
 };
 
+els['task-table-body'].querySelectorAll = sel => sel.includes('data-task-id') ? rows : [];
+
 Object.defineProperty(els['error-banner'], 'textContent', {
   get() { return bannerText.textContent; },
   set(v) { bannerText.textContent = v; },
@@ -105,9 +114,39 @@ const fetchStub = async (url, opts = {}) => {
   opts = opts || {}; calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
   if (url.startsWith('/projects')) return response(200, ['p1']);
   if (url.startsWith('/stats')) return response(200, { pending: 1, leased: 1, done: 1, total: 3 });
-  if (url.endsWith('/done')) return response(204, null);
-  if (url.endsWith('/release')) return response(204, null);
-  if (url.endsWith('/close')) return response(204, null);
+  if (url.endsWith('/done')) {
+    const raw = url.slice('/tasks/'.length);
+    const id = decodeURIComponent(raw.split('/done')[0]);
+    const t = tasks.find(x => x.id === id);
+    if (t) {
+      t.status = 'done';
+      delete t.worker;
+      delete t.lease_expires;
+    }
+    return response(204, null);
+  }
+  if (url.endsWith('/release')) {
+    const raw = url.slice('/tasks/'.length);
+    const id = decodeURIComponent(raw.split('/release')[0]);
+    const t = tasks.find(x => x.id === id);
+    if (t) {
+      t.status = 'pending';
+      delete t.worker;
+      delete t.lease_expires;
+    }
+    return response(204, null);
+  }
+  if (url.endsWith('/close')) {
+    const raw = url.slice('/tasks/'.length);
+    const id = decodeURIComponent(raw.split('/close')[0]);
+    const t = tasks.find(x => x.id === id);
+    if (t) {
+      t.status = 'done';
+      delete t.worker;
+      delete t.lease_expires;
+    }
+    return response(204, null);
+  }
   if (url.endsWith('/claim')) {
     const id = decodeURIComponent(url.slice('/tasks/'.length, -'/claim'.length));
     const t = tasks.find(x => x.id === id);
@@ -134,14 +173,13 @@ const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setInterval', 'clearInterval',
   script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, releaseTask, claimTask,' +
-  ' closeTask, finishTaskAction, get selected() { return selectedTaskId; }};'
+  ' closeTask, clearSelectedTask, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
 (async () => {
   const results = {};
 
-  api.selectTask('t-pending');
-  await new Promise(r => setTimeout(r, 10));
+  await api.selectTask('t-pending');
   const pendingHTML = els['task-details-content'].innerHTML;
   results.pendingHasDelete = pendingHTML.includes('id="delete-task-btn"');
   results.pendingHasComplete = pendingHTML.includes('id="complete-task-btn"');
@@ -196,8 +234,7 @@ const api = new Function(
   results.confirmDeletePending = calls.find(c => c.method === 'DELETE');
   results.pendingDeletedPaneReset = els['task-details-content'].innerHTML.includes('Select a task');
 
-  api.selectTask('t-leased');
-  await new Promise(r => setTimeout(r, 10));
+  await api.selectTask('t-leased');
   const leasedHTML = els['task-details-content'].innerHTML;
   results.leasedHasDelete = leasedHTML.includes('id="delete-task-btn"');
   results.leasedDeleteDisabled = /id="delete-task-btn"[^>]*disabled/.test(leasedHTML) &&
@@ -219,17 +256,31 @@ const api = new Function(
   calls.length = 0;
   await els['release-task-btn'].onclick();
   results.releaseCall = calls.find(c => c.url.includes('/release'));
-  results.releasePaneReset = els['task-details-content'].innerHTML.includes('Select a task');
+  results.releaseSelected = (api.selected === 't-leased');
+  results.releaseURLPreserved = location.search.includes('task=t-leased');
+  const releasePaneHTML = els['task-details-content'].innerHTML;
+  results.releasePaneHasBadge = releasePaneHTML.includes('badge badge-pending') && releasePaneHTML.includes('pending');
+  results.releasePaneNotReset = !releasePaneHTML.includes('Select a task');
+  const leasedRowAfterRelease = rows.find(r => r.dataset.taskId === 't-leased');
+  results.releaseRowSelected = !!leasedRowAfterRelease && leasedRowAfterRelease.getAttribute('aria-selected') === 'true';
 
-  api.selectTask('t-leased');
-  await new Promise(r => setTimeout(r, 10));
+  const tLeased = tasks.find(x => x.id === 't-leased');
+  tLeased.status = 'leased';
+  tLeased.worker = 'w-1';
+  tLeased.lease_expires = 1999999999;
+  await api.selectTask('t-leased');
   calls.length = 0;
   await els['complete-task-btn'].onclick();
   results.completeCall = calls.find(c => c.url.includes('/done'));
-  results.completePaneReset = els['task-details-content'].innerHTML.includes('Select a task');
+  results.completeSelected = (api.selected === 't-leased');
+  results.completeURLPreserved = location.search.includes('task=t-leased');
+  const completePaneHTML = els['task-details-content'].innerHTML;
+  results.completePaneHasBadge = completePaneHTML.includes('badge badge-done') && completePaneHTML.includes('done');
+  results.completePaneNotReset = !completePaneHTML.includes('Select a task');
+  const leasedRowAfterComplete = rows.find(r => r.dataset.taskId === 't-leased');
+  results.completeRowSelected = !!leasedRowAfterComplete && leasedRowAfterComplete.getAttribute('aria-selected') === 'true';
 
-  api.selectTask('t-pending');
-  await new Promise(r => setTimeout(r, 10));
+  await api.selectTask('t-pending');
   calls.length = 0;
   promptAnswer = null;
   promptAsked = 0;
@@ -248,22 +299,19 @@ const api = new Function(
   calls.length = 0;
   claimStatus = 200;
   await els['claim-task-btn'].onclick();
-  await new Promise(r => setTimeout(r, 10));
   results.claimCall = calls.find(c => c.url.endsWith('/claim'));
   results.claimPaneKept = els['task-details-content'].innerHTML.includes('id="complete-task-btn"') &&
     !els['task-details-content'].innerHTML.includes('id="claim-task-btn"');
   results.claimRefreshedList = calls.some(c => c.url.startsWith('/tasks?')) && calls.some(c => c.url.startsWith('/stats'));
 
-  api.selectTask('t-pending');
-  await new Promise(r => setTimeout(r, 10));
+  await api.selectTask('t-pending');
   calls.length = 0;
   promptAnswer = 'op-2';
   promptDefault = null;
   await els['claim-task-btn'].onclick();
   results.claimWorkerRemembered = promptDefault === 'op-1';
 
-  api.selectTask('t-pending');
-  await new Promise(r => setTimeout(r, 10));
+  await api.selectTask('t-pending');
   calls.length = 0;
   confirmAnswer = false;
   confirmAsked = 0;
@@ -275,10 +323,10 @@ const api = new Function(
   confirmAnswer = true;
   await els['close-task-btn'].onclick();
   results.closeCall = calls.find(c => c.url.endsWith('/close'));
-  results.closePaneReset = els['task-details-content'].innerHTML.includes('Select a task');
+  results.closePaneKept = els['task-details-content'].innerHTML.includes('badge badge-done') &&
+    !els['task-details-content'].innerHTML.includes('Select a task');
 
-  api.selectTask('t-done');
-  await new Promise(r => setTimeout(r, 10));
+  await api.selectTask('t-done');
   calls.length = 0;
   confirmAnswer = true;
   await els['delete-task-btn'].onclick();

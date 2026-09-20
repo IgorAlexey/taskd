@@ -384,14 +384,22 @@ func TestWebUITaskActions(t *testing.T) {
 			Method string
 			Body   map[string]any
 		}
-		ReleasePaneReset bool
-		CompleteCall     *struct {
+		ReleaseSelected     bool
+		ReleaseURLPreserved bool
+		ReleasePaneHasBadge bool
+		ReleasePaneNotReset bool
+		ReleaseRowSelected  bool
+		CompleteCall        *struct {
 			URL    string
 			Method string
 			Body   map[string]any
 		}
-		CompletePaneReset bool
-		ClaimCall         *struct {
+		CompleteSelected     bool
+		CompleteURLPreserved bool
+		CompletePaneHasBadge bool
+		CompletePaneNotReset bool
+		CompleteRowSelected  bool
+		ClaimCall            *struct {
 			URL    string
 			Method string
 			Body   map[string]any
@@ -408,7 +416,7 @@ func TestWebUITaskActions(t *testing.T) {
 			Method string
 			Body   map[string]any
 		}
-		ClosePaneReset       bool
+		ClosePaneKept        bool
 		CancelCloseAsked     bool
 		CancelCloseCalls     int
 		DoneDeleteCall       *struct{ URL, Method string }
@@ -477,15 +485,39 @@ func TestWebUITaskActions(t *testing.T) {
 	if got.ReleaseCall == nil || got.ReleaseCall.URL != "/tasks/t-leased/release" || got.ReleaseCall.Method != "POST" || got.ReleaseCall.Body["worker"] != "w-1" {
 		t.Errorf("release call mismatch: %+v", got.ReleaseCall)
 	}
-	if !got.ReleasePaneReset {
-		t.Errorf("pane not reset after release")
+	if !got.ReleaseSelected {
+		t.Errorf("expected task to remain selected after release")
+	}
+	if !got.ReleaseURLPreserved {
+		t.Errorf("expected URL to retain selected task after release")
+	}
+	if !got.ReleasePaneHasBadge {
+		t.Errorf("expected details pane to show pending badge after release")
+	}
+	if !got.ReleasePaneNotReset {
+		t.Errorf("details pane was reset after release")
+	}
+	if !got.ReleaseRowSelected {
+		t.Errorf("expected table row to retain aria-selected after release")
 	}
 
 	if got.CompleteCall == nil || got.CompleteCall.URL != "/tasks/t-leased/done" || got.CompleteCall.Method != "POST" || got.CompleteCall.Body["worker"] != "w-1" {
 		t.Errorf("complete call mismatch: %+v", got.CompleteCall)
 	}
-	if !got.CompletePaneReset {
-		t.Errorf("pane not reset after complete")
+	if !got.CompleteSelected {
+		t.Errorf("expected task to remain selected after complete")
+	}
+	if !got.CompleteURLPreserved {
+		t.Errorf("expected URL to retain selected task after complete")
+	}
+	if !got.CompletePaneHasBadge {
+		t.Errorf("expected details pane to show done badge after complete")
+	}
+	if !got.CompletePaneNotReset {
+		t.Errorf("details pane was reset after complete")
+	}
+	if !got.CompleteRowSelected {
+		t.Errorf("expected table row to retain aria-selected after complete")
 	}
 
 	if !got.CancelClaimAsked || got.CancelClaimCalls != 0 {
@@ -513,8 +545,8 @@ func TestWebUITaskActions(t *testing.T) {
 	if got.CloseCall == nil || got.CloseCall.URL != "/tasks/t-pending/close" || got.CloseCall.Method != "POST" || got.CloseCall.Body != nil {
 		t.Errorf("close call mismatch: %+v", got.CloseCall)
 	}
-	if !got.ClosePaneReset {
-		t.Errorf("pane not reset after close")
+	if !got.ClosePaneKept {
+		t.Errorf("close must keep the task on screen with done status")
 	}
 
 	if got.DoneDeleteCall == nil || got.DoneDeleteCall.URL != "/tasks/t-done?force=1" || got.DoneDeleteCall.Method != "DELETE" {
