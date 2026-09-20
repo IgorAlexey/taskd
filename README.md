@@ -5,6 +5,9 @@
   <br>
   <strong><a href="https://igoralexey.com/taskd">igoralexey.com/taskd</a></strong>
 </p>
+![taskd Web UI dashboard showing task queue, details pane, and submit form](docs/webui.png)
+
+![taskd Terminal UI showing task queue, status filters, and lease details](docs/tui.png)
 
 
 taskd is an unapologetically simple, single-binary daemon backed by SQLite
