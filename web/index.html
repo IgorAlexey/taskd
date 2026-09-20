@@ -441,6 +441,25 @@
   .error-summary-list a:hover {
     color: #ff7b72;
   }
+  .success-summary {
+    display: none;
+    background: rgba(35,134,54,0.1);
+    border: 2px solid var(--done);
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 14px;
+  }
+  .success-summary-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--done);
+    margin-bottom: 4px;
+  }
+  .success-summary-body {
+    font-size: 12px;
+    color: var(--text);
+    word-break: break-all;
+  }
   .field-error {
     display: none;
     color: var(--danger);
@@ -577,6 +596,10 @@
             <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1">
               <div class="error-summary-title">There is a problem</div>
               <ul class="error-summary-list" id="form-error-summary-list"></ul>
+            </div>
+            <div id="form-success-summary" class="success-summary" role="status">
+              <div class="success-summary-title">Success</div>
+              <div class="success-summary-body" id="form-success-summary-body"></div>
             </div>
             <div class="field">
               <label for="form-project">Project *</label>
@@ -1796,8 +1819,30 @@
       }
     }
 
+    function clearFormSuccess() {
+      const summary = document.getElementById('form-success-summary');
+      if (summary) {
+        summary.style.display = 'none';
+        const body = document.getElementById('form-success-summary-body');
+        if (body) body.textContent = '';
+      }
+    }
+
+    function showFormSuccess(id) {
+      if (!id) return;
+      clearFormErrors();
+      clearFormSuccess();
+      const summary = document.getElementById('form-success-summary');
+      const body = document.getElementById('form-success-summary-body');
+      if (summary && body) {
+        body.textContent = 'Task ' + id + ' created';
+        summary.style.display = 'block';
+      }
+    }
+
     function showFormErrors(errors) {
       clearFormErrors();
+      clearFormSuccess();
       if (!errors || errors.length === 0) return;
       const summary = document.getElementById('form-error-summary');
       const list = document.getElementById('form-error-summary-list');
@@ -1880,6 +1925,7 @@
     async function submitTask(e) {
       if (e && e.preventDefault) e.preventDefault();
       clearFormErrors();
+      clearFormSuccess();
       const projEl = document.getElementById('form-project');
       const bodyEl = document.getElementById('form-body');
       const prioEl = document.getElementById('form-priority');
@@ -1929,7 +1975,7 @@
       if (submitBtn) submitBtn.disabled = true;
 
       try {
-        await fetchJSON('/tasks', {
+        const res = await fetchJSON('/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -1939,8 +1985,16 @@
         if (idEl) idEl.value = '';
         clearFormErrors();
         showError(null);
+        const createdId = (res && res.id) || customId;
+        if (createdId) showFormSuccess(createdId);
+        if (bodyEl) {
+          bodyEl.focus();
+        } else if (projEl) {
+          projEl.focus();
+        }
         await loadAll();
       } catch (err) {
+        clearFormSuccess();
         if (err.transport) return;
         // 409 is only ever a duplicate custom id here; every other refusal
         // lands on the body, the one field that always carries content.
@@ -2008,11 +2062,19 @@
       });
     }
 
+    function setupSubmitForm() {
+      const form = document.getElementById('submit-task-form');
+      if (!form) return;
+      form.addEventListener('input', clearFormSuccess);
+      form.addEventListener('change', clearFormSuccess);
+    }
+
     async function boot() {
       setupRowActivation();
       setupCardFilters();
       setupSearch();
       setupBodyOverlay();
+      setupSubmitForm();
       applyURLState();
       syncURL(false);
       try {
