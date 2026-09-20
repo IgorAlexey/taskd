@@ -74,7 +74,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12}
 
 const schemaVersion = len(migrations) + 1
 
@@ -585,7 +585,8 @@ const taskColumns = `
   priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
   project TEXT NOT NULL DEFAULT '',
   claim_count INTEGER NOT NULL DEFAULT 0,
-  created_at INTEGER NOT NULL DEFAULT (unixepoch())`
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  version INTEGER NOT NULL DEFAULT 1`
 
 func migrateV6(db *sql.DB) error {
 	tx, err := db.Begin()
@@ -708,6 +709,21 @@ func migrateV11(db *sql.DB) error {
 		if _, err := tx.Exec(stmt); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+func migrateV12(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec("ALTER TABLE tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;"); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("PRAGMA user_version = 12;"); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -1128,6 +1144,7 @@ type taskItem struct {
 	Worker       string          `json:"worker"`
 	LeaseExpires int64           `json:"lease_expires"`
 	Priority     int             `json:"priority"`
+	Version      int             `json:"version"`
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
 	Project      string          `json:"project"`
@@ -1280,7 +1297,7 @@ func workerFilterClause(worker string, now int64) (string, []any) {
 	return "(worker IS NULL OR worker = '' OR (status = 'leased' AND lease_expires < ?))", []any{now}
 }
 
-const buryExhaustedSQL = `UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL
+const buryExhaustedSQL = `UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL, version = version + 1
 WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
   AND claim_count > 0 AND claim_count >= ?`
 
@@ -1358,7 +1375,7 @@ func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
 			log.Printf("buried at the %d claim limit: %s", maxClaims, strings.Join(buried, " "))
 		}
 	}
-	query := "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE status='leased' AND lease_expires < unixepoch()"
+	query := "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, version = version + 1 WHERE status='leased' AND lease_expires < unixepoch()"
 	var args []any
 	if id != "" {
 		query += " AND id = ?"
@@ -1520,7 +1537,7 @@ FROM tasks`
 			writeError(w, http.StatusBadRequest, "invalid project")
 			return
 		}
-		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
+		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1, version = version + 1
 WHERE id = (
   SELECT id FROM tasks
   WHERE status='pending'`
@@ -1536,7 +1553,7 @@ WHERE id = (
 		query += `
   ORDER BY priority ASC, created_at ASC
   LIMIT 1
-) RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, created_at`
+) RETURNING id, asset_path, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
 
 		tryClaim := func() (*taskItem, error) {
 			var (
@@ -1546,7 +1563,7 @@ WHERE id = (
 				prim         []byte
 			)
 			err := db.rw.QueryRow(query, args...).
-				Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+				Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 			if err != nil {
 				return nil, err
 			}
@@ -1644,10 +1661,10 @@ WHERE id = (
 			return
 		}
 		query := `UPDATE tasks
-SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
+SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1, version = version + 1
 WHERE id = ? AND status='pending'
   AND (? <= 0 OR claim_count < ?)
-RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, created_at`
+RETURNING id, asset_path, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
 		var (
 			item         taskItem
 			leasedWorker sql.NullString
@@ -1655,7 +1672,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			prim         []byte
 		)
 		err := db.rw.QueryRow(query, worker, lease, id, db.maxClaims, db.maxClaims).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
@@ -1692,7 +1709,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='done', primitives=?, lease_expires=NULL", id, req.Worker, req.ClaimCount, prim); !ok {
+		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='done', primitives=?, lease_expires=NULL, version = version + 1", id, req.Worker, req.ClaimCount, prim); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1705,7 +1722,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if !ok {
 			return
 		}
-		res, err := db.rw.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL
+		res, err := db.rw.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL, version = version + 1
 WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unixepoch())`, id)
 		if err != nil {
 			internalError(w, err)
@@ -1747,7 +1764,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		env, ok := updateLeasedOrLapsed(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0)", id, worker, nil)
+		env, ok := updateLeasedOrLapsed(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0), version = version + 1", id, worker, nil)
 		if !ok {
 			return
 		}
@@ -1777,7 +1794,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority)", id, worker, req.ClaimCount, req.Priority); !ok {
+		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority), version = version + 1", id, worker, req.ClaimCount, req.Priority); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1791,7 +1808,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		var project string
-		err := db.rw.QueryRow("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0 WHERE id=? AND status='buried' RETURNING project", id).Scan(&project)
+		err := db.rw.QueryRow("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, version = version + 1 WHERE id=? AND status='buried' RETURNING project", id).Scan(&project)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
@@ -1882,7 +1899,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			for _, p := range parts {
 				f := strings.TrimSpace(p)
 				switch f {
-				case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at":
+				case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version":
 					if !seen[f] {
 						seen[f] = true
 						requestedFields = append(requestedFields, f)
@@ -1913,7 +1930,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
   CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
-  priority, %s, %s, %s, project, claim_count, created_at, rowid FROM tasks`, bodyCol, primCol, summaryCol)
+  priority, version, %s, %s, %s, project, claim_count, created_at, rowid FROM tasks`, bodyCol, primCol, summaryCol)
 		var where []string
 		var whereArgs []any
 		if status == "pending" {
@@ -1998,7 +2015,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				prim         []byte
 				rowid        int64
 			)
-			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.summaryPrefix, &item.Project, &item.ClaimCount, &item.CreatedAt, &rowid); err != nil {
+			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.summaryPrefix, &item.Project, &item.ClaimCount, &item.CreatedAt, &rowid); err != nil {
 				internalError(w, err)
 				return
 			}
@@ -2059,6 +2076,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 						buf.WriteString(strconv.FormatInt(item.LeaseExpires, 10))
 					case "priority":
 						buf.WriteString(strconv.Itoa(item.Priority))
+					case "version":
+						buf.WriteString(strconv.Itoa(item.Version))
 					case "body":
 						b, _ := json.Marshal(item.Body)
 						buf.Write(b)
@@ -2121,8 +2140,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
   CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
-  priority, body, primitives, project, claim_count, created_at FROM tasks WHERE id = ?`, now, now, now, id).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+  priority, version, body, primitives, project, claim_count, created_at FROM tasks WHERE id = ?`, now, now, now, id).
+			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "task not found")
 			return
@@ -2248,12 +2267,17 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			Priority  *int    `json:"priority"`
 			Project   *string `json:"project"`
 			AssetPath *string `json:"asset_path"`
+			IfVersion *int    `json:"if_version"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
 		if req.Body == nil && req.Priority == nil && req.Project == nil && req.AssetPath == nil {
 			writeError(w, http.StatusBadRequest, "missing fields to update")
+			return
+		}
+		if req.IfVersion != nil && *req.IfVersion < 1 {
+			writeError(w, http.StatusBadRequest, "invalid if_version")
 			return
 		}
 		if req.Body != nil && *req.Body != "" && strings.TrimSpace(*req.Body) == "" {
@@ -2300,10 +2324,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				return
 			}
 		}
+
 		res, err := db.rw.Exec(`UPDATE tasks
-SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path)
-WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())`,
-			req.Body, req.Priority, req.Project, req.AssetPath, id)
+SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path), version = version + 1
+WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())
+  AND (? IS NULL OR version = ?)`,
+			req.Body, req.Priority, req.Project, req.AssetPath, id, req.IfVersion, req.IfVersion)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -2314,7 +2340,40 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if n == 0 {
-			writeTaskStateError(w, db.ro, id, "", nil)
+			if req.IfVersion == nil {
+				writeTaskStateError(w, db.ro, id, "", nil)
+				return
+			}
+			var (
+				status   string
+				holder   sql.NullString
+				claims   int
+				curVer   int
+				isLeased int
+			)
+			err := db.ro.QueryRow(`SELECT status, worker, claim_count, version, (status = 'leased' AND lease_expires >= unixepoch()) FROM tasks WHERE id = ?`, id).
+				Scan(&status, &holder, &claims, &curVer, &isLeased)
+			if errors.Is(err, sql.ErrNoRows) {
+				writeError(w, http.StatusNotFound, "task not found")
+				return
+			}
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			if isLeased == 1 {
+				writeAPIError(w, http.StatusConflict, leaseConflict{Error: "task is leased", Worker: holder.String, ClaimCount: claims})
+				return
+			}
+			if status == "done" {
+				writeError(w, http.StatusConflict, "task is done")
+				return
+			}
+			if curVer != *req.IfVersion {
+				writeError(w, http.StatusConflict, "version conflict")
+				return
+			}
+			writeError(w, http.StatusConflict, "task is "+status)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -2572,12 +2631,12 @@ HTTP Endpoints:
          ?q=                 substring of id, body, project, worker, or asset_path
          ?fields=            comma list from id, asset_path, status, worker,
                              lease_expires, priority, body, primitives,
-                             project, claim_count, summary, created_at
+                             project, claim_count, summary, created_at, version
          ?columns=           alias for fields
   POST   /tasks              create a task (requires project, body/asset_path)
   POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait)
   GET    /tasks/{id}         get task details
-  PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path)
+  PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path, optional if_version)
   POST   /tasks/{id}/claim   claim a specific task (requires worker)
   POST   /tasks/{id}/done    complete task with primitives (requires worker, optional claim_count)
   POST   /tasks/{id}/close   close task without result
@@ -2750,7 +2809,8 @@ func sweepExpired(db *sql.DB, maxClaims int) ([]string, error) {
 	const query = `UPDATE tasks
 SET status = CASE WHEN ? > 0 AND claim_count >= ? THEN 'buried' ELSE 'pending' END,
     worker = NULL,
-    lease_expires = NULL
+    lease_expires = NULL,
+    version = version + 1
 WHERE (status = 'leased' AND lease_expires < unixepoch())
    OR (? > 0 AND status = 'pending' AND claim_count >= ?)
 RETURNING status, project`

@@ -25,6 +25,7 @@ type task struct {
 	Priority     int             `json:"priority"`
 	ClaimCount   int             `json:"claim_count"`
 	CreatedAt    int64           `json:"created_at"`
+	Version      int             `json:"version"`
 	Body         string          `json:"body"`
 	Primitives   json.RawMessage `json:"primitives"`
 	Notes        []taskNote      `json:"notes"`
