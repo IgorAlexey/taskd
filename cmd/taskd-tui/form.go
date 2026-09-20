@@ -244,7 +244,7 @@ func (f formModel) rows(th theme) []formRow {
 	rows = append(rows,
 		formRow{text: save + gapStr + cancel, rank: btnRank, field: fieldSave},
 		formRow{rank: rankHint, field: -1},
-		formRow{text: th.dim.Render("Tab next  ctrl-s save  Esc cancel"), rank: rankHint, field: -1},
+		formRow{text: th.dim.Render("Tab next  ctrl-s/ctrl-enter save  Esc cancel"), rank: rankHint, field: -1},
 	)
 	return rows
 }
@@ -1235,7 +1235,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[e]", "edit"},
 		{"[E]", "editor"},
 		{"[a]", "note"},
-		{"[ctrl-s]", "save form"},
+		{"[^S/^Enter]", "save form"},
 		{"[ctrl-y]", "copy result"},
 	}
 	col2 := []keyRef{

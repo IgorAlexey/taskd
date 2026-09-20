@@ -42,3 +42,15 @@ func TestFormCtrlEnterSubmits(t *testing.T) {
 		}
 	})
 }
+
+func TestEditFormCtrlEnterSubmits(t *testing.T) {
+	tsk := task{ID: "task-edit-1", Project: "test", Priority: 2, Body: "initial body"}
+	f, _ := newEditForm(tsk)
+	f.body.SetValue("updated body")
+
+	ctrlEnter := tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}
+	up, _ := f.Update(ctrlEnter)
+	if !up.done {
+		t.Fatal("expected f.done == true after Ctrl+Enter on edit form, got false")
+	}
+}
