@@ -205,7 +205,46 @@ func createdAge(createdAt int64, now time.Time) string {
 	}
 }
 
-func highlightCode(s string, th theme) string {
+func isOpeningFence(line string) (int, bool) {
+	spaces := 0
+	for spaces < len(line) && line[spaces] == ' ' {
+		spaces++
+	}
+	if spaces > 3 {
+		return 0, false
+	}
+	rest := line[spaces:]
+	n := 0
+	for n < len(rest) && rest[n] == '`' {
+		n++
+	}
+	if n < 3 || strings.ContainsRune(rest[n:], '`') {
+		return 0, false
+	}
+	return n, true
+}
+
+func isClosingFence(line string, fenceLen int) bool {
+	spaces := 0
+	for spaces < len(line) && line[spaces] == ' ' {
+		spaces++
+	}
+	if spaces > 3 {
+		return false
+	}
+	rest := strings.TrimRight(line[spaces:], " \t")
+	if len(rest) < fenceLen {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] != '`' {
+			return false
+		}
+	}
+	return true
+}
+
+func highlightInline(s string, th theme) string {
 	var b strings.Builder
 	for {
 		start := strings.IndexByte(s, '`')
@@ -214,20 +253,71 @@ func highlightCode(s string, th theme) string {
 			break
 		}
 		b.WriteString(s[:start])
-		s = s[start+1:]
-		end := strings.IndexByte(s, '`')
-		if end == -1 {
-			b.WriteByte('`')
-			b.WriteString(s)
+		s = s[start:]
+
+		n := 0
+		for n < len(s) && s[n] == '`' {
+			n++
+		}
+		delim := s[:n]
+		search := s[n:]
+
+		closingIdx := -1
+		offset := 0
+		for {
+			idx := strings.Index(search[offset:], delim)
+			if idx == -1 {
+				break
+			}
+			pos := offset + idx
+			after := pos + n
+			for after < len(search) && search[after] == '`' {
+				after++
+			}
+			if after > pos+n {
+				offset = after
+				continue
+			}
+			closingIdx = pos
 			break
 		}
-		for i, line := range strings.Split(s[:end], "\n") {
-			if i > 0 {
-				b.WriteByte('\n')
-			}
-			b.WriteString(th.code.Render(line))
+
+		if closingIdx == -1 {
+			b.WriteString(delim)
+			s = search
+			continue
 		}
-		s = s[end+1:]
+
+		b.WriteString(th.code.Render(search[:closingIdx]))
+		s = search[closingIdx+n:]
+	}
+	return b.String()
+}
+
+func highlightCode(s string, th theme) string {
+	lines := strings.Split(s, "\n")
+	var b strings.Builder
+	inFence := false
+	fenceLen := 0
+
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		if inFence {
+			b.WriteString(th.code.Render(line))
+			if isClosingFence(line, fenceLen) {
+				inFence = false
+			}
+			continue
+		}
+		if n, ok := isOpeningFence(line); ok {
+			inFence = true
+			fenceLen = n
+			b.WriteString(th.code.Render(line))
+			continue
+		}
+		b.WriteString(highlightInline(line, th))
 	}
 	return b.String()
 }
