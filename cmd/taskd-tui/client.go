@@ -348,6 +348,15 @@ func actCmd(c *client, method, path string, body any, success string) tea.Cmd {
 	}
 }
 
+func formActCmd(c *client, seq uint64, method, path string, body any, success string) tea.Cmd {
+	return func() tea.Msg {
+		if err := c.do(method, path, body); err != nil {
+			return formActMsg{seq: seq, err: err}
+		}
+		return formActMsg{seq: seq, msg: success}
+	}
+}
+
 func copyToClipboard(text string) tea.Cmd {
 	return tea.Batch(
 		tea.SetClipboard(text),

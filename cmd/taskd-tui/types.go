@@ -93,6 +93,12 @@ type (
 		err error
 	}
 
+	formActMsg struct {
+		seq uint64
+		msg string
+		err error
+	}
+
 	// searchMsg fires once typing pauses; a stale generation is dropped,
 	// so a term only reaches the daemon when the operator stops typing.
 	searchMsg struct{ seq uint64 }
@@ -130,6 +136,7 @@ type model struct {
 	asked     listFilter // the question the newest poll carried
 	polling   bool       // a pollCmd is in flight; cleared by its pollMsg
 	seq       uint64     // generation of the newest poll; older replies are dropped
+	formSeq   uint64
 	stats     stats
 	hasStats  bool // a poll has delivered stats at least once
 	projects  []string

@@ -113,6 +113,7 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
 			if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+				m.formSeq = 0
 				if m.form.dirty() && !m.form.discarding {
 					m.form.discarding = true
 					return m, nil
@@ -123,18 +124,36 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, tea.Quit
 			}
+			if m.formSeq != 0 && msg.Code != tea.KeyEscape && !m.form.discarding {
+				return m, nil
+			}
 			var cmd tea.Cmd
 			m.form, cmd = m.form.Update(msg)
 			if m.form.cancelled {
 				m.mode = modeTable
+				m.formSeq = 0
 				return m, cmd
 			}
 			if m.form.done {
-				method, path, body, success, errText := m.form.submit()
-				if errText == "" {
-					m.mode = modeTable
-					return m, tea.Batch(cmd, actCmd(m.client, method, path, body, success))
+				if m.formSeq != 0 {
+					return m, cmd
 				}
+				method, path, body, success, errText := m.form.submit()
+				if errText != "" {
+					m.form.errText = errText
+					m.form = m.form.refit()
+					return m, cmd
+				}
+				if m.form.editing && len(body) == 0 {
+					m.mode = modeTable
+					return m, cmd
+				}
+				m.formSeq++
+				fcmd := formActCmd(m.client, m.formSeq, method, path, body, success)
+				if cmd != nil {
+					return m, tea.Batch(cmd, fcmd)
+				}
+				return m, fcmd
 			}
 			return m, cmd
 		case tea.MouseWheelMsg, tea.MouseClickMsg:
@@ -303,6 +322,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case actMsg:
+		var cmd tea.Cmd
+		if msg.err != nil {
+			cmd = m.setError(msg.err.Error())
+		} else if msg.msg != "" {
+			cmd = m.setMsg(msg.msg)
+		}
+		poll := m.startPoll()
+		return m, tea.Batch(cmd, poll)
+
+	case formActMsg:
+		if msg.seq != m.formSeq || m.formSeq == 0 {
+			return m, nil
+		}
+		m.formSeq = 0
+		if m.mode == modeForm {
+			if msg.err != nil {
+				m.form.errText = msg.err.Error()
+				m.form = m.form.refit()
+				return m, nil
+			}
+			m.mode = modeTable
+		}
 		var cmd tea.Cmd
 		if msg.err != nil {
 			cmd = m.setError(msg.err.Error())
@@ -654,6 +695,7 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		m.form, cmd = newCreateForm(m.project)
 		m.form.fit(m.width, m.height, m.theme)
 		m.mode = modeForm
+		m.formSeq = 0
 		return m, cmd, true
 
 	case "e", "c", "u", "t", "b", "K", "D", "x", "y", "Y", "+", "-", "=":
@@ -675,6 +717,7 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 			m.form, cmd = newEditForm(t)
 			m.form.fit(m.width, m.height, m.theme)
 			m.mode = modeForm
+			m.formSeq = 0
 			return m, cmd, true
 		case "+", "=":
 			if t.Priority == 0 {
