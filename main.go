@@ -1094,7 +1094,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	listTasksHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
 		status := q.Get("status")
-		if q.Has("status") && status != "pending" && status != "leased" && status != "done" && status != "buried" {
+		if q.Has("status") && status != "pending" && status != "leased" && status != "done" && status != "buried" && status != "live" {
 			writeError(w, http.StatusBadRequest, "invalid status")
 			return
 		}
@@ -1176,6 +1176,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		} else if status == "leased" {
 			where = append(where, "(status = 'leased' AND lease_expires >= ?)")
 			args = append(args, now)
+		} else if status == "live" {
+			where = append(where, "(status = 'pending' OR status = 'leased')")
 		} else if status != "" {
 			where = append(where, "status = ?")
 			args = append(args, status)

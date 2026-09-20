@@ -5831,3 +5831,115 @@ func TestMissingProject(t *testing.T) {
 		t.Fatalf("POST /tasks with valid project expected 201, got %d: %s", code, body)
 	}
 }
+
+func TestTasksFilterLive(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 60))
+	defer srv.Close()
+
+	tPending := createTask(t, srv.URL, "p-live")
+	tLeased := createTask(t, srv.URL, "p-live")
+	tExpired := createTask(t, srv.URL, "p-live")
+	tDone := createTask(t, srv.URL, "p-live")
+	tBuried := createTask(t, srv.URL, "p-live")
+
+	code, body := post(t, srv.URL+"/tasks/"+tLeased+"/claim", map[string]any{"worker": "w1"})
+	if code != http.StatusOK {
+		t.Fatalf("claim tLeased expected 200, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+tExpired+"/claim", map[string]any{"worker": "w-exp"})
+	if code != http.StatusOK {
+		t.Fatalf("claim tExpired expected 200, got %d: %s", code, body)
+	}
+	if _, err := db.Exec("UPDATE tasks SET lease_expires=unixepoch()-10 WHERE id=?", tExpired); err != nil {
+		t.Fatalf("expire tExpired failed: %v", err)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+tDone+"/claim", map[string]any{"worker": "w2"})
+	if code != http.StatusOK {
+		t.Fatalf("claim tDone expected 200, got %d: %s", code, body)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+tDone+"/done", map[string]any{"worker": "w2"})
+	if code != http.StatusNoContent {
+		t.Fatalf("done tDone expected 204, got %d: %s", code, body)
+	}
+
+	code, body = post(t, srv.URL+"/tasks/"+tBuried+"/claim", map[string]any{"worker": "w3"})
+	if code != http.StatusOK {
+		t.Fatalf("claim tBuried expected 200, got %d: %s", code, body)
+	}
+	code, body = post(t, srv.URL+"/tasks/"+tBuried+"/bury", map[string]any{"worker": "w3"})
+	if code != http.StatusNoContent {
+		t.Fatalf("bury tBuried expected 204, got %d: %s", code, body)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/tasks?status=live", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("get tasks failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("GET /tasks?status=live expected 200, got %d: %s", resp.StatusCode, b)
+	}
+	if total := resp.Header.Get("X-Total-Count"); total != "3" {
+		t.Fatalf("expected X-Total-Count 3, got %q", total)
+	}
+	var liveTasks []taskItem
+	if err := json.NewDecoder(resp.Body).Decode(&liveTasks); err != nil {
+		t.Fatalf("decode live tasks failed: %v", err)
+	}
+	if len(liveTasks) != 3 {
+		t.Fatalf("expected 3 live tasks, got %d", len(liveTasks))
+	}
+	liveIDs := map[string]bool{tPending: true, tLeased: true, tExpired: true}
+	for _, item := range liveTasks {
+		if !liveIDs[item.ID] {
+			t.Fatalf("unexpected task ID %s in live results", item.ID)
+		}
+		if item.Status != "pending" && item.Status != "leased" {
+			t.Fatalf("expected only pending or leased tasks, got status %q for task %s", item.Status, item.ID)
+		}
+		if item.ID == tDone || item.ID == tBuried {
+			t.Fatalf("unexpected non-live task %s in live results", item.ID)
+		}
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?status=live&limit=2", nil)
+	if code != http.StatusOK {
+		t.Fatalf("limit query expected 200, got %d: %s", code, body)
+	}
+	var paged []taskItem
+	if err := json.Unmarshal(body, &paged); err != nil {
+		t.Fatalf("decode paged live tasks failed: %v", err)
+	}
+	if len(paged) != 2 {
+		t.Fatalf("expected 2 paged tasks, got %d", len(paged))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?status=live&project=other", nil)
+	if code != http.StatusOK {
+		t.Fatalf("other project query expected 200, got %d: %s", code, body)
+	}
+	var empty []taskItem
+	if err := json.Unmarshal(body, &empty); err != nil {
+		t.Fatalf("decode empty live tasks failed: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("expected 0 tasks for other project, got %d", len(empty))
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?status=bogus", nil)
+	if code != http.StatusBadRequest {
+		t.Fatalf("bogus status query expected 400, got %d: %s", code, body)
+	}
+}
