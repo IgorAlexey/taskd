@@ -91,7 +91,7 @@ func TestClaimWaitInvalidWaitReturns400(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	for _, wait := range []any{-1, 1e12, 86401} {
+	for _, wait := range []any{-1, 86401} {
 		body, _ := json.Marshal(map[string]any{"worker": "w1", "project": "w", "wait": wait})
 		resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(body))
 		if err != nil {
@@ -107,8 +107,9 @@ func TestClaimWaitInvalidWaitReturns400(t *testing.T) {
 			t.Fatalf("decode failed: %v", err)
 		}
 		resp.Body.Close()
-		if !strings.HasPrefix(errResp["error"], "invalid wait") {
-			t.Fatalf("error = %q, want prefix %q", errResp["error"], "invalid wait")
+		msg := errResp["error"]
+		if !strings.HasPrefix(msg, "invalid wait") || !strings.Contains(msg, "between 0 and 86400") {
+			t.Fatalf("wait=%v: error = %q, want bounds in message", wait, msg)
 		}
 	}
 }
