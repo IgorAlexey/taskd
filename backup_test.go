@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func TestBackupCreatesParentDir(t *testing.T) {
 		t.Fatalf("expected backupDir %q to not exist initially", backupDir)
 	}
 
-	if err := backupDB(db, backupPath); err != nil {
+	if err := backupDB(db, backupPath, io.Discard); err != nil {
 		t.Fatalf("backupDB failed: %v", err)
 	}
 
@@ -279,5 +280,140 @@ func TestBackupOverwrite(t *testing.T) {
 	}
 	if integrity != "ok" {
 		t.Fatalf("expected integrity_check 'ok', got %q", integrity)
+	}
+}
+
+func seedBackupSource(t *testing.T, path string, ids ...string) {
+	t.Helper()
+	db, err := openDB(path)
+	if err != nil {
+		t.Fatalf("openDB %q failed: %v", path, err)
+	}
+	defer db.Close()
+	for _, id := range ids {
+		if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES (?, 'body', 'p1')", id); err != nil {
+			t.Fatalf("insert %q failed: %v", id, err)
+		}
+	}
+}
+
+func TestRunBackupRefusesSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "x.db")
+	seedBackupSource(t, srcPath, "t1")
+
+	linkPath := filepath.Join(dir, "link.db")
+	if err := os.Symlink(srcPath, linkPath); err != nil {
+		t.Fatalf("symlink failed: %v", err)
+	}
+	hardPath := filepath.Join(dir, "hard.db")
+	if err := os.Link(srcPath, hardPath); err != nil {
+		t.Fatalf("hardlink failed: %v", err)
+	}
+
+	before, err := os.Stat(srcPath)
+	if err != nil {
+		t.Fatalf("stat source failed: %v", err)
+	}
+
+	dests := []string{
+		srcPath,
+		filepath.Dir(srcPath) + "/./" + filepath.Base(srcPath),
+		linkPath,
+		hardPath,
+		"file:" + srcPath,
+	}
+	for _, dest := range dests {
+		err := run([]string{"-db", srcPath, "-backup", dest})
+		if err == nil {
+			t.Fatalf("expected -backup %q to be refused", dest)
+		}
+		if !strings.Contains(err.Error(), "backup destination is the source database") {
+			t.Fatalf("error for %q does not name the collision: %v", dest, err)
+		}
+		after, statErr := os.Stat(srcPath)
+		if statErr != nil {
+			t.Fatalf("stat source after %q failed: %v", dest, statErr)
+		}
+		if !os.SameFile(before, after) {
+			t.Fatalf("-backup %q replaced the source database", dest)
+		}
+	}
+
+	db, err := openDB(srcPath)
+	if err != nil {
+		t.Fatalf("reopen source failed: %v", err)
+	}
+	defer db.Close()
+	if err := backupDB(db, srcPath, io.Discard); err == nil {
+		t.Fatal("expected backupDB onto its own source to be refused")
+	}
+	var count int
+	if err := db.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("query source failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("source has %d rows, want 1", count)
+	}
+}
+
+func TestBackupReportsDestination(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "src.db")
+	seedBackupSource(t, srcPath, "t1", "t2", "t3")
+
+	db, err := openDB(srcPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	dest := filepath.Join(dir, "out.db")
+	var out bytes.Buffer
+	if err := backupDB(db, dest, &out); err != nil {
+		t.Fatalf("backupDB failed: %v", err)
+	}
+
+	fi, err := os.Stat(dest)
+	if err != nil {
+		t.Fatalf("stat backup failed: %v", err)
+	}
+	want := fmt.Sprintf("wrote %s (%d bytes, 3 tasks)\n", dest, fi.Size())
+	if out.String() != want {
+		t.Fatalf("backup report = %q, want %q", out.String(), want)
+	}
+}
+
+func TestBackupSurvivesReportFailure(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores file permissions")
+	}
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "src.db")
+	seedBackupSource(t, srcPath, "t1")
+
+	dest := filepath.Join(dir, "out.db")
+	if err := os.WriteFile(dest, nil, 0000); err != nil {
+		t.Fatalf("create unreadable destination failed: %v", err)
+	}
+
+	if err := run([]string{"-db", srcPath, "-backup", dest}); err != nil {
+		t.Fatalf("backup failed because its report could not be produced: %v", err)
+	}
+
+	if err := os.Chmod(dest, 0600); err != nil {
+		t.Fatalf("chmod backup failed: %v", err)
+	}
+	bkDB, err := openDB(dest)
+	if err != nil {
+		t.Fatalf("open backup failed: %v", err)
+	}
+	defer bkDB.Close()
+	var count int
+	if err := bkDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("query backup failed: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("backup has %d rows, want 1", count)
 	}
 }

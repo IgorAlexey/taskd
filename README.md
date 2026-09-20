@@ -109,4 +109,11 @@ Take a safe online snapshot with `taskd -backup <path>`:
 taskd -db taskd.db -backup /backups/taskd.db
 ```
 
-This runs SQLite `VACUUM INTO` to write a consistent copy.
+This runs SQLite `VACUUM INTO` to write a consistent copy, then reports it:
+
+```
+wrote /backups/taskd.db (20480 bytes, 5 tasks)
+```
+
+A destination that resolves to the source database itself, through `.`, a
+symlink or a hardlink, is refused with exit status 1 and nothing is written.

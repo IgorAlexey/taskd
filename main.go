@@ -1838,7 +1838,7 @@ func checkBackupSource(path string) error {
 	return nil
 }
 
-func backupDB(db *sql.DB, path string) error {
+func backupDB(db *sql.DB, path string, out io.Writer) error {
 	fsPath, memory := resolveDBPath(path)
 	if memory {
 		return fmt.Errorf("cannot back up to an in-memory database: %s", path)
@@ -1865,12 +1865,61 @@ func backupDB(db *sql.DB, path string) error {
 	if _, err := db.Exec("VACUUM INTO ?", tmpPath); err != nil {
 		return err
 	}
-	if fi, statErr := os.Stat(fsPath); statErr == nil {
-		if err := os.Chmod(tmpPath, fi.Mode().Perm()); err != nil {
+	destInfo, statErr := os.Stat(fsPath)
+	switch {
+	case statErr == nil:
+		if err := checkNotSource(db, fsPath, destInfo); err != nil {
 			return err
 		}
+		if err := os.Chmod(tmpPath, destInfo.Mode().Perm()); err != nil {
+			return err
+		}
+	case !errors.Is(statErr, os.ErrNotExist):
+		return fmt.Errorf("cannot access backup destination %s: %w", fsPath, statErr)
 	}
-	return os.Rename(tmpPath, fsPath)
+	if err := os.Rename(tmpPath, fsPath); err != nil {
+		return err
+	}
+	if err := reportBackup(fsPath, out); err != nil {
+		log.Printf("cannot report backup %s: %v", fsPath, err)
+	}
+	return nil
+}
+
+func checkNotSource(db *sql.DB, destPath string, destInfo os.FileInfo) error {
+	var srcPath string
+	if err := db.QueryRow("SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&srcPath); err != nil {
+		return fmt.Errorf("cannot locate the source database: %w", err)
+	}
+	if srcPath == "" {
+		return nil
+	}
+	srcInfo, err := os.Stat(srcPath)
+	if err != nil {
+		return fmt.Errorf("cannot verify backup destination %s: %w", destPath, err)
+	}
+	if os.SameFile(srcInfo, destInfo) {
+		return fmt.Errorf("backup destination is the source database: %s", destPath)
+	}
+	return nil
+}
+
+func reportBackup(fsPath string, out io.Writer) error {
+	fi, err := os.Stat(fsPath)
+	if err != nil {
+		return err
+	}
+	bk, err := openDBConn(fsPath, true)
+	if err != nil {
+		return err
+	}
+	defer bk.Close()
+	var tasks int
+	if err := bk.QueryRow("SELECT count(*) FROM tasks").Scan(&tasks); err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(out, "wrote %s (%d bytes, %d tasks)\n", fsPath, fi.Size(), tasks)
+	return nil
 }
 
 func run(args []string) error {
@@ -1883,6 +1932,7 @@ func run(args []string) error {
 	}
 
 	if cfg.backupPath != "" {
+		log.SetFlags(0)
 		if err := checkBackupSource(cfg.dbPath); err != nil {
 			return err
 		}
@@ -1891,7 +1941,7 @@ func run(args []string) error {
 			return err
 		}
 		defer db.Close()
-		return backupDB(db, cfg.backupPath)
+		return backupDB(db, cfg.backupPath, os.Stdout)
 	}
 
 	db, err := openDB(cfg.dbPath)
