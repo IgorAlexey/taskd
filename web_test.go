@@ -915,3 +915,25 @@ func TestWebFinishTaskTransitionLoadsWorkers(t *testing.T) {
 		t.Fatal("expected finishTaskTransition to include loadWorkers() in web/index.html")
 	}
 }
+
+func TestWebUIKeyboardShortcuts(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, "setupGlobalShortcuts") {
+		t.Fatal("expected setupGlobalShortcuts in web/index.html")
+	}
+	if !strings.Contains(ui, "setupGlobalShortcuts();") {
+		t.Fatal("expected setupGlobalShortcuts invocation in boot()")
+	}
+	if !regexp.MustCompile(`function\s+setupSearch\(\)\s*\{[\s\S]*?e\.key\s*===\s*'Escape'[\s\S]*?el\.blur\(\)`).MatchString(ui) {
+		t.Fatal("expected Escape in #filter-search to unfocus via el.blur()")
+	}
+	if !regexp.MustCompile(`e\.key\s*===\s*'/'[\s\S]*?e\.preventDefault\(\)[\s\S]*?el\.focus\(\)`).MatchString(ui) {
+		t.Fatal("expected / keydown handler to preventDefault and focus search")
+	}
+	if !regexp.MustCompile(`e\.key\s*===\s*'r'[\s\S]*?loadAll\(\)`).MatchString(ui) {
+		t.Fatal("expected r keydown handler to invoke loadAll()")
+	}
+	if !regexp.MustCompile(`function\s+isInputTarget\(target\)\s*\{[\s\S]*?target\.closest\('input, textarea, select, \[contenteditable\]'\)`).MatchString(ui) {
+		t.Fatal("expected isInputTarget to check editable inputs")
+	}
+}
