@@ -212,14 +212,36 @@ func (m model) View() tea.View {
 		count  int
 		filter string
 	}
-	tabDefs := []tabInfo{
-		{"0", "all", m.stats.Total, ""},
-		{"1", "pending", m.stats.Pending, "pending"},
-		{"2", "leased", m.stats.Leased, "leased"},
-		{"3", "done", m.stats.Done, "done"},
+	st := m.stats
+	if !m.connected {
+		// The list may have been applied while /stats failed; count what
+		// is on hand rather than show numbers from an older poll.
+		st = stats{}
+		for _, t := range m.tasks {
+			if m.project != "" && t.Project != m.project {
+				continue
+			}
+			st.Total++
+			switch t.Status {
+			case "pending":
+				st.Pending++
+			case "leased":
+				st.Leased++
+			case "done":
+				st.Done++
+			case "buried":
+				st.Buried++
+			}
+		}
 	}
-	if m.stats.Buried > 0 || m.filter == "buried" {
-		tabDefs = append(tabDefs, tabInfo{"4", "buried", m.stats.Buried, "buried"})
+	tabDefs := []tabInfo{
+		{"0", "all", st.Total, ""},
+		{"1", "pending", st.Pending, "pending"},
+		{"2", "leased", st.Leased, "leased"},
+		{"3", "done", st.Done, "done"},
+	}
+	if st.Buried > 0 || m.filter == "buried" {
+		tabDefs = append(tabDefs, tabInfo{"4", "buried", st.Buried, "buried"})
 	}
 
 	var tabParts []string

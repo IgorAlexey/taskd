@@ -548,31 +548,33 @@ func TestPollWithErrorStillAppliesChangedTasksAndKeepsCursorByID(t *testing.T) {
 	}
 }
 
-func TestInitialPollCountsAsInFlightSoFirstTickDoesNotDoublePoll(t *testing.T) {
+func TestInitTicksAndOnlyOnePollIsInFlightAtATime(t *testing.T) {
 	m := newModel(config{refresh: time.Second}, nil)
+	if m.polling {
+		t.Fatalf("nothing is in flight before Init")
+	}
+	msg := m.Init()()
+	if _, ok := msg.(tickMsg); !ok {
+		t.Fatalf("Init must produce a tickMsg, got %T", msg)
+	}
+	m, cmd := send(t, m, msg)
+	if !m.polling || cmd == nil {
+		t.Fatalf("first tick must start a poll")
+	}
+	m, _ = send(t, m, tickMsg(time.Now()))
 	if !m.polling {
-		t.Fatalf("newModel must record the poll Init starts")
+		t.Errorf("tick before the pollMsg must not start a second poll")
 	}
-
-	m, cmd := send(t, m, tickMsg(time.Now()))
-	if cmd == nil {
-		t.Errorf("tick must schedule the next tick")
-	}
-	if !m.polling {
-		t.Errorf("tick before the first pollMsg must not start a second poll")
-	}
-
-	m, _ = send(t, m, pollMsg{tasks: []task{{ID: "task-00", Status: "pending"}}, changed: true})
+	m, _ = send(t, m, pollMsg{tasks: []task{{ID: "task-00", Status: "pending"}}, etag: `"e1"`, changed: true})
 	if m.polling {
 		t.Fatalf("pollMsg must clear the in-flight flag")
 	}
-
-	m, cmd = send(t, m, tickMsg(time.Now()))
-	if cmd == nil {
-		t.Errorf("tick after a finished poll must return commands")
+	if m.etag != `"e1"` {
+		t.Fatalf("model must keep the tag of the list it holds, got %q", m.etag)
 	}
-	if !m.polling {
-		t.Errorf("tick after a finished poll must start the next poll")
+	m, cmd = send(t, m, tickMsg(time.Now()))
+	if !m.polling || cmd == nil {
+		t.Fatalf("next tick must poll again")
 	}
 }
 

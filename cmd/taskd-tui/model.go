@@ -27,9 +27,6 @@ func newModel(cfg config, c *client) model {
 		mode:    modeTable,
 		now:     time.Now(),
 		detail:  vp,
-		// Init starts the first poll; mark it in flight so the first
-		// tick does not start a second one alongside it.
-		polling: true,
 	}
 	vw := m.width - 2
 	if vw < 1 {
@@ -50,8 +47,18 @@ func tickCmd(d time.Duration) tea.Cmd {
 	})
 }
 
+// Init fires an immediate tick; the tick handler owns starting polls.
 func (m model) Init() tea.Cmd {
-	return tea.Batch(pollCmd(m.client, m.project), tickCmd(m.cfg.refresh))
+	return func() tea.Msg { return tickMsg(time.Now()) }
+}
+
+// startPoll starts a poll unless one is in flight.
+func (m *model) startPoll() tea.Cmd {
+	if m.polling {
+		return nil
+	}
+	m.polling = true
+	return pollCmd(m.client, m.project, m.etag)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -77,20 +84,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.now = time.Time(msg)
-		nextTick := tickCmd(m.cfg.refresh)
-		if !m.polling {
-			m.polling = true
-			return m, tea.Batch(nextTick, pollCmd(m.client, m.project))
-		}
-		return m, nextTick
+		return m, tea.Batch(tickCmd(m.cfg.refresh), m.startPoll())
 
 	case pollMsg:
 		m.polling = false
 		if msg.changed {
-			// The client already stored the new ETag, so this body is the
-			// only chance to see it even when a later leg of the poll
-			// failed; dropping it would strand the list until it changes
-			// again.
+			m.etag = msg.etag
 			selID := ""
 			if sel, ok := m.selected(); ok {
 				selID = sel.ID
@@ -129,15 +128,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else if msg.msg != "" {
 			cmd = m.setMsg(msg.msg)
 		}
-		if !m.polling {
-			m.polling = true
-			poll := pollCmd(m.client, m.project)
-			if cmd != nil {
-				return m, tea.Batch(cmd, poll)
-			}
-			return m, poll
-		}
-		return m, cmd
+		return m, tea.Batch(cmd, m.startPoll())
 
 	case clearMsgMsg:
 		if msg.id == m.msgID {
@@ -182,6 +173,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyPressMsg:
+		if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'c' {
+			return m, tea.Quit
+		}
 		switch m.mode {
 		case modeForm:
 			var cmd tea.Cmd
@@ -219,9 +213,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case modeHelp:
-			if msg.Mod == tea.ModCtrl && (msg.Code == 'c' || msg.Code == 'C') {
-				return m, tea.Quit
-			}
 			m.mode = modeTable
 			return m, nil
 
@@ -233,10 +224,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.rebuild()
 			case msg.Code == tea.KeyEnter:
 				m.mode = modeTable
-			case msg.Mod == tea.ModCtrl && (msg.Code == 'u' || msg.Code == 'U'):
+			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.query = ""
 				m.rebuild()
-			case msg.Mod == tea.ModCtrl && (msg.Code == 'w' || msg.Code == 'W'):
+			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'w':
 				m.query = deleteWord(m.query)
 				m.rebuild()
 			case msg.Code == tea.KeyBackspace:
@@ -255,8 +246,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case modeDetail, modeZoom:
 			switch {
-			case msg.Mod == tea.ModCtrl && (msg.Code == 'c' || msg.Code == 'C'):
-				return m, tea.Quit
 			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEscape:
 				m.mode = modeTable
 				vh := m.detailRows() - 4
@@ -301,10 +290,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "G" || msg.Code == tea.KeyEnd:
 				m.detail.GotoBottom()
 				return m, nil
-			case msg.Mod == tea.ModCtrl && (msg.Code == 'd' || msg.Code == 'D'):
+			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd':
 				m.detail.HalfPageDown()
 				return m, nil
-			case msg.Mod == tea.ModCtrl && (msg.Code == 'u' || msg.Code == 'U'):
+			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.detail.HalfPageUp()
 				return m, nil
 			default:
@@ -315,7 +304,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case modeTable:
 			switch {
-			case msg.Text == "q" || (msg.Mod == tea.ModCtrl && (msg.Code == 'c' || msg.Code == 'C')):
+			case msg.Text == "q":
 				return m, tea.Quit
 			case msg.Text == "j" || msg.Code == tea.KeyDown:
 				if len(m.shown) > 0 && m.cursor < len(m.shown)-1 {
@@ -343,7 +332,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.syncDetail()
 				}
 				return m, nil
-			case (msg.Mod == tea.ModCtrl && (msg.Code == 'd' || msg.Code == 'D')) || msg.Code == tea.KeyPgDown:
+			case (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd') || msg.Code == tea.KeyPgDown:
 				step := m.tableRows() / 2
 				if step < 1 {
 					step = 1
@@ -352,7 +341,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clamp()
 				m.syncDetail()
 				return m, nil
-			case (msg.Mod == tea.ModCtrl && (msg.Code == 'u' || msg.Code == 'U')) || msg.Code == tea.KeyPgUp:
+			case (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u') || msg.Code == tea.KeyPgUp:
 				step := m.tableRows() / 2
 				if step < 1 {
 					step = 1
@@ -401,11 +390,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.project = next
 				}
 				m.rebuild()
-				if !m.polling {
-					m.polling = true
-					return m, pollCmd(m.client, m.project)
-				}
-				return m, nil
+				return m, m.startPoll()
 			case msg.Text == "/":
 				m.mode = modeSearch
 				return m, nil
@@ -541,11 +526,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			case msg.Text == "r":
-				if !m.polling {
-					m.polling = true
-					return m, pollCmd(m.client, m.project)
-				}
-				return m, nil
+				return m, m.startPoll()
 			case msg.Text == "?":
 				m.mode = modeHelp
 				return m, nil

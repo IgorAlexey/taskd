@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -18,8 +17,6 @@ import (
 type client struct {
 	base string
 	http *http.Client
-	mu   sync.Mutex
-	etag string
 }
 
 func newClient(base string) *client {
@@ -29,24 +26,6 @@ func newClient(base string) *client {
 			Timeout: 3 * time.Second,
 		},
 	}
-}
-
-func (c *client) getETag() string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.etag
-}
-
-func (c *client) setETag(etag string) {
-	c.mu.Lock()
-	c.etag = etag
-	c.mu.Unlock()
-}
-
-func (c *client) resetETag() {
-	c.mu.Lock()
-	c.etag = ""
-	c.mu.Unlock()
 }
 
 func parseError(resp *http.Response, method, path string) error {
@@ -62,48 +41,36 @@ func parseError(resp *http.Response, method, path string) error {
 	return fmt.Errorf("%s %s: %s", method, path, resp.Status)
 }
 
-func (c *client) list(project string) ([]task, bool, error) {
+// list fetches the queue. etag is the tag of the list the caller already
+// holds; when the daemon answers 304 the returned tasks are nil and
+// changed is false. On 200 the new tag comes back with the tasks.
+func (c *client) list(project, etag string) (tasks []task, newETag string, changed bool, err error) {
 	relPath := "/tasks?limit=500"
 	if project != "" {
 		relPath += "&project=" + url.QueryEscape(project)
 	}
-	u := c.base + relPath
-	req, err := http.NewRequest(http.MethodGet, u, nil)
+	req, err := http.NewRequest(http.MethodGet, c.base+relPath, nil)
 	if err != nil {
-		c.resetETag()
-		return nil, false, err
+		return nil, "", false, err
 	}
-
-	etag := c.getETag()
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
 	}
-
 	resp, err := c.http.Do(req)
 	if err != nil {
-		c.resetETag()
-		return nil, false, err
+		return nil, "", false, err
 	}
 	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusNotModified {
-		return nil, false, nil
-	}
-
-	if resp.StatusCode == http.StatusOK {
-		var tasks []task
+	switch resp.StatusCode {
+	case http.StatusNotModified:
+		return nil, etag, false, nil
+	case http.StatusOK:
 		if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
-			c.resetETag()
-			return nil, false, err
+			return nil, "", false, err
 		}
-		if etagHeader := resp.Header.Get("ETag"); etagHeader != "" {
-			c.setETag(etagHeader)
-		}
-		return tasks, true, nil
+		return tasks, resp.Header.Get("ETag"), true, nil
 	}
-
-	c.resetETag()
-	return nil, false, parseError(resp, http.MethodGet, relPath)
+	return nil, "", false, parseError(resp, http.MethodGet, relPath)
 }
 
 func (c *client) getStats(project string) (stats, error) {
@@ -184,19 +151,20 @@ func (c *client) do(method, path string, body any) error {
 	return parseError(resp, method, path)
 }
 
-func pollCmd(c *client, project string) tea.Cmd {
+func pollCmd(c *client, project, etag string) tea.Cmd {
 	return func() tea.Msg {
-		tasks, changed, err := c.list(project)
+		tasks, newETag, changed, err := c.list(project, etag)
 		if err != nil {
 			return pollMsg{err: err}
 		}
 		st, err := c.getStats(project)
 		if err != nil {
-			return pollMsg{tasks: tasks, changed: changed, err: err}
+			return pollMsg{tasks: tasks, etag: newETag, changed: changed, err: err}
 		}
 		projs, _ := c.getProjects()
 		return pollMsg{
 			tasks:    tasks,
+			etag:     newETag,
 			changed:  changed,
 			stats:    st,
 			projects: projs,

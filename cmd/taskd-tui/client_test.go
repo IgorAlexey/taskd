@@ -51,7 +51,7 @@ func TestClientListETagAnd304(t *testing.T) {
 	c := newClient(ts.URL)
 
 	// First call: 200 OK with ETag
-	tasks, changed, err := c.list("")
+	tasks, etag, changed, err := c.list("", "")
 	if err != nil {
 		t.Fatalf("first list failed: %v", err)
 	}
@@ -61,17 +61,17 @@ func TestClientListETagAnd304(t *testing.T) {
 	if len(tasks) != 1 || tasks[0].ID != "task-1" {
 		t.Fatalf("unexpected tasks: %v", tasks)
 	}
-	if c.getETag() != `"etag-123"` {
-		t.Fatalf("expected stored etag %q, got %q", `"etag-123"`, c.getETag())
+	if etag != `"etag-123"` {
+		t.Fatalf("expected returned etag %q, got %q", `"etag-123"`, etag)
 	}
 
-	// Second call: 304 Not Modified
-	tasks2, changed2, err2 := c.list("")
+	// Second call with that tag: 304 Not Modified, tag echoed back
+	tasks2, etag2, changed2, err2 := c.list("", etag)
 	if err2 != nil {
 		t.Fatalf("second list failed: %v", err2)
 	}
-	if changed2 {
-		t.Fatalf("expected changed=false on 304")
+	if changed2 || etag2 != etag {
+		t.Fatalf("expected changed=false and same etag on 304, got %v %q", changed2, etag2)
 	}
 	if tasks2 != nil {
 		t.Fatalf("expected nil tasks on 304, got %v", tasks2)
@@ -81,58 +81,21 @@ func TestClientListETagAnd304(t *testing.T) {
 	}
 }
 
-func TestClientListErrorResetsETag(t *testing.T) {
-	var reqCount atomic.Int32
-	var sawIfNoneMatchOnThirdReq bool
-
+func TestClientListErrorSurfacesDaemonMessage(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n := reqCount.Add(1)
-		switch n {
-		case 1:
-			w.Header().Set("ETag", `"etag-xyz"`)
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode([]task{{ID: "t-init"}})
-		case 2:
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "database down"})
-		case 3:
-			sawIfNoneMatchOnThirdReq = r.Header.Get("If-None-Match") != ""
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_ = json.NewEncoder(w).Encode([]task{{ID: "t-recovered"}})
-		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "database down"})
 	}))
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-
-	// 1. Successful fetch sets etag
-	_, _, err := c.list("")
-	if err != nil {
-		t.Fatalf("list 1 failed: %v", err)
+	_, etag, changed, err := c.list("", `"old"`)
+	if err == nil || err.Error() != "database down" {
+		t.Fatalf("expected daemon error text, got %v", err)
 	}
-	if c.getETag() != `"etag-xyz"` {
-		t.Fatalf("expected etag-xyz, got %q", c.getETag())
-	}
-
-	// 2. Error response resets etag
-	_, _, err = c.list("")
-	if err == nil {
-		t.Fatalf("expected list 2 error, got nil")
-	}
-	if c.getETag() != "" {
-		t.Fatalf("expected etag to be reset to empty, got %q", c.getETag())
-	}
-
-	// 3. Next request should not send If-None-Match
-	_, _, err = c.list("")
-	if err != nil {
-		t.Fatalf("list 3 failed: %v", err)
-	}
-	if sawIfNoneMatchOnThirdReq {
-		t.Fatalf("expected no If-None-Match on recovering request after error")
+	if changed || etag != "" {
+		t.Fatalf("error must report no change and no tag, got %v %q", changed, etag)
 	}
 }
 
@@ -232,7 +195,7 @@ func TestPollCmdToleratesProjects500(t *testing.T) {
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-	cmd := pollCmd(c, "")
+	cmd := pollCmd(c, "", "")
 	if cmd == nil {
 		t.Fatalf("pollCmd returned nil cmd")
 	}
@@ -355,7 +318,7 @@ func TestListAndStatsQueryEscaping(t *testing.T) {
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-	_, _, _ = c.list("proj with/special")
+	_, _, _, _ = c.list("proj with/special", "")
 	_, _ = c.getStats("proj with/special")
 
 	if requestedTasksURL != "/tasks?limit=500&project=proj+with%2Fspecial" {

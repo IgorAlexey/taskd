@@ -67,6 +67,7 @@ type (
 	// is nil and the model keeps its current slice.
 	pollMsg struct {
 		tasks    []task
+		etag     string
 		changed  bool
 		stats    stats
 		projects []string
@@ -102,7 +103,8 @@ type model struct {
 	project  string // "" means all projects
 	query    string // / substring filter, case-insensitive
 	mode     mode
-	polling  bool
+	etag     string // tag of m.tasks, sent as If-None-Match
+	polling  bool   // a pollCmd is in flight; cleared by pollMsg
 	stats    stats
 	hasStats bool
 	projects []string
