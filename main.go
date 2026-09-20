@@ -2088,13 +2088,24 @@ type config struct {
 }
 
 func printUsage(w io.Writer) {
-	var cfg config
+	cfg := config{
+		dbPath:    defaultDBPath,
+		addr:      defaultAddr,
+		lease:     defaultLease,
+		maxClaims: defaultMaxClaims,
+	}
 	fs := newFlagSet(&cfg)
 	fmt.Fprintf(w, "Usage of %s:\n\n", fs.Name())
 	fmt.Fprintf(w, "taskd is a lightweight task queue daemon backed by SQLite.\n\nOptions:\n")
 	fs.SetOutput(w)
 	fs.PrintDefaults()
 	fmt.Fprintf(w, `
+Environment variables:
+  TASKD_ADDR          listen address (default: 127.0.0.1:8080)
+  TASKD_DB            database path (default: taskd.db)
+  TASKD_LEASE         lease duration in seconds (default: 300)
+  TASKD_MAX_CLAIMS    bury a task after this many claims (default: 0)
+
 HTTP Endpoints:
   GET    /health             daemon readiness and database ping
   GET    /tasks              list tasks
@@ -2174,14 +2185,21 @@ func typedFlag(args []string, name string) string {
 	return "-" + name
 }
 
+const (
+	defaultDBPath    = "taskd.db"
+	defaultAddr      = "127.0.0.1:8080"
+	defaultLease     = 300
+	defaultMaxClaims = 0
+)
+
 func newFlagSet(cfg *config) *flag.FlagSet {
 	fs := flag.NewFlagSet("taskd", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
-	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
-	fs.StringVar(&cfg.addr, "addr", "127.0.0.1:8080", "listen address (e.g. :8080 to expose on all interfaces)")
-	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
-	fs.IntVar(&cfg.maxClaims, "max-claims", 0, "bury a task after this many claims (0 = unlimited)")
+	fs.StringVar(&cfg.dbPath, "db", cfg.dbPath, "database path")
+	fs.StringVar(&cfg.addr, "addr", cfg.addr, "listen address (e.g. :8080 to expose on all interfaces)")
+	fs.IntVar(&cfg.lease, "lease", cfg.lease, "lease duration in seconds")
+	fs.IntVar(&cfg.maxClaims, "max-claims", cfg.maxClaims, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
 	fs.BoolVar(&cfg.version, "v", false, "print version and exit")
@@ -2192,7 +2210,39 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 const maxLeaseSeconds = 31536000
 
 func parseFlags(args []string) (config, error) {
-	var cfg config
+	cfg := config{
+		dbPath:    defaultDBPath,
+		addr:      defaultAddr,
+		lease:     defaultLease,
+		maxClaims: defaultMaxClaims,
+	}
+	if v := os.Getenv("TASKD_DB"); v != "" {
+		cfg.dbPath = v
+	}
+	if v := os.Getenv("TASKD_ADDR"); v != "" {
+		cfg.addr = v
+	}
+	if raw := os.Getenv("TASKD_LEASE"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return cfg, usagef("invalid value %q for TASKD_LEASE: %w", raw, err)
+		}
+		if v <= 0 || v > maxLeaseSeconds {
+			return cfg, usagef("TASKD_LEASE must be between 1 and %d seconds: got %d", maxLeaseSeconds, v)
+		}
+		cfg.lease = v
+	}
+	if raw := os.Getenv("TASKD_MAX_CLAIMS"); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil {
+			return cfg, usagef("invalid value %q for TASKD_MAX_CLAIMS: %w", raw, err)
+		}
+		if v < 0 {
+			return cfg, usagef("TASKD_MAX_CLAIMS cannot be negative: got %d", v)
+		}
+		cfg.maxClaims = v
+	}
+
 	fs := newFlagSet(&cfg)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
