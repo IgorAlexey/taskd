@@ -229,3 +229,67 @@ func TestClaimOrderFIFO(t *testing.T) {
 		t.Fatalf("claim query does not use index: %s", detail)
 	}
 }
+
+func TestSortCursor(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	for _, task := range []map[string]any{
+		{"id": "task-1", "project": "demo", "priority": 1, "body": "first"},
+		{"id": "task-2", "project": "demo", "priority": 2, "body": "second"},
+		{"id": "task-3", "project": "demo", "priority": 3, "body": "third"},
+	} {
+		payload, err := json.Marshal(task)
+		if err != nil {
+			t.Fatalf("marshal task failed: %v", err)
+		}
+		resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatalf("create task failed: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
+			t.Fatalf("create task status: %d", resp.StatusCode)
+		}
+	}
+
+	sortResp, err := http.Get(srv.URL + "/tasks?sort=priority&limit=1")
+	if err != nil {
+		t.Fatalf("GET with sort failed: %v", err)
+	}
+	defer sortResp.Body.Close()
+	if sortResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET with sort status: %d, want 200", sortResp.StatusCode)
+	}
+	if cursor := sortResp.Header.Get("X-Next-Cursor"); cursor != "" {
+		t.Fatalf("expected no X-Next-Cursor on sort query, got %q", cursor)
+	}
+
+	defaultResp, err := http.Get(srv.URL + "/tasks?limit=1")
+	if err != nil {
+		t.Fatalf("GET default failed: %v", err)
+	}
+	defer defaultResp.Body.Close()
+	if defaultResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET default status: %d, want 200", defaultResp.StatusCode)
+	}
+	defaultCursor := defaultResp.Header.Get("X-Next-Cursor")
+	if defaultCursor == "" {
+		t.Fatalf("expected X-Next-Cursor on limit=1 query without sort")
+	}
+
+	combineResp, err := http.Get(srv.URL + "/tasks?sort=priority&after=" + defaultCursor)
+	if err != nil {
+		t.Fatalf("GET combined sort and after failed: %v", err)
+	}
+	defer combineResp.Body.Close()
+	if combineResp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected 400 when combining sort and after, got %d", combineResp.StatusCode)
+	}
+}

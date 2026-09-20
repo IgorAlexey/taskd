@@ -2228,7 +2228,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if after == nil {
 			w.Header().Set("X-Total-Count", strconv.Itoa(total))
 		}
-		if len(tasks) == limit {
+		if sortCol == "" && len(tasks) == limit {
 			next.Filters = listFilterFingerprint(q)
 			w.Header().Set("X-Next-Cursor", encodeListCursor(next))
 		}
