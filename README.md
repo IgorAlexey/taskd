@@ -26,6 +26,8 @@ and `/stats` pending count all available pending tasks. Append-only notes
 via `GET /tasks/{id}/notes` or inline on `GET /tasks/{id}` without mutating
 the task specification. Just simple SQL and UI that works.
 
+Tasks declare prerequisites with an `"after": [ids...]` array on `POST /tasks` or `PATCH /tasks/{id}`. A task waiting on other tasks cannot be claimed until every dependency is marked done, and dependency cycles are rejected. Once prerequisites complete, blocked tasks immediately become available for workers to claim.
+
 By default, taskd listens on 127.0.0.1:8080 with no authentication. To expose
 it on all interfaces, pass `-addr :8080` or an explicit host and port.
 

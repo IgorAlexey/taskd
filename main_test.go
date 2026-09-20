@@ -987,7 +987,7 @@ func TestGetTasksInvalidSortOrderFields(t *testing.T) {
 		},
 		{
 			param:   "?fields=bad",
-			wantErr: `invalid field "bad", must be one of [id, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]`,
+			wantErr: `invalid field "bad", must be one of [id, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version, after]`,
 		},
 	}
 
@@ -1078,8 +1078,8 @@ INSERT INTO notes (task_id, created_at, author, text) VALUES ('task-a', unixepoc
 	if err := store.ro.QueryRow("PRAGMA user_version").Scan(&ver); err != nil {
 		t.Fatalf("query user_version failed: %v", err)
 	}
-	if ver != 14 {
-		t.Fatalf("expected schema version 14, got %d", ver)
+	if ver != schemaVersion {
+		t.Fatalf("expected schema version %d, got %d", schemaVersion, ver)
 	}
 
 	type taskRow struct {

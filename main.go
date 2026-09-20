@@ -72,7 +72,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15}
 
 const schemaVersion = len(migrations) + 1
 
@@ -346,7 +346,13 @@ CREATE TABLE IF NOT EXISTS notes (
   author TEXT NOT NULL,
   text TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_notes_task_id ON notes (task_id);`
+CREATE INDEX IF NOT EXISTS idx_notes_task_id ON notes (task_id);
+CREATE TABLE IF NOT EXISTS task_deps (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, depends_on_id)
+);
+CREATE INDEX IF NOT EXISTS idx_task_deps_depends_on ON task_deps (depends_on_id);`
 	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
 	if err != nil {
 		db.Close()
@@ -844,6 +850,30 @@ JOIN idmap m ON n.task_id = m.old_id;`,
 	return tx.Commit()
 }
 
+func migrateV15(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		`CREATE TABLE task_deps (
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  depends_on_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  PRIMARY KEY (task_id, depends_on_id)
+);`,
+		"CREATE INDEX idx_task_deps_depends_on ON task_deps (depends_on_id);",
+		"PRAGMA user_version = 15;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 const defaultPriority = 3
 
 const maxBodyBytes = 1 << 20
@@ -1175,6 +1205,7 @@ type taskItem struct {
 	Project      string          `json:"project"`
 	ClaimCount   int             `json:"claim_count"`
 	CreatedAt    int64           `json:"created_at"`
+	After        []int64         `json:"after"`
 
 	summaryPrefix string
 }
@@ -1213,6 +1244,104 @@ func fetchTaskNotes(q queryer, taskID int64) ([]taskNote, error) {
 	return notes, nil
 }
 
+func fetchAfter(q queryer, id int64) ([]int64, error) {
+	after := make([]int64, 0)
+	rows, err := q.Query("SELECT depends_on_id FROM task_deps WHERE task_id = ? ORDER BY depends_on_id ASC", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var depID int64
+		if err := rows.Scan(&depID); err != nil {
+			return nil, err
+		}
+		after = append(after, depID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return after, nil
+}
+
+func setDeps(tx *sql.Tx, id int64, after []int64) error {
+	if _, err := tx.Exec("DELETE FROM task_deps WHERE task_id = ?", id); err != nil {
+		return err
+	}
+	if len(after) == 0 {
+		return nil
+	}
+	seen := make(map[int64]bool, len(after))
+	for _, depID := range after {
+		if depID <= 0 {
+			return fieldError{msg: fmt.Sprintf("unknown task %d", depID), field: "after"}
+		}
+		if depID == id {
+			return fieldError{msg: "self reference", field: "after"}
+		}
+		if seen[depID] {
+			continue
+		}
+		seen[depID] = true
+		var exists int
+		err := tx.QueryRow("SELECT 1 FROM tasks WHERE id = ?", depID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fieldError{msg: fmt.Sprintf("unknown task %d", depID), field: "after"}
+		}
+		if err != nil {
+			return err
+		}
+		var cycle int
+		err = tx.QueryRow(`WITH RECURSIVE reachable(node) AS (
+			SELECT ?
+			UNION
+			SELECT depends_on_id FROM task_deps JOIN reachable ON task_id = node
+		)
+		SELECT 1 FROM reachable WHERE node = ? LIMIT 1`, depID, id).Scan(&cycle)
+		if err == nil {
+			return fieldError{msg: "dependency cycle", field: "after"}
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+	}
+	stmt, err := tx.Prepare("INSERT INTO task_deps (task_id, depends_on_id) VALUES (?, ?)")
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	sorted := make([]int64, 0, len(seen))
+	for depID := range seen {
+		sorted = append(sorted, depID)
+	}
+	slices.Sort(sorted)
+	for _, depID := range sorted {
+		if _, err := stmt.Exec(id, depID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func blockedProjects(q queryer, doneID int64) ([]string, error) {
+	rows, err := q.Query("SELECT DISTINCT t.project FROM task_deps d JOIN tasks t ON t.id = d.task_id WHERE d.depends_on_id = ?", doneID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var projs []string
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		projs = append(projs, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return projs, nil
+}
+
 const summaryRunes = 50
 
 const summaryTrim = " \t\r\n"
@@ -1238,7 +1367,7 @@ func summaryLine(body string) string {
 	return s
 }
 
-const validTaskFieldsList = "[id, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]"
+const validTaskFieldsList = "[id, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version, after]"
 
 func parseTaskFields(q url.Values) ([]string, error) {
 	if !q.Has("fields") && !q.Has("columns") {
@@ -1257,7 +1386,7 @@ func parseTaskFields(q url.Values) ([]string, error) {
 	for _, p := range parts {
 		f := strings.TrimSpace(p)
 		switch f {
-		case "id", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version":
+		case "id", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version", "after":
 			if !seen[f] {
 				seen[f] = true
 				fields = append(fields, f)
@@ -1320,6 +1449,13 @@ func writeProjectedTask(buf *bytes.Buffer, item taskItem, fields []string) {
 		case "summary":
 			b, _ := json.Marshal(taskSummary(item))
 			buf.Write(b)
+		case "after":
+			if len(item.After) == 0 {
+				buf.WriteString("[]")
+			} else {
+				b, _ := json.Marshal(item.After)
+				buf.Write(b)
+			}
 		}
 	}
 	buf.WriteByte('}')
@@ -1336,6 +1472,7 @@ type taskCreateReq struct {
 	Body     string          `json:"body"`
 	Priority *int            `json:"priority"`
 	Project  string          `json:"project"`
+	After    []int64         `json:"after"`
 }
 
 type fieldError struct {
@@ -1351,6 +1488,7 @@ type validatedTask struct {
 	body     string
 	priority int
 	project  string
+	after    []int64
 }
 
 const maxProjectLen = 64
@@ -1677,10 +1815,16 @@ FROM tasks`
 			}
 			priority = *req.Priority
 		}
+		for _, depID := range req.After {
+			if depID <= 0 {
+				return validatedTask{}, fieldError{msg: fmt.Sprintf("unknown task %d", depID), field: "after"}
+			}
+		}
 		return validatedTask{
 			body:     req.Body,
 			priority: priority,
 			project:  project,
+			after:    req.After,
 		}, nil
 	}
 
@@ -1773,12 +1917,22 @@ FROM tasks`
 				return
 			}
 		}
+		for i, t := range tasks {
+			if err := setDeps(tx, createdIDs[i], t.after); err != nil {
+				var fe fieldError
+				if errors.As(err, &fe) {
+					writeFieldError(w, http.StatusBadRequest, fe.msg, fe.field)
+					return
+				}
+				internalError(w, err)
+				return
+			}
+		}
 
 		if err := tx.Commit(); err != nil {
 			internalError(w, err)
 			return
 		}
-
 		for _, t := range tasks {
 			db.notifyPending(t.project)
 		}
@@ -1831,7 +1985,8 @@ FROM tasks`
 		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1, version = version + 1
 WHERE id = (
   SELECT id FROM tasks
-  WHERE status='pending'`
+  WHERE status='pending'
+    AND NOT EXISTS (SELECT 1 FROM task_deps d JOIN tasks t ON t.id = d.depends_on_id WHERE d.task_id = tasks.id AND t.status != 'done')`
 		args := []any{req.Worker, lease}
 		if db.maxClaims > 0 {
 			query += " AND claim_count < ?"
@@ -1861,6 +2016,10 @@ WHERE id = (
 			item.Worker = leasedWorker.String
 			item.LeaseExpires = leaseExpires.Int64
 			item.Primitives = prim
+			item.After, err = fetchAfter(db.rw, item.ID)
+			if err != nil {
+				return nil, err
+			}
 			return &item, nil
 		}
 
@@ -1956,6 +2115,7 @@ WHERE id = (
 SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1, version = version + 1
 WHERE id = ? AND status='pending'
   AND (? <= 0 OR claim_count < ?)
+  AND NOT EXISTS (SELECT 1 FROM task_deps d JOIN tasks t ON t.id = d.depends_on_id WHERE d.task_id = tasks.id AND t.status != 'done')
 RETURNING id, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
 		var (
 			item         taskItem
@@ -1966,6 +2126,18 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 		err := db.rw.QueryRow(query, worker, lease, id, db.maxClaims, db.maxClaims).
 			Scan(&item.ID, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
+			var (
+				status   string
+				hasUnmet int
+			)
+			if err := db.ro.QueryRow(`SELECT status, EXISTS(
+				SELECT 1 FROM task_deps d JOIN tasks t ON t.id = d.depends_on_id WHERE d.task_id = tasks.id AND t.status != 'done'
+			) FROM tasks WHERE id = ?`, id).Scan(&status, &hasUnmet); err == nil {
+				if status == "pending" && hasUnmet == 1 {
+					writeError(w, http.StatusConflict, "task is waiting on other tasks")
+					return
+				}
+			}
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
 		}
@@ -1976,6 +2148,11 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 		item.Worker = leasedWorker.String
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
+		item.After, err = fetchAfter(db.rw, item.ID)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
 	}
@@ -2005,6 +2182,11 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='done', primitives=?, lease_expires=NULL, version = version + 1", id, req.Worker, req.ClaimCount, prim); !ok {
 			return
 		}
+		if projs, err := blockedProjects(db.ro, id); err == nil {
+			for _, p := range projs {
+				db.notifyPending(p)
+			}
+		}
 		w.WriteHeader(http.StatusNoContent)
 	}
 	closeIDHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -2030,6 +2212,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if aff == 0 {
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
+		}
+		if projs, err := blockedProjects(db.ro, id); err == nil {
+			for _, p := range projs {
+				db.notifyPending(p)
+			}
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -2352,6 +2539,36 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			internalError(w, err)
 			return
 		}
+		if (requestedFields == nil || slices.Contains(requestedFields, "after")) && len(tasks) > 0 {
+			taskIndex := make(map[int64]int, len(tasks))
+			inArgs := make([]any, len(tasks))
+			for i := range tasks {
+				tasks[i].After = make([]int64, 0)
+				taskIndex[tasks[i].ID] = i
+				inArgs[i] = tasks[i].ID
+			}
+			depQuery := "SELECT task_id, depends_on_id FROM task_deps WHERE task_id IN (" + strings.Repeat("?,", len(tasks)-1) + "?) ORDER BY task_id, depends_on_id"
+			depRows, err := db.ro.Query(depQuery, inArgs...)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			defer depRows.Close()
+			for depRows.Next() {
+				var tid, depID int64
+				if err := depRows.Scan(&tid, &depID); err != nil {
+					internalError(w, err)
+					return
+				}
+				if idx, ok := taskIndex[tid]; ok {
+					tasks[idx].After = append(tasks[idx].After, depID)
+				}
+			}
+			if err := depRows.Err(); err != nil {
+				internalError(w, err)
+				return
+			}
+		}
 
 		// A short page means the query reached the end of the set, so the
 		// rows in hand already give the total; only a full page can hide
@@ -2435,6 +2652,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		item.Worker = worker.String
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
+		if requestedFields == nil || slices.Contains(requestedFields, "after") {
+			item.After, err = fetchAfter(db.ro, item.ID)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+		}
 
 		var notes []taskNote
 		if requestedFields == nil {
@@ -2616,15 +2840,16 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	}
 	patchTaskHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Body      *string `json:"body"`
-			Priority  *int    `json:"priority"`
-			Project   *string `json:"project"`
-			IfVersion *int    `json:"if_version"`
+			Body      *string  `json:"body"`
+			Priority  *int     `json:"priority"`
+			Project   *string  `json:"project"`
+			IfVersion *int     `json:"if_version"`
+			After     *[]int64 `json:"after"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.Body == nil && req.Priority == nil && req.Project == nil {
+		if req.Body == nil && req.Priority == nil && req.Project == nil && req.After == nil {
 			writeError(w, http.StatusBadRequest, "missing fields to update")
 			return
 		}
@@ -2659,8 +2884,15 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			_ = db.ro.QueryRow("SELECT project FROM tasks WHERE id = ?", id).Scan(&prevProject)
 		}
 
+		tx, err := db.rw.Begin()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer tx.Rollback()
+
 		var updatedStatus, updatedProject string
-		err := db.rw.QueryRow(`UPDATE tasks
+		err = tx.QueryRow(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), version = version + 1
 WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())
   AND (? IS NULL OR version = ?)
@@ -2708,7 +2940,24 @@ RETURNING status, project`,
 			internalError(w, err)
 			return
 		}
-		if req.Project != nil && *req.Project != prevProject && updatedStatus == "pending" && updatedProject != "" {
+		if req.After != nil {
+			if err := setDeps(tx, id, *req.After); err != nil {
+				var fe fieldError
+				if errors.As(err, &fe) {
+					writeFieldError(w, http.StatusBadRequest, fe.msg, fe.field)
+					return
+				}
+				internalError(w, err)
+				return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			internalError(w, err)
+			return
+		}
+
+		if ((req.Project != nil && *req.Project != prevProject) || req.After != nil) && updatedStatus == "pending" && updatedProject != "" {
 			db.notifyPending(updatedProject)
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -2751,6 +3000,7 @@ RETURNING status, project`,
 			writeError(w, http.StatusConflict, "task is done")
 			return
 		}
+		projs, _ := blockedProjects(tx, id)
 		if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", id); err != nil {
 			internalError(w, err)
 			return
@@ -2758,6 +3008,9 @@ RETURNING status, project`,
 		if err := tx.Commit(); err != nil {
 			internalError(w, err)
 			return
+		}
+		for _, p := range projs {
+			db.notifyPending(p)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
