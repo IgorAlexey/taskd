@@ -113,76 +113,71 @@ func (f *formModel) resize(inner int) {
 	f.body.SetWidth(inner)
 }
 
-// Compaction levels, tried in order until the rows fit the terminal.
-const (
-	levelFull    = iota // separators and the key hint
-	levelTight          // no separators, no hint
-	levelNoAsset        // an empty, unfocused asset field has no row; no body label
-	levelNoTitle        // the title goes too
-	levelFocused        // only the focused field, the error and the button
-)
-
-// drawn reports whether a field (0 project, 1 priority, 2 asset,
-// 3 body) has a row at a compaction level. Every field stays reachable
-// by Tab at every level, and a field is always drawn while it has the
-// cursor, so nothing is typed into a row nobody can see. What is drawn
-// is not what is sent: submit sends every field.
-func (f formModel) drawn(level, field int) bool {
-	switch {
-	case level < levelNoAsset:
-		return true
-	case level < levelFocused:
-		return field != 2 || f.asset.Value() != "" || f.focus == 2
-	default:
-		return f.focus == field || (field == 3 && f.focus == 4)
-	}
+// formRow is one row of the form with its drop rank: when the terminal
+// is short, rows go one at a time from the lowest rank up. Rank 0 is
+// never dropped; the focused field holds it, so nothing is typed into a
+// row nobody can see. What is drawn is not what is sent: submit sends
+// every field.
+type formRow struct {
+	text  string
+	rank  int
+	field int // 0 project, 1 priority, 2 asset, 3 body (textarea), -1 other
 }
 
-// lines is the form's rows at a compaction level. slot is the index the
-// textarea goes at (-1 when it is not drawn); rows[keepAt:] up to keepN
-// are the error and the button, which a short frame must never cut;
-// anything after them is the hint.
-func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keepN int) {
-	if level < levelNoTitle {
-		rows = append(rows, th.accent.Render(f.title))
+// Drop ranks, lowest goes first. A field row with text in it adds
+// rankFilled, so filled fields (at most rankProject+rankFilled) outlive
+// empty ones and still go before the button; the button goes before
+// the error because a button without its error invites a silent failure.
+const (
+	rankHint      = 1
+	rankSeparator = 2
+	rankBodyLabel = 3
+	rankTitle     = 4
+	rankAsset     = 5
+	rankBody      = 6
+	rankPriority  = 7
+	rankProject   = 8
+	rankFilled    = 4
+	rankButton    = 13
+	rankError     = 14
+)
+
+// rows is the whole form in reading order. Field rows take their rank
+// unless focused, which pins them; a field with text in it outranks
+// every empty one, so what the user typed stays on screen longest.
+func (f formModel) rows(th theme) []formRow {
+	field := func(n, rank int, value, text string) formRow {
+		switch {
+		case f.focus == n || (n == 3 && f.focus == 4):
+			rank = 0
+		case value != "":
+			rank += rankFilled
+		}
+		return formRow{text: text, rank: rank, field: n}
 	}
-	if level == levelFull {
-		rows = append(rows, "")
-	}
-	if f.drawn(level, 0) {
-		rows = append(rows, th.dim.Render("project:  ")+f.project.View())
-	}
-	if f.drawn(level, 1) {
-		rows = append(rows, th.dim.Render("priority: ")+f.priority.View())
-	}
-	if f.drawn(level, 2) {
-		rows = append(rows, th.dim.Render("asset:    ")+f.asset.View())
-	}
-	if level < levelNoAsset {
-		rows = append(rows, th.dim.Render("body:"))
-	}
-	slot = -1
-	if f.drawn(level, 3) {
-		slot = len(rows)
-		rows = append(rows, "")
-	}
-	if level == levelFull {
-		rows = append(rows, "")
-	}
-	keepAt = len(rows)
-	if f.errText != "" {
-		rows = append(rows, th.err.Render(f.errText))
-	}
+	save := th.dim.Render("[ save ]")
 	if f.focus == 4 {
-		rows = append(rows, th.accentPill.Render("[ save ]"))
-	} else {
-		rows = append(rows, th.dim.Render("[ save ]"))
+		save = th.accentPill.Render("[ save ]")
 	}
-	keepN = len(rows) - keepAt
-	if level == levelFull {
-		rows = append(rows, "", th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
+	rows := []formRow{
+		{text: th.accent.Render(f.title), rank: rankTitle, field: -1},
+		{rank: rankSeparator, field: -1},
+		field(0, rankProject, f.project.Value(), th.dim.Render("project:  ")+f.project.View()),
+		field(1, rankPriority, f.priority.Value(), th.dim.Render("priority: ")+f.priority.View()),
+		field(2, rankAsset, f.asset.Value(), th.dim.Render("asset:    ")+f.asset.View()),
+		{text: th.dim.Render("body:"), rank: rankBodyLabel, field: -1},
+		field(3, rankBody, f.body.Value(), ""),
+		{rank: rankSeparator, field: -1},
 	}
-	return rows, slot, keepAt, keepN
+	if f.errText != "" {
+		rows = append(rows, formRow{text: th.err.Render(f.errText), rank: rankError, field: -1})
+	}
+	rows = append(rows,
+		formRow{text: save, rank: rankButton, field: -1},
+		formRow{rank: rankHint, field: -1},
+		formRow{text: th.dim.Render("Tab next  ctrl-s save  Esc cancel"), rank: rankHint, field: -1},
+	)
+	return rows
 }
 
 // wrapRows renders rows at width so each element is one terminal line;
@@ -438,9 +433,9 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 }
 
 // fit lays the form out for a terminal: rows are built, wrapped to the
-// box and counted; the textarea gets what is left, compacting rows when
-// even one is short. It sets the stored textarea size, so Update and
-// View agree on the layout.
+// box and counted, then dropped one at a time by rank until they fit;
+// the textarea, when drawn, takes what is left. It sets the stored
+// textarea size, so Update and View agree on the layout.
 func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, tail []string, boxWidth int) {
 	if width <= 0 {
 		width = 80
@@ -450,43 +445,61 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 	}
 	f.width, f.height, f.th = width, height, th
 	boxWidth, inner := boxSize(width, 20, 90)
-	f.resize(max(1, inner))
-	var rows []string
-	var slot, keepAt, keepN, bodyH, level int
-	for level = levelFull; ; level++ {
-		rows, slot, keepAt, keepN = f.lines(level, th)
-		bodyH = height - 2 - len(wrapRows(rows, inner))
-		if slot >= 0 {
-			bodyH++ // the slot row stands in for the textarea
+	f.resize(inner)
+
+	rows := f.rows(th)
+	wrapped := make([][]string, len(rows))
+	total := 2 // border
+	for i, r := range rows {
+		if r.field == 3 {
+			wrapped[i] = []string{""} // one row stands in for the textarea
+		} else {
+			wrapped[i] = wrapRows([]string{r.text}, inner)
 		}
-		if bodyH >= 1 || level == levelFocused {
+		total += len(wrapped[i])
+	}
+	for total > height {
+		drop := -1
+		for i, r := range rows {
+			if r.rank > 0 && (drop < 0 || r.rank < rows[drop].rank) {
+				drop = i
+			}
+		}
+		if drop < 0 {
 			break
 		}
+		total -= len(wrapped[drop])
+		rows = append(rows[:drop:drop], rows[drop+1:]...)
+		wrapped = append(wrapped[:drop:drop], wrapped[drop+1:]...)
 	}
-	if level == levelFocused {
-		bodyH = 1 // the box must not jump as focus moves between fields
+
+	body := -1
+	for i, r := range rows {
+		if r.field == 3 {
+			body = i
+		}
 	}
-	bodyH = max(1, min(12, bodyH))
-	f.body.SetHeight(bodyH)
-	head = wrapRows(rows[:keepAt], inner)
-	if slot >= 0 {
+	if body >= 0 {
+		bodyH := max(1, min(12, height-total+1))
+		f.body.SetHeight(bodyH)
 		// The textarea can render its placeholder taller than its
 		// height; hold it to the rows that were budgeted.
-		body := wrapRows([]string{f.body.View()}, inner)
-		if len(body) > bodyH {
-			body = body[:bodyH]
+		lines := wrapRows([]string{f.body.View()}, inner)
+		if len(lines) > bodyH {
+			lines = lines[:bodyH]
 		}
-		head = append(append(wrapRows(rows[:slot], inner), body...), wrapRows(rows[slot+1:keepAt], inner)...)
+		wrapped[body] = lines
 	}
-	if level == levelFocused {
-		// Only the focused field is drawn; it outranks error and button.
-		keep = append(keep, head)
-		head = nil
+
+	if total <= height {
+		for _, w := range wrapped {
+			head = append(head, w...)
+		}
+		return head, nil, nil, boxWidth
 	}
-	for _, r := range rows[keepAt : keepAt+keepN] {
-		keep = append(keep, wrapRows([]string{r}, inner))
-	}
-	return head, keep, wrapRows(rows[keepAt+keepN:], inner), boxWidth
+	// Only the pinned field, the error and the button are left and they
+	// still do not fit: box cuts from the button backwards.
+	return nil, wrapped, nil, boxWidth
 }
 
 // refit lays the form out again for the terminal it was last fitted

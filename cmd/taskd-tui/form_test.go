@@ -303,19 +303,21 @@ func TestBlinkMessagesRoundTripThroughTheForm(t *testing.T) {
 	}
 }
 
-func TestEmptyAssetFieldIsDrawnOnlyWhileFocusedAtLevelTwo(t *testing.T) {
-	f, _ := newCreateForm("p")
+func TestEmptyAssetRowGoesBeforeFieldsAndComesBackWithFocus(t *testing.T) {
 	th := newTheme(true)
-	f.fit(40, 8, th) // too short for every row
-	if v := ansi.Strip(f.View()); !strings.Contains(v, "New Task") || strings.Contains(v, "asset:") {
-		t.Fatalf("at 40x8 the title stays and the empty asset row goes:\n%s", v)
+	f, _ := newCreateForm("p")
+	f.fit(40, 7, th) // one row short: the title goes, the asset row stays
+	if v := ansi.Strip(f.View()); strings.Contains(v, "New Task") || !strings.Contains(v, "asset:") {
+		t.Fatalf("at 40x7 the title goes before the empty asset row:\n%s", v)
 	}
-	if strings.Contains(ansi.Strip(f.View()), "asset:") {
-		t.Fatalf("an empty, unfocused asset field has no row at level 2")
+	f.fit(40, 6, th) // another row short: now the empty asset row goes
+	if v := ansi.Strip(f.View()); strings.Contains(v, "asset:") || !strings.Contains(v, "project:") {
+		t.Fatalf("at 40x6 the empty asset row goes and the fields stay:\n%s", v)
 	}
 	f.setFocus(2)
-	if !strings.Contains(ansi.Strip(f.View()), "asset:") {
-		t.Fatalf("the asset field is drawn while it has the cursor")
+	f.fit(40, 6, th)
+	if v := ansi.Strip(f.View()); !strings.Contains(v, "asset:") || !strings.Contains(v, "project:") || !strings.Contains(v, "priority:") {
+		t.Fatalf("a focused asset field is drawn without hiding the other fields:\n%s", v)
 	}
 }
 
@@ -325,7 +327,7 @@ func TestAssetFieldKeepsItsRowWhileFocusedOrFilled(t *testing.T) {
 	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // project -> priority
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> asset
-	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 8})
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 6})
 	view := ansi.Strip(m.View().Content)
 	if m.form.focus != 2 || !strings.Contains(view, "asset:") || !strings.Contains(view, "project:") {
 		t.Fatalf("a focused asset field keeps its row next to the others: focus=%d\n%s", m.form.focus, view)
@@ -345,7 +347,7 @@ func TestAssetFieldKeepsItsRowWhileFocusedOrFilled(t *testing.T) {
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> body; asset now empty
 	view = ansi.Strip(m.View().Content)
 	if m.form.focus != 3 || strings.Contains(view, "asset:") {
-		t.Fatalf("an empty asset field leaves the screen at level 2: focus=%d\n%s", m.form.focus, view)
+		t.Fatalf("an empty, unfocused asset field is the first field row to go: focus=%d\n%s", m.form.focus, view)
 	}
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	view = ansi.Strip(m.View().Content)
@@ -358,9 +360,6 @@ func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
 	m := newModel(config{}, nil)
 	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 5})
 	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
-	if v := ansi.Strip(m.View().Content); strings.Contains(v, "priority:") {
-		t.Fatalf("five rows draw only the focused field:\n%s", v)
-	}
 	var seen []int
 	for i := 0; i < 5; i++ {
 		seen = append(seen, m.form.focus)
@@ -379,11 +378,11 @@ func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
 	}
 }
 
-func TestTabbingOntoTheAssetFieldCostsOneRowNotThree(t *testing.T) {
-	// At 50x7 the form is one row short of the asset field; focusing it
-	// must spend the title, not drop to the focused-only layout.
+func TestTabbingOntoTheAssetFieldCostsOneRow(t *testing.T) {
+	// At 50x6 the empty asset row is the one row that does not fit;
+	// focusing it must cost one other row, not the other fields.
 	m := newModel(config{}, nil)
-	m, _ = send(t, m, tea.WindowSizeMsg{Width: 50, Height: 7})
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 50, Height: 6})
 	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
 	before := ansi.Strip(m.View().Content)
 	if !strings.Contains(before, "project:") || strings.Contains(before, "asset:") {
