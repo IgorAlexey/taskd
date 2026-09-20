@@ -2,7 +2,11 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -123,5 +127,105 @@ PRAGMA user_version = 4;`
 	}
 	if version != schemaVersion {
 		t.Fatalf("expected user_version %d, got %d", schemaVersion, version)
+	}
+}
+
+func TestExpiredWorkerExcludedFromWorkersAndSearch(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	t1 := createTask(t, srv.URL, "p1")
+	claimTask(t, srv.URL, "p1", "w1")
+	expireLease(t, db, t1)
+
+	code, body := do(t, http.MethodGet, srv.URL+"/tasks?q=w1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=w1 expected 200, got %d: %s", code, body)
+	}
+	var qTasks []taskItem
+	if err := json.Unmarshal(body, &qTasks); err != nil {
+		t.Fatalf("unmarshal tasks: %v", err)
+	}
+	if len(qTasks) != 0 {
+		t.Fatalf("expected 0 tasks for q=w1 after expiry, got %+v", qTasks)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/workers", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /workers expected 200, got %d: %s", code, body)
+	}
+	var workers []string
+	if err := json.Unmarshal(body, &workers); err != nil {
+		t.Fatalf("unmarshal workers: %v", err)
+	}
+	if len(workers) != 0 {
+		t.Fatalf("expected 0 workers after expiry, got %v", workers)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?worker=w1", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=w1 expected 200, got %d: %s", code, body)
+	}
+	var wTasks []taskItem
+	if err := json.Unmarshal(body, &wTasks); err != nil {
+		t.Fatalf("unmarshal tasks: %v", err)
+	}
+	if len(wTasks) != 0 {
+		t.Fatalf("expected 0 tasks for worker=w1 after expiry, got %+v", wTasks)
+	}
+
+	t2 := createTask(t, srv.URL, "p1")
+	if code, body := post(t, srv.URL+"/tasks/"+t2+"/claim", map[string]any{"worker": "w2"}); code != http.StatusOK {
+		t.Fatalf("claim t2 expected 200, got %d: %s", code, body)
+	}
+
+	t3 := createTask(t, srv.URL, "p1")
+	if code, body := post(t, srv.URL+"/tasks/"+t3+"/claim", map[string]any{"worker": "w3"}); code != http.StatusOK {
+		t.Fatalf("claim t3 expected 200, got %d: %s", code, body)
+	}
+	if code, body := post(t, srv.URL+"/tasks/"+t3+"/done", map[string]any{"worker": "w3"}); code != http.StatusNoContent {
+		t.Fatalf("done expected 204, got %d: %s", code, body)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/workers", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /workers expected 200, got %d: %s", code, body)
+	}
+	workers = nil
+	if err := json.Unmarshal(body, &workers); err != nil {
+		t.Fatalf("unmarshal workers: %v", err)
+	}
+	if !slices.Equal(workers, []string{"w2", "w3"}) {
+		t.Fatalf("expected [w2, w3], got %v", workers)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?q=w2", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=w2 expected 200, got %d: %s", code, body)
+	}
+	qTasks = nil
+	if err := json.Unmarshal(body, &qTasks); err != nil {
+		t.Fatalf("unmarshal tasks: %v", err)
+	}
+	if len(qTasks) != 1 || qTasks[0].ID != t2 {
+		t.Fatalf("expected [t2] for q=w2, got %+v", qTasks)
+	}
+
+	code, body = do(t, http.MethodGet, srv.URL+"/tasks?q=w3", nil)
+	if code != http.StatusOK {
+		t.Fatalf("GET /tasks?q=w3 expected 200, got %d: %s", code, body)
+	}
+	qTasks = nil
+	if err := json.Unmarshal(body, &qTasks); err != nil {
+		t.Fatalf("unmarshal tasks: %v", err)
+	}
+	if len(qTasks) != 1 || qTasks[0].ID != t3 {
+		t.Fatalf("expected [t3] for q=w3, got %+v", qTasks)
 	}
 }

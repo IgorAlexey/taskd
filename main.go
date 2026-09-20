@@ -1206,8 +1206,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			search := strings.TrimSpace(q.Get("q"))
 			if search != "" {
 				pat := "%" + escapeLike(search) + "%"
-				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR worker LIKE ? ESCAPE '\\')")
-				args = append(args, pat, pat, pat, pat)
+				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))))")
+				args = append(args, pat, pat, pat, pat, now)
 			}
 		}
 		var whereSQL string
@@ -1378,7 +1378,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		json.NewEncoder(w).Encode(projects)
 	}
 	workersHandler := func(w http.ResponseWriter, r *http.Request) {
-		rows, err := db.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' ORDER BY worker ASC")
+		rows, err := db.Query("SELECT DISTINCT worker FROM tasks WHERE worker IS NOT NULL AND worker != '' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?)) ORDER BY worker ASC", time.Now().Unix())
 		if err != nil {
 			internalError(w, err)
 			return
