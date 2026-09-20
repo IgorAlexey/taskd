@@ -9,7 +9,7 @@ import (
 )
 
 func TestCreateFormTypingAndAdvancing(t *testing.T) {
-	f := newCreateForm("")
+	f, _ := newCreateForm("")
 	if f.focus != 0 {
 		t.Fatalf("expected initial focus 0, got %d", f.focus)
 	}
@@ -53,7 +53,7 @@ func TestCreateFormTypingAndAdvancing(t *testing.T) {
 }
 
 func TestTabCyclingOrder(t *testing.T) {
-	f := newCreateForm("proj")
+	f, _ := newCreateForm("proj")
 	// Prefilled project starts with focus on body (3)
 	if f.focus != 3 {
 		t.Fatalf("expected initial focus 3 for prefilled project, got %d", f.focus)
@@ -81,7 +81,7 @@ func TestTabCyclingOrder(t *testing.T) {
 }
 
 func TestCtrlSValidationAndSubmit(t *testing.T) {
-	f := newCreateForm("proj")
+	f, _ := newCreateForm("proj")
 	f.body.SetValue("")
 
 	// ctrl-s with blank body sets errText and done==false
@@ -126,7 +126,7 @@ func TestCtrlSValidationAndSubmit(t *testing.T) {
 }
 
 func TestProjectWithSpaceFailsValidation(t *testing.T) {
-	f := newCreateForm("")
+	f, _ := newCreateForm("")
 	f.project.SetValue("invalid project name")
 	f.body.SetValue("valid body")
 
@@ -145,7 +145,7 @@ func TestProjectWithSpaceFailsValidation(t *testing.T) {
 }
 
 func TestEscSetsCancelled(t *testing.T) {
-	f := newCreateForm("proj")
+	f, _ := newCreateForm("proj")
 	f, _ = f.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
 	if !f.cancelled {
 		t.Fatalf("expected cancelled==true after Esc, got false")
@@ -161,7 +161,7 @@ func TestEditFormSendsOnlyChangedFields(t *testing.T) {
 		Body:      "initial body text",
 	}
 
-	f := newEditForm(originalTask)
+	f, _ := newEditForm(originalTask)
 	if !f.editing {
 		t.Fatalf("expected editing==true in newEditForm")
 	}
@@ -213,7 +213,7 @@ func TestViewFormattingAndWidthLimits(t *testing.T) {
 
 	widths := []int{60, 70, 80, 90, 100}
 	for _, width := range widths {
-		f := newCreateForm("myproj")
+		f, _ := newCreateForm("myproj")
 		view := f.View(width, 24, th)
 		stripped := ansi.Strip(view)
 

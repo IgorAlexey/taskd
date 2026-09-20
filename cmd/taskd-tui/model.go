@@ -191,23 +191,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeForm:
 			var cmd tea.Cmd
 			m.form, cmd = m.form.Update(msg)
-			m.form.fit(m.width, m.height, m.theme) // rows may have changed
 			if m.form.cancelled {
 				m.mode = modeTable
 				return m, cmd
 			}
 			if m.form.done {
 				method, path, body, success, errText := m.form.submit()
-				if errText != "" {
-					return m, cmd
+				if errText == "" {
+					m.mode = modeTable
+					return m, tea.Batch(cmd, actCmd(m.client, method, path, body, success))
 				}
-				m.mode = modeTable
-				act := actCmd(m.client, method, path, body, success)
-				if cmd != nil {
-					return m, tea.Batch(cmd, act)
-				}
-				return m, act
 			}
+			m.form.fit(m.width, m.height, m.theme) // an error line changes the rows
 			return m, cmd
 
 		case modeConfirm:
@@ -429,10 +424,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detail.SetHeight(vh)
 				return m, nil
 			case msg.Text == "n":
-				m.form = newCreateForm(m.project)
+				var cmd tea.Cmd
+				m.form, cmd = newCreateForm(m.project)
 				m.form.fit(m.width, m.height, m.theme)
 				m.mode = modeForm
-				return m, nil
+				return m, cmd
 			case msg.Text == "e":
 				t, ok := m.selected()
 				if !ok {
@@ -446,10 +442,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd := m.setMsg("cannot edit actively leased task")
 					return m, cmd
 				}
-				m.form = newEditForm(t)
+				var cmd tea.Cmd
+				m.form, cmd = newEditForm(t)
 				m.form.fit(m.width, m.height, m.theme)
 				m.mode = modeForm
-				return m, nil
+				return m, cmd
 			case msg.Text == "+" || msg.Text == "=" || msg.Code == '+' || msg.Code == '=':
 				t, ok := m.selected()
 				if !ok || t.Priority == 0 {
@@ -558,6 +555,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeHelp
 				return m, nil
 			}
+		}
+	default:
+		// Cursor blink and other widget messages reach the form only
+		// while it is open.
+		if m.mode == modeForm {
+			var cmd tea.Cmd
+			m.form, cmd = m.form.Update(msg)
+			return m, cmd
 		}
 	}
 	return m, nil
