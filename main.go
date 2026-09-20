@@ -962,6 +962,19 @@ func etagMatches(header, etag string) bool {
 	return false
 }
 
+// statsResponse is the body of GET /stats.
+type statsResponse struct {
+	Pending      int    `json:"pending"`
+	Leased       int    `json:"leased"`
+	Done         int    `json:"done"`
+	Buried       int    `json:"buried"`
+	Total        int    `json:"total"`
+	LeaseSeconds int    `json:"lease_seconds"`
+	DB           string `json:"db"`
+}
+
+// mainDBName returns the basename of the file behind the main schema,
+// or "" for an in-memory database.
 func mainDBName(db *sql.DB) string {
 	rows, err := db.Query("PRAGMA database_list")
 	if err != nil {
@@ -987,6 +1000,7 @@ func newHandler(db *store, lease int) http.Handler {
 
 func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http.Handler {
 	mux := http.NewServeMux()
+	dbName := mainDBName(db.ro)
 
 	buryExhausted := func(id string) error {
 		if maxClaims <= 0 {
@@ -1054,14 +1068,9 @@ FROM tasks`
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
-			"pending":       pending,
-			"leased":        leased,
-			"done":          done,
-			"buried":        buried,
-			"total":         total,
-			"lease_seconds": lease,
-			"db":            mainDBName(db.ro),
+		json.NewEncoder(w).Encode(statsResponse{
+			Pending: pending, Leased: leased, Done: done, Buried: buried,
+			Total: total, LeaseSeconds: lease, DB: dbName,
 		})
 	}
 	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {
