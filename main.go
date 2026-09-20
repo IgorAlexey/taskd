@@ -2864,19 +2864,21 @@ type config struct {
 }
 
 func printUsage(w io.Writer) {
-	cfg := config{
-		dbPath:      defaultDBPath,
-		addr:        defaultAddr,
-		lease:       defaultLease,
-		maxClaims:   defaultMaxClaims,
-		logRequests: defaultLogRequests,
-	}
-	fs := newFlagSet(&cfg)
-	fmt.Fprintf(w, "Usage of %s:\n\n", fs.Name())
-	fmt.Fprintf(w, "taskd is a lightweight task queue daemon backed by SQLite.\n\nOptions:\n")
-	fs.SetOutput(w)
-	fs.PrintDefaults()
-	fmt.Fprintf(w, `
+	fmt.Fprint(w, `Usage of taskd:
+
+taskd is a lightweight task queue daemon backed by SQLite.
+
+Options:
+  -addr <addr>        listen address (e.g. :8080 to expose on all interfaces) (default: 127.0.0.1:8080)
+  -backup <path>      backup destination path
+  -cors-origin <url>  allowed CORS origin
+  -db <path>          database path (default: taskd.db)
+  -lease <seconds>    lease duration in seconds (default: 300)
+  -log-requests       log completed HTTP requests (default: true)
+  -max-claims <count> bury a task after this many claims (0 = unlimited)
+  -v, -version        print version and exit
+  -h, --help          show this help message
+
 Environment variables:
   TASKD_ADDR          listen address (default: 127.0.0.1:8080)
   TASKD_DB            database path (default: taskd.db)
