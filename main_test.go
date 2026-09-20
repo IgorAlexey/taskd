@@ -2,8 +2,12 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"log"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -113,5 +117,104 @@ func TestUsageMentionsExpose(t *testing.T) {
 	}
 	if !strings.Contains(usage, "-addr :8080") {
 		t.Fatalf("expected usage to mention -addr :8080, got:\n%s", usage)
+	}
+}
+
+type testClient struct {
+	t   *testing.T
+	srv *httptest.Server
+}
+
+func (c *testClient) post(path, body string) (*http.Response, taskItem) {
+	c.t.Helper()
+	res, err := c.srv.Client().Post(c.srv.URL+path, "application/json", strings.NewReader(body))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	var item taskItem
+	if strings.Contains(res.Header.Get("Content-Type"), "application/json") {
+		json.NewDecoder(res.Body).Decode(&item)
+	}
+	res.Body.Close()
+	return res, item
+}
+
+func (c *testClient) get(path string) taskItem {
+	c.t.Helper()
+	res, err := c.srv.Client().Get(c.srv.URL + path)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var item taskItem
+	json.NewDecoder(res.Body).Decode(&item)
+	return item
+}
+
+func TestVoluntaryReleaseRefundsMaxClaims(t *testing.T) {
+	st, err := openDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(newHandlerWithCORS(st, 300, 2, ""))
+	defer srv.Close()
+	c := testClient{t: t, srv: srv}
+
+	c.post("/tasks", `{"id":"healthy01","project":"mc","body":"healthy"}`)
+	_, itemA := c.post("/tasks/claim", `{"worker":"A","project":"mc"}`)
+	if itemA.ClaimCount != 1 {
+		t.Fatalf("worker A claim_count = %d, want 1", itemA.ClaimCount)
+	}
+	c.post("/tasks/healthy01/release", `{"worker":"A"}`)
+
+	_, itemB := c.post("/tasks/claim", `{"worker":"B","project":"mc"}`)
+	if itemB.ClaimCount != 1 {
+		t.Fatalf("worker B claim_count = %d, want 1", itemB.ClaimCount)
+	}
+	c.post("/tasks/healthy01/release", `{"worker":"B"}`)
+
+	task := c.get("/tasks/healthy01")
+	if task.Status != "pending" || task.ClaimCount != 0 {
+		t.Fatalf("task = %+v, want pending with claim_count 0", task)
+	}
+
+	resC, itemC := c.post("/tasks/claim", `{"worker":"C","project":"mc"}`)
+	if resC.StatusCode != http.StatusOK || itemC.ID != "healthy01" {
+		t.Fatalf("worker C claim status = %d, id = %q", resC.StatusCode, itemC.ID)
+	}
+}
+
+func TestLeaseExpirationExhaustsMaxClaims(t *testing.T) {
+	st, err := openDB(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(newHandlerWithCORS(st, -1, 2, ""))
+	defer srv.Close()
+	c := testClient{t: t, srv: srv}
+
+	c.post("/tasks", `{"id":"expired01","project":"mc","body":"failing"}`)
+	_, itemA := c.post("/tasks/claim", `{"worker":"A","project":"mc"}`)
+	if itemA.ClaimCount != 1 {
+		t.Fatalf("worker A claim_count = %d, want 1", itemA.ClaimCount)
+	}
+
+	_, itemB := c.post("/tasks/claim", `{"worker":"B","project":"mc"}`)
+	if itemB.ClaimCount != 2 {
+		t.Fatalf("worker B claim_count = %d, want 2", itemB.ClaimCount)
+	}
+
+	resC, _ := c.post("/tasks/claim", `{"worker":"C","project":"mc"}`)
+	if resC.StatusCode != http.StatusNoContent {
+		t.Fatalf("worker C status = %d, want 204 No Content", resC.StatusCode)
+	}
+
+	task := c.get("/tasks/expired01")
+	if task.Status != "buried" || task.ClaimCount != 2 {
+		t.Fatalf("task = %+v, want buried with claim_count 2", task)
 	}
 }

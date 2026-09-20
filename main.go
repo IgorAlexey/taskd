@@ -1321,7 +1321,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if _, ok := updateLeased(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL", id, worker); !ok {
+		if _, ok := updateLeased(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0)", id, worker); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
