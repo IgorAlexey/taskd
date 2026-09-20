@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,8 +107,8 @@ func TestClaimWaitInvalidWaitReturns400(t *testing.T) {
 			t.Fatalf("decode failed: %v", err)
 		}
 		resp.Body.Close()
-		if errResp["error"] != "invalid wait" {
-			t.Fatalf("error = %q, want %q", errResp["error"], "invalid wait")
+		if !strings.HasPrefix(errResp["error"], "invalid wait") {
+			t.Fatalf("error = %q, want prefix %q", errResp["error"], "invalid wait")
 		}
 	}
 }

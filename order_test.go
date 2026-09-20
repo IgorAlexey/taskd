@@ -89,7 +89,7 @@ func TestTasksOrder(t *testing.T) {
 	if err := json.NewDecoder(getInvalid.Body).Decode(&errResp); err != nil {
 		t.Fatalf("decode errResp: %v", err)
 	}
-	if errResp.Error != "invalid order" {
+	if !strings.HasPrefix(errResp.Error, "invalid order") {
 		t.Fatalf("expected 'invalid order', got %q", errResp.Error)
 	}
 
@@ -105,7 +105,7 @@ func TestTasksOrder(t *testing.T) {
 	if err := json.NewDecoder(getInvalidWithAfter.Body).Decode(&errAfterResp); err != nil {
 		t.Fatalf("decode errAfterResp: %v", err)
 	}
-	if errAfterResp.Error != "invalid order" {
+	if !strings.HasPrefix(errAfterResp.Error, "invalid order") {
 		t.Fatalf("expected 'invalid order' before 'invalid after', got %q", errAfterResp.Error)
 	}
 	p1Resp, err := http.Get(srv.URL + "/tasks?project=sort-test&order=desc&limit=1")

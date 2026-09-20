@@ -1217,6 +1217,8 @@ func summaryLine(body string) string {
 	return s
 }
 
+const validTaskFieldsList = "[id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]"
+
 func parseTaskFields(q url.Values) ([]string, error) {
 	if !q.Has("fields") && !q.Has("columns") {
 		return nil, nil
@@ -1226,7 +1228,7 @@ func parseTaskFields(q url.Values) ([]string, error) {
 		fieldsParam = q.Get("columns")
 	}
 	if strings.TrimSpace(fieldsParam) == "" {
-		return nil, errors.New("invalid fields")
+		return nil, fmt.Errorf("invalid field %q, must be one of %s", fieldsParam, validTaskFieldsList)
 	}
 	parts := strings.Split(fieldsParam, ",")
 	seen := make(map[string]bool, len(parts))
@@ -1240,11 +1242,8 @@ func parseTaskFields(q url.Values) ([]string, error) {
 				fields = append(fields, f)
 			}
 		default:
-			return nil, errors.New("invalid fields")
+			return nil, fmt.Errorf("invalid field %q, must be one of %s", f, validTaskFieldsList)
 		}
-	}
-	if len(fields) == 0 {
-		return nil, errors.New("invalid fields")
 	}
 	return fields, nil
 }
@@ -1807,12 +1806,12 @@ FROM tasks`
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		var ok bool
-		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
+		if req.Wait != nil && !(*req.Wait >= 0 && *req.Wait <= 86400) {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid wait %v, must be between 0 and 86400 seconds", *req.Wait))
 			return
 		}
-		if req.Wait != nil && !(*req.Wait >= 0 && *req.Wait <= 86400) {
-			writeError(w, http.StatusBadRequest, "invalid wait")
+		var ok bool
+		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
 			return
 		}
 		req.Project = strings.TrimSpace(req.Project)
@@ -2187,7 +2186,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if q.Has("order") {
 			order = strings.ToLower(strings.TrimSpace(q.Get("order")))
 			if order != "asc" && order != "desc" {
-				writeError(w, http.StatusBadRequest, "invalid order")
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid order %q, must be one of [asc, desc]", order))
 				return
 			}
 			q.Set("order", order)
@@ -2207,7 +2206,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			switch sortCol {
 			case "id", "project", "status", "priority", "claim_count", "worker", "created_at":
 			default:
-				writeError(w, http.StatusBadRequest, "invalid sort")
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid sort %q, must be one of [id, project, status, priority, claim_count, worker, created_at]", sortCol))
 				return
 			}
 			if after != nil {
@@ -2219,7 +2218,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		now := time.Now().Unix()
 		requestedFields, err := parseTaskFields(q)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid fields")
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		bodyCol, primCol, summaryCol := "body", "primitives", "''"
@@ -2394,7 +2393,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		q := requestQuery(r)
 		requestedFields, err := parseTaskFields(q)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "invalid fields")
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
