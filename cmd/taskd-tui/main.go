@@ -89,13 +89,20 @@ func parseFlags(args []string) (config, error) {
 	defaultQuery := os.Getenv("TASKD_QUERY")
 	envAscii := strings.ToLower(strings.TrimSpace(os.Getenv("TASKD_ASCII")))
 	defaultAscii := envAscii == "1" || envAscii == "true"
-
 	var (
 		cfg     config
 		rawURL  = defaultURL
 		ascii   = defaultAscii
+		light   *bool
 		refresh = time.Second
 	)
+	if raw := strings.TrimSpace(os.Getenv("TASKD_LIGHT")); raw != "" {
+		b, err := strconv.ParseBool(strings.ToLower(raw))
+		if err != nil {
+			return cfg, usagef("invalid boolean value %q for TASKD_LIGHT", raw)
+		}
+		light = &b
+	}
 	if raw := os.Getenv("TASKD_REFRESH"); raw != "" {
 		d, err := time.ParseDuration(raw)
 		if err != nil {
@@ -155,6 +162,17 @@ func parseFlags(args []string) (config, error) {
 				ascii = b
 			} else {
 				ascii = true
+			}
+		case "light":
+			if hasVal {
+				b, err := strconv.ParseBool(val)
+				if err != nil {
+					return cfg, usagef("invalid boolean value %q for %s", val, token)
+				}
+				light = &b
+			} else {
+				v := true
+				light = &v
 			}
 		case "url":
 			if !hasVal {
@@ -251,7 +269,7 @@ func parseFlags(args []string) (config, error) {
 	}
 	cfg.refresh = refresh
 	cfg.icons = !ascii
-
+	cfg.light = light
 	if cfg.project == "*" {
 		cfg.project = ""
 	}
@@ -275,6 +293,7 @@ Options:
   -q, -query <query>  filter tasks by search query
   -status <status>    filter tasks by status: all, pending, leased, done, buried, live
   -ascii              use ASCII characters instead of Nerd Font icons
+  -light              use light mode theme
   -refresh <dur>      polling interval, min 250ms (default: 1s)
   -s, -sort <col>     initial sort column: priority, status, project, worker, lease, claims
   -v, -version        print version and exit
@@ -287,6 +306,7 @@ Environment variables:
   TASKD_QUERY         default search query filter
   TASKD_STATUS        default status filter: all, pending, leased, done, buried, live
   TASKD_ASCII         set to 1 or true to enable ASCII mode
+  TASKD_LIGHT         set to 1 or true to enable light mode theme
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)
   TASKD_SORT          initial sort column: priority, status, project, worker, lease, claims
 

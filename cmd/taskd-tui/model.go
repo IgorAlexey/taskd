@@ -26,10 +26,14 @@ func newModel(cfg config, c *client) model {
 		glyph = asciiGlyphs
 	}
 	vp := viewport.New()
+	darkTheme := true
+	if cfg.light != nil {
+		darkTheme = !*cfg.light
+	}
 	m := model{
 		cfg:        cfg,
 		client:     c,
-		theme:      newTheme(true),
+		theme:      newTheme(darkTheme),
 		glyph:      glyph,
 		width:      80,
 		height:     24,
@@ -54,9 +58,12 @@ func tickCmd(d time.Duration) tea.Cmd {
 	})
 }
 
-// Init fires an immediate tick; the tick handler owns starting polls.
 func (m model) Init() tea.Cmd {
-	return func() tea.Msg { return tickMsg(time.Now()) }
+	tick := func() tea.Msg { return tickMsg(time.Now()) }
+	if m.cfg.light != nil {
+		return tick
+	}
+	return tea.Batch(tick, tea.RequestBackgroundColor)
 }
 
 func (m model) listFilter() listFilter {
@@ -292,6 +299,23 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case tea.BackgroundColorMsg:
+		if m.cfg.light == nil {
+			m.theme = newTheme(msg.IsDark())
+			if m.mode == modeForm {
+				m.form.fit(m.width, m.height, m.theme)
+			}
+			if m.mode == modeHelp {
+				yOffset := m.help.vp.YOffset()
+				m.help = newHelpModel(m.width, m.height, m.help.prev, m.theme)
+				m.help.vp.SetYOffset(yOffset)
+			}
+			if m.mode == modeNote {
+				m.note.th = m.theme
+			}
+			m.syncDetail()
+		}
+		return m, nil
 	case tickMsg:
 		m.now = time.Time(msg)
 		m.rebuild()

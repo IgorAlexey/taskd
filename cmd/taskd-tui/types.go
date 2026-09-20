@@ -54,6 +54,7 @@ type config struct {
 	refresh time.Duration
 	version bool
 	sortCol sortColumn
+	light   *bool
 }
 
 // mode is the single source of truth for which keymap and overlay are
