@@ -6,27 +6,45 @@ const script = src.match(/<script>([\s\S]*?)<\/script>/)[1];
 function element() {
   let html = '';
   const attrs = {};
+  const children = [];
   const el = {
     value: '',
     textContent: '',
     style: {},
     dataset: {},
-    children: [],
+    children: children,
     options: [{ value: '', textContent: '(all)' }],
     onclick: null,
     insertBefore() {},
     remove() {},
     addEventListener() {},
-    appendChild(o) { this.options.push(o); },
+    appendChild(child) {
+      children.push(child);
+      this.options.push(child);
+      if (child.textContent) {
+        this.textContent = (this.textContent ? this.textContent + ' ' : '') + child.textContent;
+      }
+    },
     querySelector() { return null; },
     querySelectorAll() { return []; },
     setAttribute(k, v) { attrs[k] = String(v); },
     getAttribute(k) { return attrs[k]; },
+    hasAttribute(k) { return k in attrs; },
     focus() {},
   };
   Object.defineProperty(el, 'innerHTML', {
-    get() { return html; },
-    set(v) { html = v; },
+    get() {
+      if (html) return html;
+      if (children.length > 0) {
+        return children.map(c => c.innerHTML || c.textContent || '').join('');
+      }
+      return '';
+    },
+    set(v) {
+      html = v;
+      children.length = 0;
+      if (!v) el.textContent = '';
+    },
   });
   return el;
 }
@@ -72,6 +90,15 @@ global.prompt = (_msg, dflt) => {
 };
 
 let claimStatus = 200;
+let failDoneStatus = null;
+let failDoneMessage = null;
+let failReleaseStatus = null;
+let failReleaseMessage = null;
+let failDeleteStatus = null;
+let failDeleteMessage = null;
+let failListStatus = null;
+let failStatsStatus = null;
+let failProjectsStatus = null;
 
 const bannerText = element();
 const els = {
@@ -87,6 +114,20 @@ const els = {
   'stat-done': element(),
   'stat-buried': element(),
   'stat-total': element(),
+  'form-project': element(),
+  'form-priority': element(),
+  'form-body': element(),
+  'form-asset': element(),
+  'form-id': element(),
+  'form-id-error': element(),
+  'form-project-error': element(),
+  'form-priority-error': element(),
+  'form-body-error': element(),
+  'form-asset-error': element(),
+  'form-error-summary': element(),
+  'form-error-summary-list': element(),
+  'submit-task-form': element(),
+  'submit-task-btn': element(),
 };
 
 els['task-table-body'].querySelectorAll = sel => sel.includes('data-task-id') ? rows : [];
@@ -114,9 +155,16 @@ const window = { addEventListener() {} };
 
 const fetchStub = async (url, opts = {}) => {
   opts = opts || {}; calls.push({ url, method: opts.method || 'GET', body: opts.body ? JSON.parse(opts.body) : null });
-  if (url.startsWith('/projects')) return response(200, ['p1']);
-  if (url.startsWith('/stats')) return response(200, { pending: 1, leased: 1, done: 1, total: 3 });
+  if (url.startsWith('/projects')) {
+    if (failProjectsStatus) return response(failProjectsStatus, { error: 'projects query failed' });
+    return response(200, ['p1']);
+  }
+  if (url.startsWith('/stats')) {
+    if (failStatsStatus) return response(failStatsStatus, { error: 'stats query failed' });
+    return response(200, { pending: 1, leased: 1, done: 1, total: 3 });
+  }
   if (url.endsWith('/done')) {
+    if (failDoneStatus) return response(failDoneStatus, { error: failDoneMessage });
     const raw = url.slice('/tasks/'.length);
     const id = decodeURIComponent(raw.split('/done')[0]);
     const t = tasks.find(x => x.id === id);
@@ -128,6 +176,7 @@ const fetchStub = async (url, opts = {}) => {
     return response(204, null);
   }
   if (url.endsWith('/release')) {
+    if (failReleaseStatus) return response(failReleaseStatus, { error: failReleaseMessage });
     const raw = url.slice('/tasks/'.length);
     const id = decodeURIComponent(raw.split('/release')[0]);
     const t = tasks.find(x => x.id === id);
@@ -186,12 +235,21 @@ const fetchStub = async (url, opts = {}) => {
     const t = tasks.find(x => x.id === id);
     if (!t) return response(404, 'task not found');
     if (opts.method === 'DELETE') {
-      if (t.status === 'leased') return response(409, 'task is leased');
+      if (failDeleteStatus) return response(failDeleteStatus, { error: failDeleteMessage });
+      if (t.status === 'leased') return response(409, { error: 'task is leased' });
       return response(204, null);
     }
     return response(200, t);
   }
-  if (url.startsWith('/tasks')) return response(200, tasks);
+  if (url === '/tasks' && opts.method === 'POST') {
+    const b = opts.body ? JSON.parse(opts.body) : {};
+    if (b.id === 'dup-id') return response(409, { error: 'duplicate id' });
+    return response(201, { id: b.id || 'new-id' });
+  }
+  if (url.startsWith('/tasks')) {
+    if (failListStatus) return response(failListStatus, { error: 'task list query failed' });
+    return response(200, tasks);
+  }
   return response(404, 'not found');
 };
 
@@ -199,7 +257,7 @@ const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setInterval', 'clearInterval',
   script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, touchTask, releaseTask, claimTask, kickTask,' +
-  ' closeTask, clearSelectedTask, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
+  ' closeTask, clearSelectedTask, submitTask, loadStats, loadProjects, finishTaskAction: clearSelectedTask, get selected() { return selectedTaskId; }};'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
 (async () => {
@@ -402,6 +460,92 @@ const api = new Function(
   els['error-banner'].style.display = 'flex';
   await api.loadTasks();
   results.errorBannerSurvivesPoll = els['error-banner'].textContent.includes('error persistence test') && els['error-banner'].style.display !== 'none';
+
+  const resetLeased = () => {
+    const t = tasks.find(x => x.id === 't-leased');
+    t.status = 'leased';
+    t.worker = 'w-1';
+    t.lease_expires = 1999999999;
+    return t;
+  };
+
+  resetLeased();
+  failDoneStatus = 409;
+  failDoneMessage = 'lease has expired';
+  els['error-banner'].textContent = '';
+  await api.selectTask('t-leased');
+  await els['complete-task-btn'].onclick();
+  results.completeExpiredBanner = els['error-banner'].textContent.includes('lease has expired');
+  await api.loadTasks();
+  results.completeExpiredBannerSurvivesPoll = els['error-banner'].textContent.includes('lease has expired');
+  failDoneStatus = null;
+
+  resetLeased();
+  failReleaseStatus = 409;
+  failReleaseMessage = 'task not leased by worker';
+  els['error-banner'].textContent = '';
+  await api.selectTask('t-leased');
+  await els['release-task-btn'].onclick();
+  results.releaseWrongWorkerBanner = els['error-banner'].textContent.includes('task not leased by worker');
+  await api.loadTasks();
+  results.releaseWrongWorkerBannerSurvivesPoll = els['error-banner'].textContent.includes('task not leased by worker');
+  failReleaseStatus = null;
+
+  await api.selectTask('t-pending');
+  confirmAnswer = true;
+  confirmAsked = 0;
+  calls.length = 0;
+  failDeleteStatus = 409;
+  failDeleteMessage = 'task is leased';
+  els['error-banner'].textContent = '';
+  await els['delete-task-btn'].onclick();
+  results.deleteLeasedBanner = els['error-banner'].textContent.includes('task is leased');
+  await api.loadTasks();
+  results.deleteLeasedBannerSurvivesPoll = els['error-banner'].textContent.includes('task is leased');
+  failDeleteStatus = null;
+
+  resetLeased();
+  failDoneStatus = 409;
+  failDoneMessage = 'lease has expired';
+  els['error-banner'].textContent = '';
+  await api.selectTask('t-leased');
+  await els['complete-task-btn'].onclick();
+  const bannerBeforeSelect = els['error-banner'].textContent.includes('lease has expired');
+  await api.selectTask('t-pending');
+  results.errorDismissedOnSelect = bannerBeforeSelect && (els['error-banner'].textContent === '' || els['error-banner'].style.display === 'none');
+  failDoneStatus = null;
+
+  els['error-banner'].textContent = '';
+  els['error-banner'].style.display = 'none';
+  els['form-project'].value = 'p1';
+  els['form-id'].value = 'dup-id';
+  els['form-body'].value = 'test body';
+  await api.submitTask({ preventDefault() {} });
+  results.submitDuplicateSummary = els['form-error-summary-list'].innerHTML.includes('duplicate id') &&
+    els['form-error-summary'].style.display !== 'none';
+  results.submitDuplicateFieldError = els['form-id-error'].textContent.includes('duplicate id') &&
+    els['form-id-error'].style.display !== 'none';
+  results.submitDuplicateAriaInvalid = els['form-id'].getAttribute('aria-invalid') === 'true';
+  results.submitDuplicateNoBanner = (els['error-banner'].textContent === '' || !els['error-banner'].textContent) &&
+    (els['error-banner'].style.display === 'none' || !els['error-banner'].style.display);
+
+  failListStatus = 500;
+  els['error-banner'].textContent = '';
+  await api.loadTasks();
+  results.listFailureBanner = els['error-banner'].textContent.includes('task list query failed');
+  failListStatus = null;
+
+  failStatsStatus = 500;
+  els['error-banner'].textContent = '';
+  await api.loadStats();
+  results.statsFailureBanner = els['error-banner'].textContent.includes('stats query failed');
+  failStatsStatus = null;
+
+  failProjectsStatus = 500;
+  els['error-banner'].textContent = '';
+  await api.loadProjects();
+  results.projectsFailureBanner = els['error-banner'].textContent.includes('projects query failed');
+  failProjectsStatus = null;
 
   process.stdout.write(JSON.stringify(results, null, 2));
 })();

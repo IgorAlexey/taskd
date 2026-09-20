@@ -565,7 +565,7 @@
               <span class="field-error" id="form-id-error"></span>
               <input type="text" id="form-id" placeholder="auto-generated if empty" aria-invalid="false" aria-describedby="form-id-error">
             </div>
-            <button type="submit" class="primary" style="width: 100%;">Submit Task</button>
+            <button type="submit" id="submit-task-btn" class="primary" style="width: 100%;">Submit Task</button>
           </form>
         </div>
       </section>
@@ -687,7 +687,9 @@
           }
         }
         setFilter(select, current);
-      } catch (_) {}
+      } catch (err) {
+        logFailure('Failed to sync filter workers:', err);
+      }
     }
 
     function applyURLState() {
@@ -837,25 +839,27 @@
 
     async function fetchJSON(url, opts, withHeaders) {
       const res = await fetchRaw(url, opts);
-      try {
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(txt || res.statusText || ('HTTP ' + res.status));
-        }
-        if (res.status === 204) return withHeaders ? { data: null, headers: res.headers } : null;
-        const ct = (res.headers && res.headers.get('content-type')) || '';
-        let data = null;
-        if (ct.includes('application/json') || typeof res.json === 'function') {
-          data = await res.json();
-        } else {
-          const txt = await res.text();
-          data = txt ? JSON.parse(txt) : null;
-        }
-        return withHeaders ? { data, headers: res.headers } : data;
-      } catch (err) {
-        showFetchError(err);
+      if (!res.ok) {
+        const txt = await res.text();
+        let msg = txt;
+        try {
+          const j = JSON.parse(txt);
+          if (j && j.error) msg = j.error;
+        } catch (e) {}
+        const err = new Error(msg || res.statusText || ('HTTP ' + res.status));
+        err.status = res.status;
         throw err;
       }
+      if (res.status === 204) return withHeaders ? { data: null, headers: res.headers } : null;
+      const ct = (res.headers && res.headers.get('content-type')) || '';
+      let data = null;
+      if (ct.includes('application/json') || typeof res.json === 'function') {
+        data = await res.json();
+      } else {
+        const txt = await res.text();
+        data = txt ? JSON.parse(txt) : null;
+      }
+      return withHeaders ? { data, headers: res.headers } : data;
     }
 
     async function loadProjects() {
@@ -887,6 +891,7 @@
           pendingProject = '';
           syncURL(false);
         }
+        showFetchError(e);
         logFailure('Failed to load projects:', e);
       }
     }
@@ -909,6 +914,7 @@
         setVal('stat-buried', stats.buried);
         setVal('stat-total', stats.total);
       } catch (e) {
+        showFetchError(e);
         logFailure('Failed to load stats:', e);
       }
     }
@@ -1092,6 +1098,7 @@
 
         return;
       } catch (e) {
+        showFetchError(e);
         logFailure('Failed to load tasks:', e);
         return;
       }
@@ -1102,6 +1109,7 @@
       if (!id) return;
       if (selectedTaskId !== id) isEditingTask = false;
       selectedTaskId = id;
+      showError(null);
       syncURL(true);
       const tbody = document.getElementById('task-table-body');
       if (tbody) {
@@ -1192,7 +1200,6 @@
         t = JSON.parse(raw);
         shownTaskId = id;
         shownTaskRaw = raw;
-        showError(null);
       } catch (e) {
         if (id !== selectedTaskId) return;
         showFetchError(e);
@@ -1412,28 +1419,43 @@
       await Promise.all(tasks);
     }
 
+    // An action button stays pressed for the whole round trip, so a second
+    // click cannot race the first, and the server's refusal reaches the
+    // banner instead of being swallowed.
+    async function withButton(btnId, fn) {
+      const btn = document.getElementById(btnId);
+      if (btn) btn.disabled = true;
+      try {
+        await fn();
+      } catch (err) {
+        showFetchError(err);
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
     async function completeTask(id, worker) {
       if (!id || !worker) return;
-      try {
+      await withButton('complete-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worker: worker })
         });
         await finishTaskTransition(id);
-      } catch (_) {}
+      });
     }
 
     async function releaseTask(id, worker) {
       if (!id || !worker) return;
-      try {
+      await withButton('release-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/release', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worker: worker })
         });
         await finishTaskTransition(id);
-      } catch (_) {}
+      });
     }
 
     async function touchTask(id, worker) {
@@ -1442,7 +1464,7 @@
         showError('Cannot touch lease: missing worker');
         return;
       }
-      try {
+      await withButton('touch-task-btn', async () => {
         const res = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/touch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1453,7 +1475,7 @@
           currentTask.lease_expires = res.lease_expires;
           renderTaskDetails(currentTask, true);
         }
-      } catch (_) {}
+      });
     }
 
     // A claim hands the task to whoever pressed the button, so the pane
@@ -1465,7 +1487,7 @@
       const answer = prompt('Claim this task as which worker?', claimWorker);
       const worker = answer === null ? '' : answer.trim();
       if (!worker) return;
-      try {
+      await withButton('claim-task-btn', async () => {
         const t = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/claim', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1477,35 +1499,34 @@
           renderTaskDetails(t, true);
         }
         await Promise.all([loadStats(), loadTasks()]);
-      } catch (_) {}
+      });
     }
 
     async function kickTask(id) {
       if (!id) return;
-      try {
+      await withButton('kick-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/kick', { method: 'POST' });
         await finishTaskTransition(id);
-      } catch (_) {}
+      });
     }
 
     async function closeTask(id) {
       if (!id) return;
       if (typeof confirm === 'function' && !confirm('Close this task as done without a result?')) return;
-      try {
+      await withButton('close-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST' });
         await finishTaskTransition(id);
-      } catch (_) {}
+      });
     }
 
     async function deleteTask(id, status) {
       if (!id || status === 'leased') return;
       if (typeof confirm === 'function' && !confirm('Are you sure you want to delete this task?')) return;
       const url = '/tasks/' + encodeURIComponent(id) + (status === 'done' ? '?force=1' : '');
-      try {
+      await withButton('delete-task-btn', async () => {
         await fetchJSON(url, { method: 'DELETE' });
         await clearSelectedTask();
-      } catch (_) {}
-
+      });
     }
 
     function toggleTaskEdit() {
@@ -1561,15 +1582,11 @@
         body: body
       };
       try {
-        const res = await fetchRaw('/tasks/' + encodeURIComponent(currentTask.id), {
+        await fetchJSON('/tasks/' + encodeURIComponent(currentTask.id), {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (!res.ok) {
-          const txt = await res.text();
-          throw new Error(txt || res.statusText || ('HTTP ' + res.status));
-        }
         await finishTaskTransition();
       } catch (err) {
         if (saveBtn) saveBtn.disabled = false;
@@ -1752,22 +1769,29 @@
       if (asset) payload.asset_path = asset;
       if (customId) payload.id = customId;
 
+      const submitBtn = document.getElementById('submit-task-btn');
+      if (submitBtn) submitBtn.disabled = true;
+
       try {
-        const res = await fetchJSON('/tasks', {
+        await fetchJSON('/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        if (res) {
-          if (bodyEl) bodyEl.value = '';
-          if (assetEl) assetEl.value = '';
-          if (idEl) idEl.value = '';
-          clearFormErrors();
-          showError(null);
-          await loadAll();
-        }
+        if (bodyEl) bodyEl.value = '';
+        if (assetEl) assetEl.value = '';
+        if (idEl) idEl.value = '';
+        clearFormErrors();
+        showError(null);
+        await loadAll();
       } catch (err) {
-        console.error('Failed to submit task:', err);
+        if (err.transport) return;
+        // 409 is only ever a duplicate custom id here; every other refusal
+        // lands on the body, the one field that always carries content.
+        const fieldId = err.status === 409 ? 'form-id' : 'form-body';
+        showFormErrors([{ fieldId: fieldId, message: err.message || 'Failed to submit task' }]);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
       }
     }
 
@@ -1786,7 +1810,9 @@
       if (refreshInFlight) return;
       refreshInFlight = true;
       try {
-        await Promise.all([loadProjects(), loadWorkers(), loadStats(), loadTasks(true)]);
+        const tasks = [loadProjects(), loadWorkers(), loadStats(), loadTasks(true)];
+        if (selectedTaskId) tasks.push(loadTaskDetails(selectedTaskId));
+        await Promise.all(tasks);
       } catch (e) {
         logFailure('Failed to refresh data:', e);
       } finally {

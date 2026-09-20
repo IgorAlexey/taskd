@@ -445,11 +445,25 @@ func TestWebUITaskActions(t *testing.T) {
 			Method string
 			Body   map[string]any
 		}
-		ClosePaneKept        bool
-		CancelCloseAsked     bool
-		CancelCloseCalls     int
-		DoneDeleteCall       *struct{ URL, Method string }
-		DoneDeletedPaneReset bool
+		ClosePaneKept                        bool
+		CancelCloseAsked                     bool
+		CancelCloseCalls                     int
+		DoneDeleteCall                       *struct{ URL, Method string }
+		DoneDeletedPaneReset                 bool
+		CompleteExpiredBanner                bool
+		CompleteExpiredBannerSurvivesPoll    bool
+		ReleaseWrongWorkerBanner             bool
+		ReleaseWrongWorkerBannerSurvivesPoll bool
+		DeleteLeasedBanner                   bool
+		DeleteLeasedBannerSurvivesPoll       bool
+		SubmitDuplicateSummary               bool
+		SubmitDuplicateFieldError            bool
+		SubmitDuplicateAriaInvalid           bool
+		SubmitDuplicateNoBanner              bool
+		ErrorDismissedOnSelect               bool
+		ListFailureBanner                    bool
+		StatsFailureBanner                   bool
+		ProjectsFailureBanner                bool
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -614,6 +628,25 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.KickSelected || !got.KickURLPreserved || !got.KickPaneHasBadge || !got.KickPaneNotReset || !got.KickRowSelected {
 		t.Errorf("kick transition mismatch: %+v", got)
+	}
+
+	if !got.CompleteExpiredBanner || !got.CompleteExpiredBannerSurvivesPoll {
+		t.Errorf("complete expired lease error banner mismatch: banner=%v survives=%v", got.CompleteExpiredBanner, got.CompleteExpiredBannerSurvivesPoll)
+	}
+	if !got.ReleaseWrongWorkerBanner || !got.ReleaseWrongWorkerBannerSurvivesPoll {
+		t.Errorf("release wrong worker error banner mismatch: banner=%v survives=%v", got.ReleaseWrongWorkerBanner, got.ReleaseWrongWorkerBannerSurvivesPoll)
+	}
+	if !got.DeleteLeasedBanner || !got.DeleteLeasedBannerSurvivesPoll {
+		t.Errorf("delete leased task error banner mismatch: banner=%v survives=%v", got.DeleteLeasedBanner, got.DeleteLeasedBannerSurvivesPoll)
+	}
+	if !got.SubmitDuplicateSummary || !got.SubmitDuplicateFieldError || !got.SubmitDuplicateAriaInvalid || !got.SubmitDuplicateNoBanner {
+		t.Errorf("submit duplicate custom id mismatch: summary=%v fieldError=%v ariaInvalid=%v noBanner=%v", got.SubmitDuplicateSummary, got.SubmitDuplicateFieldError, got.SubmitDuplicateAriaInvalid, got.SubmitDuplicateNoBanner)
+	}
+	if !got.ErrorDismissedOnSelect {
+		t.Errorf("expected error banner to dismiss on task selection")
+	}
+	if !got.ListFailureBanner || !got.StatsFailureBanner || !got.ProjectsFailureBanner {
+		t.Errorf("loader failures must reach the banner: list=%v stats=%v projects=%v", got.ListFailureBanner, got.StatsFailureBanner, got.ProjectsFailureBanner)
 	}
 }
 func TestWebUIPagination(t *testing.T) {
