@@ -1940,6 +1940,21 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			}
 			after = &c
 		}
+		sortCol := ""
+		if q.Has("sort") {
+			sortCol = strings.ToLower(strings.TrimSpace(q.Get("sort")))
+			switch sortCol {
+			case "id", "project", "status", "priority", "claim_count", "worker", "created_at":
+			default:
+				writeError(w, http.StatusBadRequest, "invalid sort")
+				return
+			}
+			if after != nil {
+				writeError(w, http.StatusBadRequest, "cannot combine sort and after")
+				return
+			}
+			q.Set("sort", sortCol)
+		}
 		now := time.Now().Unix()
 		var requestedFields []string
 		fieldsParam := q.Get("fields")
@@ -2045,7 +2060,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			args = append(args, after.Rowid)
 		}
 		query += dataWhereSQL
+		orderDir := "ASC"
 		if order == "desc" {
+			orderDir = "DESC"
+		}
+		if sortCol != "" {
+			query += fmt.Sprintf(" ORDER BY %s %s, rowid %s LIMIT ?", sortCol, orderDir, orderDir)
+		} else if order == "desc" {
 			query += " ORDER BY rowid DESC LIMIT ?"
 		} else {
 			query += " ORDER BY rowid ASC LIMIT ?"
@@ -2669,7 +2690,7 @@ RETURNING status, project`,
 	handleMethods(mux, "/tasks", map[string]route{
 		http.MethodGet: {handler: listTasksHandler, params: []string{
 			"status", "project", "worker", "priority", "limit", "offset",
-			"asset_path", "q", "fields", "columns", "after", "order",
+			"asset_path", "q", "fields", "columns", "after", "order", "sort",
 		}},
 		http.MethodPost: {handler: createTaskHandler},
 	})

@@ -326,6 +326,13 @@
     font-weight: 600;
     font-size: 12px;
   }
+  th.sortable {
+    cursor: pointer;
+    user-select: none;
+  }
+  th.sortable:hover {
+    color: var(--text);
+  }
   tbody tr:hover td {
     background: rgba(255,255,255,0.03);
   }
@@ -792,14 +799,14 @@
       </div>
       <div id="queue" tabindex="-1" class="overflow-x-auto">
         <table>
-          <thead>
+          <thead id="task-table-head">
             <tr>
-              <th scope="col">ID</th>
-              <th scope="col">Project</th>
-              <th scope="col">Status</th>
-              <th scope="col">Priority</th>
-              <th scope="col">Claims</th>
-              <th scope="col">Worker</th>
+              <th scope="col" class="sortable" data-col="id">ID</th>
+              <th scope="col" class="sortable" data-col="project">Project</th>
+              <th scope="col" class="sortable" data-col="status">Status</th>
+              <th scope="col" class="sortable" data-col="priority">Priority</th>
+              <th scope="col" class="sortable" data-col="claim_count">Claims</th>
+              <th scope="col" class="sortable" data-col="worker">Worker</th>
               <th scope="col">Summary</th>
             </tr>
           </thead>
@@ -915,6 +922,43 @@
     let currentPage = 1;
     let totalTasks = 0;
     let lastRenderedTasksURL = '';
+    let sortCol = '';
+    let sortDir = 'asc';
+
+    function updateSortHeaders() {
+      const ths = document.querySelectorAll('th.sortable');
+      for (const th of ths) {
+        const c = th.dataset ? th.dataset.col : null;
+        if (c === sortCol) {
+          th.setAttribute('aria-sort', sortDir === 'asc' ? 'ascending' : 'descending');
+        } else {
+          th.removeAttribute('aria-sort');
+        }
+      }
+    }
+
+    function sort(col) {
+      if (sortCol === col) {
+        sortDir = (sortDir === 'asc' ? 'desc' : 'asc');
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      updateSortHeaders();
+      currentPage = 1;
+      return loadTasks();
+    }
+
+    function setupTableSorting() {
+      const thead = document.getElementById('task-table-head');
+      if (!thead) return;
+      thead.addEventListener('click', (e) => {
+        const th = e.target.closest ? e.target.closest('th.sortable') : null;
+        if (th && th.dataset && th.dataset.col) {
+          sort(th.dataset.col);
+        }
+      });
+    }
     // The project filter, the status filter and the selected task are the
     // state a reader can see, so they live in the URL: a link reproduces
     // the view and a reload keeps it. Filters replace the history entry,
@@ -1520,6 +1564,10 @@
         if (prio !== '') url += '&priority=' + encodeURIComponent(prio);
         if (worker) url += '&worker=' + encodeURIComponent(worker);
         if (search) url += '&q=' + encodeURIComponent(search);
+        if (sortCol) {
+          url += '&sort=' + encodeURIComponent(sortCol);
+          if (sortDir) url += '&order=' + encodeURIComponent(sortDir);
+        }
 
         try {
           const res = await fetchJSON(url, null, true);
@@ -2787,6 +2835,7 @@
       setupBodyOverlay();
       setupPurgeModal();
       setupSubmitForm();
+      setupTableSorting();
       applyURLState();
       syncURL(false);
       try {
