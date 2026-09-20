@@ -1319,17 +1319,22 @@ func titleOf(t task) (scope, title string) {
 		if idx := strings.IndexByte(first, ']'); idx > 1 {
 			candidate := first[1:idx]
 			if !strings.ContainsAny(candidate, " \t") {
-				return candidate, strings.TrimSpace(first[idx+1:])
+				scope, title = candidate, strings.TrimSpace(first[idx+1:])
 			}
 		}
-	}
-	if idx := strings.Index(first, ": "); idx > 0 {
+	} else if idx := strings.Index(first, ": "); idx > 0 {
 		candidate := first[:idx]
 		if isScope(candidate, t.Project) {
-			return candidate, strings.TrimSpace(first[idx+2:])
+			scope, title = candidate, strings.TrimSpace(first[idx+2:])
 		}
 	}
-	return "", strings.TrimSpace(first)
+	if scope == "" && title == "" {
+		title = strings.TrimSpace(first)
+	}
+	if title == "" {
+		title = t.AssetPath
+	}
+	return scope, title
 }
 
 func workerParts(w string) (host, checkout string) {

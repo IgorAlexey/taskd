@@ -3,11 +3,13 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestEmptyWorkerClaimGuard(t *testing.T) {
@@ -63,4 +65,44 @@ func TestEmptyWorkerClaimGuard(t *testing.T) {
 			t.Fatalf("expected no HTTP requests, got %d", after-before)
 		}
 	})
+}
+
+func TestAssetOnlyTaskTitleAndDetailAndConfirm(t *testing.T) {
+	taskItem := task{
+		ID:        "abc1234567890",
+		Project:   "render",
+		AssetPath: "models/hero.blend",
+		Body:      "",
+		Status:    "pending",
+		Priority:  2,
+	}
+
+	scope, title := titleOf(taskItem)
+	if title != "models/hero.blend" {
+		t.Fatalf("titleOf title = %q, want %q", title, "models/hero.blend")
+	}
+	if scope != "" {
+		t.Fatalf("titleOf scope = %q, want empty", scope)
+	}
+
+	m := newModel(config{project: "render"}, nil)
+	m.tasks = []task{taskItem}
+	m.rebuildShown()
+	m.cursor = 0
+	m.width = 100
+	m.height = 24
+
+	view := ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "models/hero.blend") {
+		t.Fatalf("expected view to contain asset path in title column and detail pane, got:\n%s", view)
+	}
+
+	m.confirmTask("Delete", "deleted", "DELETE", "/tasks/"+taskItem.ID, taskItem, nil)
+	confirmView := ansi.Strip(m.confirm.View(m.width, m.height, m.theme))
+	if !strings.Contains(confirmView, "models/hero.blend") {
+		t.Fatalf("expected confirm view to contain asset path, got:\n%s", confirmView)
+	}
+	if !strings.Contains(m.confirm.text, "models/hero.blend") {
+		t.Fatalf("expected confirm.text to contain asset path, got %q", m.confirm.text)
+	}
 }

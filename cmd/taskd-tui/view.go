@@ -697,8 +697,10 @@ func (m model) View() tea.View {
 		}
 		detailLines = append(detailLines, padLine(ruleLine, w))
 
+		var title string
 		if dRows >= 2 {
-			scope, title := titleOf(curTask)
+			var scope string
+			scope, title = titleOf(curTask)
 			var l1 strings.Builder
 			if scope != "" {
 				l1.WriteString(m.theme.scope.Render(scope) + " ")
@@ -727,7 +729,7 @@ func (m model) View() tea.View {
 				}
 				chips = append(chips, m.glyph.refresh+" "+strconv.Itoa(curTask.ClaimCount)+" "+cw)
 			}
-			if curTask.AssetPath != "" {
+			if curTask.AssetPath != "" && curTask.AssetPath != title {
 				chips = append(chips, curTask.AssetPath)
 			}
 			chipsLine := m.theme.dim.Render(strings.Join(chips, "  "))
