@@ -131,12 +131,109 @@ const (
 	defaultSweepInterval      = 1 * time.Second
 )
 
+type claimWaiter struct {
+	project string
+	ch      chan string
+}
+
 type store struct {
-	rw        *sql.DB
-	ro        *sql.DB
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
-	maxClaims int
+	rw          *sql.DB
+	ro          *sql.DB
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	maxClaims   int
+	waitersMu   sync.Mutex
+	waiters     []*claimWaiter
+	projectSeq  map[string]uint64
+	wildcardSeq uint64
+	closed      bool
+}
+
+func (s *store) currentSeq(project string) uint64 {
+	if s == nil {
+		return 0
+	}
+	s.waitersMu.Lock()
+	defer s.waitersMu.Unlock()
+	if project == "*" {
+		return s.wildcardSeq
+	}
+	return s.projectSeq[project]
+}
+
+func (s *store) hasChangedSeqLocked(project string, seq uint64) bool {
+	if project == "*" {
+		return s.wildcardSeq != seq
+	}
+	return s.projectSeq[project] != seq
+}
+
+func (s *store) notifyPending(project string) {
+	if s == nil || project == "" {
+		return
+	}
+	s.waitersMu.Lock()
+	defer s.waitersMu.Unlock()
+	if s.projectSeq == nil {
+		s.projectSeq = make(map[string]uint64)
+	}
+	s.projectSeq[project]++
+	s.wildcardSeq++
+	s.notifyPendingLocked(project)
+}
+func (s *store) notifyPendingLocked(project string) {
+	if s.closed || project == "" {
+		return
+	}
+	for i, w := range s.waiters {
+		if w.project == project {
+			copy(s.waiters[i:], s.waiters[i+1:])
+			s.waiters[len(s.waiters)-1] = nil
+			s.waiters = s.waiters[:len(s.waiters)-1]
+			select {
+			case w.ch <- project:
+			default:
+			}
+			return
+		}
+	}
+	for i, w := range s.waiters {
+		if w.project == "*" {
+			copy(s.waiters[i:], s.waiters[i+1:])
+			s.waiters[len(s.waiters)-1] = nil
+			s.waiters = s.waiters[:len(s.waiters)-1]
+			select {
+			case w.ch <- project:
+			default:
+			}
+			return
+		}
+	}
+}
+
+func (s *store) removeWaiter(target *claimWaiter) {
+	if s == nil {
+		return
+	}
+	s.waitersMu.Lock()
+	defer s.waitersMu.Unlock()
+	for i, w := range s.waiters {
+		if w == target {
+			copy(s.waiters[i:], s.waiters[i+1:])
+			s.waiters[len(s.waiters)-1] = nil
+			s.waiters = s.waiters[:len(s.waiters)-1]
+			return
+		}
+	}
+}
+
+func (s *store) waiterCount() int {
+	if s == nil {
+		return 0
+	}
+	s.waitersMu.Lock()
+	defer s.waitersMu.Unlock()
+	return len(s.waiters)
 }
 
 func (s *store) Close() error {
@@ -144,6 +241,14 @@ func (s *store) Close() error {
 		s.cancel()
 		s.wg.Wait()
 	}
+	s.waitersMu.Lock()
+	s.closed = true
+	for i, w := range s.waiters {
+		close(w.ch)
+		s.waiters[i] = nil
+	}
+	s.waiters = nil
+	s.waitersMu.Unlock()
 	var errs []error
 	if s.ro != s.rw {
 		if err := s.ro.Close(); err != nil {
@@ -159,7 +264,7 @@ func (s *store) Close() error {
 	return errors.Join(errs...)
 }
 
-func (s *store) sweep() (int64, error) {
+func (s *store) sweep() ([]string, error) {
 	return sweepExpired(s.rw, s.maxClaims)
 }
 
@@ -798,7 +903,7 @@ func decodeOptionalWorker(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) (leaseEnvelope, bool) {
-	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch() RETURNING id, lease_expires, status"
+	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch() RETURNING id, lease_expires, status, project"
 	return updateTask(w, db, query, append(args, id, worker), id, worker, nil)
 }
 
@@ -809,7 +914,7 @@ func updateLeasedOrLapsed(w http.ResponseWriter, db *sql.DB, set, id, worker str
 		query += " AND claim_count=?"
 		fullArgs = append(fullArgs, *claim)
 	}
-	query += " RETURNING id, lease_expires, status"
+	query += " RETURNING id, lease_expires, status, project"
 	return updateTask(w, db, query, fullArgs, id, worker, claim)
 }
 
@@ -824,7 +929,7 @@ func updateTask(w http.ResponseWriter, db *sql.DB, query string, args []any, id,
 		return env, false
 	}
 	defer tx.Rollback()
-	err = tx.QueryRow(query, args...).Scan(&env.ID, &expires, &env.Status)
+	err = tx.QueryRow(query, args...).Scan(&env.ID, &expires, &env.Status, &env.Project)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeTaskStateError(w, tx, id, worker, claim)
 		return env, false
@@ -999,6 +1104,7 @@ type leaseEnvelope struct {
 	ID           string `json:"id"`
 	LeaseExpires int64  `json:"lease_expires"`
 	Status       string `json:"status"`
+	Project      string `json:"-"`
 }
 
 const maxTaskIDLen = 128
@@ -1269,6 +1375,7 @@ FROM tasks`
 			internalError(w, err)
 			return
 		}
+		db.notifyPending(req.Project)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"id": req.ID})
@@ -1276,14 +1383,19 @@ FROM tasks`
 
 	claimHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Worker  string `json:"worker"`
-			Project string `json:"project"`
+			Worker  string   `json:"worker"`
+			Project string   `json:"project"`
+			Wait    *float64 `json:"wait"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
 		var ok bool
 		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
+			return
+		}
+		if req.Wait != nil && *req.Wait < 0 {
+			writeError(w, http.StatusBadRequest, "invalid wait")
 			return
 		}
 		req.Project = strings.TrimSpace(req.Project)
@@ -1310,27 +1422,98 @@ WHERE id = (
   ORDER BY priority ASC, id ASC
   LIMIT 1
 ) RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, created_at`
+
+		tryClaim := func() (*taskItem, error) {
+			var (
+				item         taskItem
+				leasedWorker sql.NullString
+				leaseExpires sql.NullInt64
+				prim         []byte
+			)
+			err := db.rw.QueryRow(query, args...).
+				Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+			if err != nil {
+				return nil, err
+			}
+			item.Worker = leasedWorker.String
+			item.LeaseExpires = leaseExpires.Int64
+			item.Primitives = prim
+			return &item, nil
+		}
+
 		var (
-			item         taskItem
-			leasedWorker sql.NullString
-			leaseExpires sql.NullInt64
-			prim         []byte
+			timer *time.Timer
+			cw    *claimWaiter
 		)
-		err := db.rw.QueryRow(query, args...).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
-		if errors.Is(err, sql.ErrNoRows) {
-			w.WriteHeader(http.StatusNoContent)
-			return
+
+		for {
+			seq := db.currentSeq(req.Project)
+
+			item, err := tryClaim()
+			if err == nil {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(item)
+				return
+			}
+			if !errors.Is(err, sql.ErrNoRows) {
+				internalError(w, err)
+				return
+			}
+			if req.Wait == nil || *req.Wait == 0 {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+
+			if timer == nil {
+				timer = time.NewTimer(time.Duration(*req.Wait * float64(time.Second)))
+				defer timer.Stop()
+				cw = &claimWaiter{
+					project: req.Project,
+					ch:      make(chan string, 1),
+				}
+			}
+
+			db.waitersMu.Lock()
+			if db.closed {
+				db.waitersMu.Unlock()
+				writeError(w, http.StatusServiceUnavailable, "database closed")
+				return
+			}
+			if db.hasChangedSeqLocked(req.Project, seq) {
+				db.waitersMu.Unlock()
+				continue
+			}
+			db.waiters = append(db.waiters, cw)
+			db.waitersMu.Unlock()
+
+			select {
+			case <-cw.ch:
+				db.waitersMu.Lock()
+				closed := db.closed
+				db.waitersMu.Unlock()
+				if closed {
+					writeError(w, http.StatusServiceUnavailable, "database closed")
+					return
+				}
+			case <-timer.C:
+				db.removeWaiter(cw)
+				select {
+				case p := <-cw.ch:
+					db.notifyPending(p)
+				default:
+				}
+				w.WriteHeader(http.StatusNoContent)
+				return
+			case <-r.Context().Done():
+				db.removeWaiter(cw)
+				select {
+				case p := <-cw.ch:
+					db.notifyPending(p)
+				default:
+				}
+				return
+			}
 		}
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		item.Worker = leasedWorker.String
-		item.LeaseExpires = leaseExpires.Int64
-		item.Primitives = prim
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(item)
 	}
 	claimIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		worker, ok := decodeWorker(w, r)
@@ -1449,8 +1632,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0)", id, worker, nil); !ok {
+		env, ok := updateLeasedOrLapsed(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0)", id, worker, nil)
+		if !ok {
 			return
+		}
+		if env.Project != "" {
+			db.notifyPending(env.Project)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -1488,19 +1675,18 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.rw.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0 WHERE id=? AND status='buried'", id)
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		aff, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if aff == 0 {
+		var project string
+		err := db.rw.QueryRow("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0 WHERE id=? AND status='buried' RETURNING project", id).Scan(&project)
+		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
+		}
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if project != "" {
+			db.notifyPending(project)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
@@ -2195,7 +2381,7 @@ HTTP Endpoints:
                              project, claim_count, summary, created_at
          ?columns=           alias for fields
   POST   /tasks              create a task (requires project, body/asset_path)
-  POST   /tasks/claim        claim next pending task (requires worker, optional project)
+  POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait)
   GET    /tasks/{id}         get task details
   PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path)
   POST   /tasks/{id}/claim   claim a specific task (requires worker)
@@ -2361,18 +2547,30 @@ func checkpointWAL(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-func sweepExpired(db *sql.DB, maxClaims int) (int64, error) {
+func sweepExpired(db *sql.DB, maxClaims int) ([]string, error) {
 	const query = `UPDATE tasks
 SET status = CASE WHEN ? > 0 AND claim_count >= ? THEN 'buried' ELSE 'pending' END,
     worker = NULL,
     lease_expires = NULL
 WHERE (status = 'leased' AND lease_expires < unixepoch())
-   OR (? > 0 AND status = 'pending' AND claim_count >= ?)`
-	res, err := db.Exec(query, maxClaims, maxClaims, maxClaims, maxClaims)
+   OR (? > 0 AND status = 'pending' AND claim_count >= ?)
+RETURNING status, project`
+	rows, err := db.Query(query, maxClaims, maxClaims, maxClaims, maxClaims)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return res.RowsAffected()
+	defer rows.Close()
+	var projects []string
+	for rows.Next() {
+		var status, project string
+		if err := rows.Scan(&status, &project); err != nil {
+			return nil, err
+		}
+		if status == "pending" {
+			projects = append(projects, project)
+		}
+	}
+	return projects, rows.Err()
 }
 
 func runLeaseSweeper(ctx context.Context, s *store, interval time.Duration) {
@@ -2383,8 +2581,12 @@ func runLeaseSweeper(ctx context.Context, s *store, interval time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if _, err := s.sweep(); err != nil && !errors.Is(err, context.Canceled) {
+			if projects, err := s.sweep(); err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("lease sweeper error: %v", err)
+			} else {
+				for _, p := range projects {
+					s.notifyPending(p)
+				}
 			}
 		}
 	}
