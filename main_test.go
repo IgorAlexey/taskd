@@ -6008,3 +6008,124 @@ func TestTasksFilterLive(t *testing.T) {
 		t.Fatalf("bogus status query expected 400, got %d: %s", code, body)
 	}
 }
+
+func TestListTasksETag(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	id1 := createTask(t, srv.URL, "p1")
+	createTask(t, srv.URL, "p2")
+
+	// GET /tasks, assert ETag header non-empty and 200
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks failed: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, body)
+	}
+	etag := resp.Header.Get("ETag")
+	if etag == "" {
+		t.Fatalf("expected non-empty ETag header")
+	}
+
+	// GET again with If-None-Match set to that ETag, assert 304 and empty body
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	resp2, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks with If-None-Match failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	body2, err := io.ReadAll(resp2.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+	if resp2.StatusCode != http.StatusNotModified {
+		t.Fatalf("expected 304, got %d: %s", resp2.StatusCode, body2)
+	}
+	if len(body2) != 0 {
+		t.Fatalf("expected empty body on 304, got %q", string(body2))
+	}
+	if resp2.Header.Get("ETag") != etag {
+		t.Fatalf("expected ETag %q on 304, got %q", etag, resp2.Header.Get("ETag"))
+	}
+	if resp2.Header.Get("X-Total-Count") != "2" {
+		t.Fatalf("expected X-Total-Count 2 on 304, got %q", resp2.Header.Get("X-Total-Count"))
+	}
+
+	// PATCH one task's priority
+	code, patchBody := do(t, http.MethodPatch, srv.URL+"/tasks/"+id1, map[string]any{"priority": 5})
+	if code != http.StatusNoContent {
+		t.Fatalf("PATCH priority failed: %d: %s", code, patchBody)
+	}
+
+	// GET again with the old ETag, assert 200 and a different ETag
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	req.Header.Set("If-None-Match", etag)
+	resp3, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks failed: %v", err)
+	}
+	defer resp3.Body.Close()
+	body3, err := io.ReadAll(resp3.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+	if resp3.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after patch, got %d: %s", resp3.StatusCode, body3)
+	}
+	newETag := resp3.Header.Get("ETag")
+	if newETag == "" {
+		t.Fatalf("expected non-empty new ETag header")
+	}
+	if newETag == etag {
+		t.Fatalf("expected new ETag to differ from old ETag %s, got same", etag)
+	}
+
+	// Also assert a ?project= filtered list yields a different ETag than the unfiltered one
+	req, err = http.NewRequest(http.MethodGet, srv.URL+"/tasks?project=p1", nil)
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	respFiltered, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("GET /tasks?project=p1 failed: %v", err)
+	}
+	defer respFiltered.Body.Close()
+	bodyFiltered, err := io.ReadAll(respFiltered.Body)
+	if err != nil {
+		t.Fatalf("read body failed: %v", err)
+	}
+	if respFiltered.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 for filtered list, got %d: %s", respFiltered.StatusCode, bodyFiltered)
+	}
+	filteredETag := respFiltered.Header.Get("ETag")
+	if filteredETag == "" {
+		t.Fatalf("expected non-empty filtered ETag header")
+	}
+	if filteredETag == newETag {
+		t.Fatalf("expected filtered ETag to differ from unfiltered ETag %s, got same", newETag)
+	}
+}

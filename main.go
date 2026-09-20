@@ -13,6 +13,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log"
 	"net"
@@ -1525,18 +1526,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			}
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if after == nil {
-			w.Header().Set("X-Total-Count", strconv.Itoa(total))
-		}
-		if len(tasks) == limit {
-			next.Filters = listFilterFingerprint(q)
-			w.Header().Set("X-Next-Cursor", encodeListCursor(next))
-		}
+		var buf bytes.Buffer
 		if requestedFields == nil {
-			json.NewEncoder(w).Encode(tasks)
+			json.NewEncoder(&buf).Encode(tasks)
 		} else {
-			var buf bytes.Buffer
 			buf.WriteByte('[')
 			for i, item := range tasks {
 				if i > 0 {
@@ -1589,8 +1582,27 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				buf.WriteByte('}')
 			}
 			buf.WriteString("]\n")
-			w.Write(buf.Bytes())
 		}
+
+		h := fnv.New64a()
+		h.Write(buf.Bytes())
+		etag := fmt.Sprintf("\"%x\"", h.Sum64())
+		w.Header().Set("Content-Type", "application/json")
+		if after == nil {
+			w.Header().Set("X-Total-Count", strconv.Itoa(total))
+		}
+		if len(tasks) == limit {
+			next.Filters = listFilterFingerprint(q)
+			w.Header().Set("X-Next-Cursor", encodeListCursor(next))
+		}
+		w.Header().Set("ETag", etag)
+
+		inm := strings.TrimSpace(r.Header.Get("If-None-Match"))
+		if strings.TrimPrefix(inm, "W/") == etag {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Write(buf.Bytes())
 	}
 
 	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
