@@ -856,20 +856,40 @@ func (m model) footerItems() [][2]string {
 			{"y/Y", "copy"},
 		}
 	}
-	return [][2]string{
-		{"j/k", "move"},
-		{"0-4", "filter"},
-		{"s", "sort"},
-		{"p", "project"},
-		{"w", "worker"},
-		{"n", "new"},
-		{"e", "edit"},
-		{"y/Y", "copy"},
-		{"+/-", "pri"},
-		{"D", "delete"},
-		{"x", "complete"},
-		{"z", "zoom"},
+	var items [][2]string
+	if t, ok := m.selected(); ok {
+		switch t.Status {
+		case "pending":
+			items = append(items, [2]string{"c", "claim"})
+		case "leased":
+			items = append(items,
+				[2]string{"t", "touch"},
+				[2]string{"u", "release"},
+				[2]string{"b", "bury"},
+			)
+		case "buried":
+			items = append(items, [2]string{"K", "kick"})
+		}
 	}
+	items = append(items, [2]string{"s", "sort"})
+	if len(m.projects) > 0 {
+		items = append(items, [2]string{"p", "project"})
+	}
+	if len(m.workers) > 0 {
+		items = append(items, [2]string{"w", "worker"})
+	}
+	items = append(items,
+		[2]string{"n", "new"},
+		[2]string{"0-4", "filter"},
+		[2]string{"j/k", "move"},
+		[2]string{"e", "edit"},
+		[2]string{"y/Y", "copy"},
+		[2]string{"+/-", "pri"},
+		[2]string{"D", "delete"},
+		[2]string{"x", "complete"},
+		[2]string{"z", "zoom"},
+	)
+	return items
 }
 
 func (m model) footerPinned() [][2]string {
@@ -896,6 +916,16 @@ func (m model) footRight() string {
 
 func appendFooterTarget(targets []footerTarget, key string, start, width int) []footerTarget {
 	switch key {
+	case "c":
+		return append(targets, footerTarget{action: "claim", start: start, end: start + width})
+	case "t":
+		return append(targets, footerTarget{action: "touch", start: start, end: start + width})
+	case "u":
+		return append(targets, footerTarget{action: "release", start: start, end: start + width})
+	case "b":
+		return append(targets, footerTarget{action: "bury", start: start, end: start + width})
+	case "K":
+		return append(targets, footerTarget{action: "kick", start: start, end: start + width})
 	case "s":
 		return append(targets, footerTarget{action: "sort", start: start, end: start + width})
 	case "p":

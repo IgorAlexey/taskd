@@ -724,79 +724,21 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 	case "Y":
 		m, cmd := m.actionCopyBody()
 		return m, cmd, true
-	case "c", "u", "t", "b", "K":
-		t, ok := m.selected()
-		if !ok {
-			return m, nil, true
-		}
-		switch key {
-
-		case "c":
-			if cmd, ok := m.requireWorker(); !ok {
-				return m, cmd, true
-			}
-			if t.Status != "pending" {
-				cmd := m.setMsg("task is not pending")
-				return m, cmd, true
-			}
-			id7 := shortID(t.ID)
-			m.msg = ""
-			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7), true
-		case "u":
-			if t.Status != "leased" {
-				cmd := m.setMsg("task is not leased")
-				return m, cmd, true
-			}
-			if t.Worker != m.cfg.worker {
-				cmd := m.setMsg("cannot release lease held by another worker")
-				return m, cmd, true
-			}
-			id7 := shortID(t.ID)
-			m.msg = ""
-			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": m.cfg.worker}, "released task "+id7), true
-		case "t":
-			if cmd, ok := m.requireWorker(); !ok {
-				return m, cmd, true
-			}
-			if t.Status != "leased" {
-				cmd := m.setMsg("task is not leased")
-				return m, cmd, true
-			}
-			if t.Worker != m.cfg.worker {
-				cmd := m.setMsg("cannot touch lease held by another worker")
-				return m, cmd, true
-			}
-			now := m.now
-			if now.IsZero() {
-				now = time.Now()
-			}
-			if t.LeaseExpires <= now.Unix() {
-				cmd := m.setMsg("lease has expired")
-				return m, cmd, true
-			}
-			id7 := shortID(t.ID)
-			m.msg = ""
-			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7), true
-		case "b":
-			if t.Status != "leased" {
-				cmd := m.setMsg("task is not leased")
-				return m, cmd, true
-			}
-			if t.Worker != m.cfg.worker {
-				cmd := m.setMsg("task leased by another worker")
-				return m, cmd, true
-			}
-			m.confirmTask("Bury", "buried", "POST", "/tasks/"+t.ID+"/bury", t, map[string]any{"worker": m.cfg.worker})
-			return m, nil, true
-		case "K":
-			if t.Status != "buried" {
-				cmd := m.setMsg("task is not buried")
-				return m, cmd, true
-			}
-			m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
-			return m, nil, true
-
-		}
+	case "c":
+		m, cmd := m.actionClaim()
+		return m, cmd, true
+	case "u":
+		m, cmd := m.actionRelease()
+		return m, cmd, true
+	case "t":
+		m, cmd := m.actionTouch()
+		return m, cmd, true
+	case "b":
+		m, cmd := m.actionBury()
+		return m, cmd, true
+	case "K":
+		m, cmd := m.actionKick()
+		return m, cmd, true
 	}
 	return m, nil, false
 }
@@ -1375,6 +1317,16 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 				return m.actionDelete()
 			case "complete":
 				return m.actionComplete()
+			case "claim":
+				return m.actionClaim()
+			case "touch":
+				return m.actionTouch()
+			case "release":
+				return m.actionRelease()
+			case "bury":
+				return m.actionBury()
+			case "kick":
+				return m.actionKick()
 			case "copy_id":
 				return m.actionCopyID()
 			case "copy_body":
@@ -1502,6 +1454,100 @@ func (m model) actionComplete() (model, tea.Cmd) {
 		return m, nil
 	}
 	m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
+	return m, nil
+}
+
+func (m model) actionClaim() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if cmd, ok := m.requireWorker(); !ok {
+		return m, cmd
+	}
+	if t.Status != "pending" {
+		cmd := m.setMsg("task is not pending")
+		return m, cmd
+	}
+	id7 := shortID(t.ID)
+	m.msg = ""
+	return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7)
+}
+
+func (m model) actionRelease() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status != "leased" {
+		cmd := m.setMsg("task is not leased")
+		return m, cmd
+	}
+	if t.Worker != m.cfg.worker {
+		cmd := m.setMsg("cannot release lease held by another worker")
+		return m, cmd
+	}
+	id7 := shortID(t.ID)
+	m.msg = ""
+	return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": m.cfg.worker}, "released task "+id7)
+}
+
+func (m model) actionTouch() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if cmd, ok := m.requireWorker(); !ok {
+		return m, cmd
+	}
+	if t.Status != "leased" {
+		cmd := m.setMsg("task is not leased")
+		return m, cmd
+	}
+	if t.Worker != m.cfg.worker {
+		cmd := m.setMsg("cannot touch lease held by another worker")
+		return m, cmd
+	}
+	now := m.now
+	if now.IsZero() {
+		now = time.Now()
+	}
+	if t.LeaseExpires <= now.Unix() {
+		cmd := m.setMsg("lease has expired")
+		return m, cmd
+	}
+	id7 := shortID(t.ID)
+	m.msg = ""
+	return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7)
+}
+
+func (m model) actionBury() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status != "leased" {
+		cmd := m.setMsg("task is not leased")
+		return m, cmd
+	}
+	if t.Worker != m.cfg.worker {
+		cmd := m.setMsg("task leased by another worker")
+		return m, cmd
+	}
+	m.confirmTask("Bury", "buried", "POST", "/tasks/"+t.ID+"/bury", t, map[string]any{"worker": m.cfg.worker})
+	return m, nil
+}
+
+func (m model) actionKick() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status != "buried" {
+		cmd := m.setMsg("task is not buried")
+		return m, cmd
+	}
+	m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
 	return m, nil
 }
 
