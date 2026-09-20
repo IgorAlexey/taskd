@@ -772,3 +772,75 @@ func TestConcurrentClaimersExactlyOnce(t *testing.T) {
 		}
 	}
 }
+
+func TestStatsWorkerExpiredLeases(t *testing.T) {
+	st, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(newHandler(st, 300))
+	defer srv.Close()
+
+	postTask := `{"id":"task-exp","body":"expiring work","project":"proj"}`
+	res, err := srv.Client().Post(srv.URL+"/tasks", "application/json", strings.NewReader(postTask))
+	if err != nil {
+		t.Fatalf("POST /tasks: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("POST /tasks status = %d", res.StatusCode)
+	}
+
+	claimPayload := `{"worker":"w1"}`
+	res, err = srv.Client().Post(srv.URL+"/tasks/task-exp/claim", "application/json", strings.NewReader(claimPayload))
+	if err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("claim status = %d", res.StatusCode)
+	}
+
+	getStats := func(query string) statsResponse {
+		t.Helper()
+		res, err := srv.Client().Get(srv.URL + "/stats" + query)
+		if err != nil {
+			t.Fatalf("GET /stats%s: %v", query, err)
+		}
+		defer res.Body.Close()
+		if res.StatusCode != http.StatusOK {
+			t.Fatalf("GET /stats%s status = %d", query, res.StatusCode)
+		}
+		var s statsResponse
+		if err := json.NewDecoder(res.Body).Decode(&s); err != nil {
+			t.Fatalf("decode stats: %v", err)
+		}
+		return s
+	}
+
+	sBefore := getStats("?worker=w1")
+	if sBefore.Pending != 0 || sBefore.Leased != 1 || sBefore.Total != 1 {
+		t.Fatalf("stats before expiry ?worker=w1: got %+v, want pending:0 leased:1 total:1", sBefore)
+	}
+
+	sBeforeUnassigned := getStats("?worker=")
+	if sBeforeUnassigned.Pending != 0 || sBeforeUnassigned.Leased != 0 || sBeforeUnassigned.Total != 0 {
+		t.Fatalf("stats before expiry ?worker=: got %+v, want pending:0 leased:0 total:0", sBeforeUnassigned)
+	}
+
+	if _, err := st.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = 'task-exp'"); err != nil {
+		t.Fatalf("expire lease failed: %v", err)
+	}
+
+	sW1 := getStats("?worker=w1")
+	if sW1.Pending != 0 || sW1.Leased != 0 || sW1.Total != 0 {
+		t.Fatalf("stats ?worker=w1: got %+v, want pending:0 leased:0 total:0", sW1)
+	}
+
+	sUnassigned := getStats("?worker=")
+	if sUnassigned.Pending != 1 || sUnassigned.Leased != 0 || sUnassigned.Total != 1 {
+		t.Fatalf("stats ?worker=: got %+v, want pending:1 leased:0 total:1", sUnassigned)
+	}
+}

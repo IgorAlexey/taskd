@@ -989,6 +989,13 @@ func escapeLike(s string) string {
 	return b.String()
 }
 
+func workerFilterClause(worker string, now int64) (string, []any) {
+	if worker != "" {
+		return "worker = ? AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))", []any{worker, now}
+	}
+	return "(worker IS NULL OR worker = '' OR (status = 'leased' AND lease_expires < ?))", []any{now}
+}
+
 const buryExhaustedSQL = `UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL
 WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
   AND claim_count > 0 AND claim_count >= ?`
@@ -1119,13 +1126,9 @@ FROM tasks`
 			args = append(args, project)
 		}
 		if q.Has("worker") {
-			worker := strings.TrimSpace(q.Get("worker"))
-			if worker != "" {
-				where = append(where, "worker = ?")
-				args = append(args, worker)
-			} else {
-				where = append(where, "(worker IS NULL OR worker = '')")
-			}
+			clause, cargs := workerFilterClause(strings.TrimSpace(q.Get("worker")), now)
+			where = append(where, clause)
+			args = append(args, cargs...)
 		}
 		if len(where) > 0 {
 			query += " WHERE " + strings.Join(where, " AND ")
@@ -1553,14 +1556,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			args = append(args, project)
 		}
 		if q.Has("worker") {
-			worker := strings.TrimSpace(q.Get("worker"))
-			if worker != "" {
-				where = append(where, "worker = ? AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))")
-				args = append(args, worker, now)
-			} else {
-				where = append(where, "(status = 'pending' OR (status = 'leased' AND lease_expires < ?))")
-				args = append(args, now)
-			}
+			clause, cargs := workerFilterClause(strings.TrimSpace(q.Get("worker")), now)
+			where = append(where, clause)
+			args = append(args, cargs...)
 		}
 		if priorityFilter != nil {
 			where = append(where, "priority = ?")
