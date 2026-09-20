@@ -1069,6 +1069,7 @@
         <section class="shortcuts-section">
           <h3>General</h3>
           <div class="shortcut-list">
+            <div class="shortcut-row"><kbd>0-5</kbd> <span>Filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)</span></div>
             <div class="shortcut-row"><kbd>r</kbd> <span>Refresh queue</span></div>
             <div class="shortcut-row"><kbd>?</kbd> <span>Show keyboard shortcuts</span></div>
           </div>
@@ -1096,6 +1097,7 @@
     let isEditingTask = false;
     const PAGE_SIZE = 200;
     const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,asset_path,summary,created_at';
+    const STATUS_KEYS = ['', 'pending', 'leased', 'done', 'buried', 'live'];
     let claimWorker = '';
     try {
       claimWorker = localStorage.getItem('taskd-claim-worker') || '';
@@ -3451,6 +3453,9 @@
           }
         } else if (e.key === 'r') {
           loadAll();
+        } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key >= '0' && e.key <= '5') {
+          e.preventDefault();
+          filterByStatus(STATUS_KEYS[e.key]);
         }
       });
     }

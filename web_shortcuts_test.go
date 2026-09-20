@@ -72,3 +72,31 @@ func TestWebUIDeselectTask(t *testing.T) {
 		t.Fatal("expected Deselect task shortcut documented in web/index.html")
 	}
 }
+
+func TestWebUIStatusFilterShortcuts(t *testing.T) {
+	ui := string(uiHTML)
+	generalIdx := strings.Index(ui, "<h3>General</h3>")
+	if generalIdx == -1 {
+		t.Fatal("expected General section in shortcuts modal")
+	}
+	generalSection := ui[generalIdx:]
+	if !strings.Contains(generalSection, "0-5") {
+		t.Fatal("expected 0-5 listed under general shortcuts")
+	}
+
+	if !strings.Contains(ui, "STATUS_KEYS[e.key]") {
+		t.Fatal("expected STATUS_KEYS[e.key] status lookup in setupGlobalShortcuts")
+	}
+	if !strings.Contains(ui, "filterByStatus(STATUS_KEYS[e.key])") {
+		t.Fatal("expected filterByStatus dispatch for 0-5 status keys")
+	}
+	if !strings.Contains(ui, "e.key >= '0' && e.key <= '5'") {
+		t.Fatal("expected range check for keys 0-5")
+	}
+	if !strings.Contains(ui, "isInputTarget(e.target)") {
+		t.Fatal("expected input target guard in setupGlobalShortcuts")
+	}
+	if !strings.Contains(ui, "!e.ctrlKey && !e.metaKey && !e.altKey") {
+		t.Fatal("expected modifier key guard for status filter shortcuts")
+	}
+}
