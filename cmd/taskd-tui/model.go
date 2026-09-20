@@ -723,6 +723,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.detail.HalfPageUp()
 				return m, nil
+			case msg.Code == tea.KeyPgDown || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'f'):
+				m.detail.PageDown()
+				return m, nil
+			case msg.Code == tea.KeyPgUp || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'b'):
+				m.detail.PageUp()
+				return m, nil
 			case msg.Text == "?":
 				return m.actionHelp()
 			case msg.Text == "X":
@@ -781,12 +787,12 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd':
 				return m, m.scrollDown(max(1, m.tableRows()/2))
-			case msg.Code == tea.KeyPgDown:
+			case msg.Code == tea.KeyPgDown || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'f'):
 				return m, m.scrollDown(max(1, m.tableRows()))
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.move(-max(1, m.tableRows()/2))
 				return m, nil
-			case msg.Code == tea.KeyPgUp:
+			case msg.Code == tea.KeyPgUp || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'b'):
 				m.move(-max(1, m.tableRows()))
 				return m, nil
 			case msg.Text == "0":

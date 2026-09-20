@@ -158,3 +158,72 @@ func TestContinuousScrollPagination(t *testing.T) {
 		}
 	})
 }
+func TestPageNavigationCtrlFCtrlB(t *testing.T) {
+	m := createNavigationTestModel(50, 10)
+	tRows := m.tableRows()
+	if tRows <= 1 {
+		t.Fatalf("tableRows = %d, want > 1", tRows)
+	}
+	if m.cursor != 0 {
+		t.Fatalf("initial cursor = %d, want 0", m.cursor)
+	}
+
+	res, _ := m.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	m = res.(model)
+	if m.cursor != tRows {
+		t.Fatalf("cursor after Ctrl-F = %d, want %d", m.cursor, tRows)
+	}
+
+	res, _ = m.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	m = res.(model)
+	if m.cursor != 0 {
+		t.Fatalf("cursor after Ctrl-B = %d, want 0", m.cursor)
+	}
+
+	for _, mde := range []mode{modeDetail, modeZoom} {
+		mDetail := createNavigationTestModel(5, 50)
+		mDetail.mode = mde
+		mDetail.syncDetail()
+
+		vpHeight := mDetail.detail.Height()
+		if vpHeight <= 0 {
+			t.Fatalf("mode %v: detail viewport height = %d, want > 0", mde, vpHeight)
+		}
+
+		res, _ = mDetail.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+		mDetail = res.(model)
+		if mDetail.detail.YOffset() != vpHeight {
+			t.Fatalf("mode %v: YOffset after Ctrl-F = %d, want %d", mde, mDetail.detail.YOffset(), vpHeight)
+		}
+
+		res, _ = mDetail.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+		mDetail = res.(model)
+		if mDetail.detail.YOffset() != 0 {
+			t.Fatalf("mode %v: YOffset after Ctrl-B = %d, want 0", mde, mDetail.detail.YOffset())
+		}
+	}
+
+	mHelp := createNavigationTestModel(1, 1)
+	mHelp.height = 10
+	helpRes, _ := mHelp.Update(tea.KeyPressMsg{Text: "?"})
+	mHelp = helpRes.(model)
+	if mHelp.mode != modeHelp {
+		t.Fatalf("mode after ? = %v, want %v", mHelp.mode, modeHelp)
+	}
+	helpView := mHelp.help.View(mHelp.height, mHelp.theme)
+	if !strings.Contains(helpView, "ctrl-f/b") && !strings.Contains(helpView, "ctrl-f/ctrl-b") {
+		t.Fatalf("help modal view missing ctrl-f/ctrl-b documentation, got:\n%s", helpView)
+	}
+
+	res, _ = mHelp.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	mHelp = res.(model)
+	if mHelp.help.vp.YOffset() == 0 {
+		t.Fatalf("expected help offset > 0 after Ctrl-F")
+	}
+
+	res, _ = mHelp.Update(tea.KeyPressMsg{Code: 'b', Mod: tea.ModCtrl})
+	mHelp = res.(model)
+	if mHelp.help.vp.YOffset() != 0 {
+		t.Fatalf("expected help offset 0 after Ctrl-B, got %d", mHelp.help.vp.YOffset())
+	}
+}

@@ -314,6 +314,7 @@ Keyboard shortcuts:
   j/k, Up/Down        move selection
   g/G                 jump to first / last row
   ctrl-d/ctrl-u       move half page down / up
+  ctrl-f/ctrl-b       move page down / up
   PgUp/PgDn           move page down / up
   0-5                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)
   s, S                cycle sort column forward / backward

@@ -1219,6 +1219,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[j/k]", "move"},
 		{"[g/G]", "first/last"},
 		{"[ctrl-d/u]", "half page"},
+		{"[ctrl-f/b]", "page"},
 		{"[PgUp/Dn]", "page"},
 		{"[Enter]", "detail"},
 		{"[Tab]", "focus"},
@@ -1236,7 +1237,6 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[a]", "note"},
 		{"[ctrl-s]", "save form"},
 		{"[ctrl-y]", "copy result"},
-		{"[?]", "help"},
 	}
 	col2 := []keyRef{
 		{"[0-5]", "filter (status)"},
@@ -1251,6 +1251,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[y/Y]", "copy id/body"},
 		{"[r]", "refresh"},
 		{"[q]", "quit"},
+		{"[?]", "help"},
 		{"[X]", "purge done"},
 	}
 
@@ -1309,10 +1310,10 @@ func (h helpModel) Update(msg tea.Msg) (helpModel, tea.Cmd) {
 		case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 			h.vp.HalfPageUp()
 			return h, nil
-		case msg.Code == tea.KeyPgDown:
+		case msg.Code == tea.KeyPgDown || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'f'):
 			h.vp.PageDown()
 			return h, nil
-		case msg.Code == tea.KeyPgUp:
+		case msg.Code == tea.KeyPgUp || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'b'):
 			h.vp.PageUp()
 			return h, nil
 		case msg.Text == "g" || msg.Code == tea.KeyHome:
