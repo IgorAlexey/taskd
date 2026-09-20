@@ -1,8 +1,10 @@
 package main
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -67,5 +69,39 @@ func TestCORSHeaders(t *testing.T) {
 	}
 	if got := optResp.Header.Get("Access-Control-Expose-Headers"); got != "" {
 		t.Fatalf("expected empty Access-Control-Expose-Headers on preflight, got %q", got)
+	}
+}
+
+func TestBackupDestinationDirectory(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	db.Close()
+
+	destDir := filepath.Join(dir, "backup-dir")
+	if err := os.Mkdir(destDir, 0755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+
+	err = run([]string{"-db", dbPath, "-backup", destDir})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	wantErr := "backup destination is a directory: " + destDir
+	if err.Error() != wantErr {
+		t.Fatalf("expected error %q, got %q", wantErr, err.Error())
+	}
+
+	roDB, err := openReadOnlyDB(dbPath)
+	if err != nil {
+		t.Fatalf("openReadOnlyDB failed: %v", err)
+	}
+	defer roDB.Close()
+
+	if err := backupDB(roDB, destDir, io.Discard); err == nil || err.Error() != wantErr {
+		t.Fatalf("backupDB expected %q, got %v", wantErr, err)
 	}
 }

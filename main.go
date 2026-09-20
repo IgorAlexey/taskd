@@ -2178,6 +2178,17 @@ func backupDB(db *sql.DB, path string, out io.Writer) error {
 	if fsPath == "" {
 		fsPath = path
 	}
+	destInfo, statErr := os.Stat(fsPath)
+	if statErr == nil {
+		if destInfo.IsDir() {
+			return fmt.Errorf("backup destination is a directory: %s", fsPath)
+		}
+		if err := checkNotSource(db, fsPath, destInfo); err != nil {
+			return err
+		}
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return fmt.Errorf("cannot access backup destination %s: %w", fsPath, statErr)
+	}
 	dir := filepath.Dir(fsPath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -2197,17 +2208,10 @@ func backupDB(db *sql.DB, path string, out io.Writer) error {
 	if _, err := db.Exec("VACUUM INTO ?", tmpPath); err != nil {
 		return err
 	}
-	destInfo, statErr := os.Stat(fsPath)
-	switch {
-	case statErr == nil:
-		if err := checkNotSource(db, fsPath, destInfo); err != nil {
-			return err
-		}
+	if destInfo != nil {
 		if err := os.Chmod(tmpPath, destInfo.Mode().Perm()); err != nil {
 			return err
 		}
-	case !errors.Is(statErr, os.ErrNotExist):
-		return fmt.Errorf("cannot access backup destination %s: %w", fsPath, statErr)
 	}
 	if err := os.Rename(tmpPath, fsPath); err != nil {
 		return err
