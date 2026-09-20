@@ -780,6 +780,17 @@ func (m model) View() tea.View {
 				}
 				chips = append(chips, m.glyph.refresh+" "+strconv.Itoa(curTask.ClaimCount)+" "+cw)
 			}
+			notes := curTask.Notes
+			if cached, ok := m.notesCache[curTask.ID]; ok {
+				notes = cached
+			}
+			if len(notes) > 0 {
+				nw := "note"
+				if len(notes) != 1 {
+					nw = "notes"
+				}
+				chips = append(chips, strconv.Itoa(len(notes))+" "+nw)
+			}
 			if curTask.AssetPath != "" && curTask.AssetPath != title {
 				chips = append(chips, curTask.AssetPath)
 			}
