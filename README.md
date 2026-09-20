@@ -71,6 +71,13 @@ task, so drop the work. The wording tells a human reading the log which
 way it went, and is not a stable signal, since a worker that claims the
 task between your call and the answer changes it.
 
+A worker identifier is trimmed of surrounding whitespace and must then be
+between 1 and 128 bytes, not characters, since it is stored as-is in the
+`worker` column of every task it touches. An empty one answers `400 Bad
+Request` with `missing worker`, a longer one with `worker too long`; a
+non-ASCII hostname reaches the bound sooner than its character count
+suggests.
+
 ## Backup
 
 A plain cp of the .db is not a backup: WAL mode leaves data in the wal file.

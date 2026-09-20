@@ -1842,8 +1842,8 @@ PRAGMA user_version = 1;`
 	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
-	if userVersion != 4 {
-		t.Fatalf("expected user_version 4, got %d", userVersion)
+	if userVersion != schemaVersion {
+		t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 	}
 
 	var queueIdxCount int
@@ -1917,8 +1917,8 @@ PRAGMA user_version = 3;`
 	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
-	if userVersion != 4 {
-		t.Fatalf("expected user_version 4, got %d", userVersion)
+	if userVersion != schemaVersion {
+		t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 	}
 
 	rows, err := db.Query("SELECT name FROM pragma_table_info('tasks')")
@@ -3921,8 +3921,8 @@ PRAGMA user_version = 2;`
 	if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 		t.Fatalf("query user_version: %v", err)
 	}
-	if userVersion != 4 {
-		t.Fatalf("expected user_version 4, got %d", userVersion)
+	if userVersion != schemaVersion {
+		t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 	}
 }
 
@@ -4320,9 +4320,9 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 			db.Close()
 			t.Fatalf("query user_version: %v", err)
 		}
-		if userVersion != 4 {
+		if userVersion != schemaVersion {
 			db.Close()
-			t.Fatalf("expected user_version 4, got %d", userVersion)
+			t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 		}
 		var hasClaimCount int
 		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='claim_count'").Scan(&hasClaimCount); err != nil {
@@ -4359,8 +4359,8 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			t.Fatalf("query user_version: %v", err)
 		}
-		if userVersion != 4 {
-			t.Fatalf("expected user_version 4, got %d", userVersion)
+		if userVersion != schemaVersion {
+			t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 		}
 
 		var hasClaimCount int
@@ -4395,8 +4395,8 @@ func TestMigrationV3DuplicateColumn(t *testing.T) {
 		if err := db.QueryRow("PRAGMA user_version").Scan(&userVersion); err != nil {
 			t.Fatalf("query user_version: %v", err)
 		}
-		if userVersion != 4 {
-			t.Fatalf("expected user_version 4, got %d", userVersion)
+		if userVersion != schemaVersion {
+			t.Fatalf("expected user_version %d, got %d", schemaVersion, userVersion)
 		}
 
 		var hasClaimCount int

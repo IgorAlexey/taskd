@@ -68,7 +68,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5}
 
 const schemaVersion = len(migrations) + 1
 
@@ -302,7 +302,7 @@ func migrateV4(db *sql.DB) error {
 	insert := "INSERT INTO tasks_new (rowid, id, asset_path, status, worker, lease_expires, primitives, body, priority, project, claim_count) SELECT rowid, id, " +
 		src("asset_path", "''") + ", " +
 		src("status", "'pending'") + ", " +
-		src("worker", "NULL") + ", " +
+		"CAST(substr(CAST(" + src("worker", "NULL") + " AS BLOB), 1, 128) AS TEXT), " +
 		src("lease_expires", "NULL") + ", " +
 		src("primitives", "NULL") + ", " +
 		src("body", "''") + ", " +
@@ -327,11 +327,36 @@ func migrateV4(db *sql.DB) error {
 	return tx.Commit()
 }
 
+func migrateV5(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		`INSERT INTO tasks_new (rowid, id, asset_path, status, worker, lease_expires, primitives, body, priority, project, claim_count)
+SELECT rowid, id, asset_path, status, CAST(substr(CAST(worker AS BLOB), 1, 128) AS TEXT), lease_expires, primitives, body, priority, project, claim_count FROM tasks;`,
+		"DROP TABLE tasks;",
+		"ALTER TABLE tasks_new RENAME TO tasks;",
+		"CREATE INDEX idx_tasks_queue ON tasks (status, priority ASC);",
+		"CREATE INDEX idx_tasks_project ON tasks (project, status, priority ASC);",
+		"PRAGMA user_version = 5;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 const taskColumns = `
   id TEXT PRIMARY KEY,
   asset_path TEXT NOT NULL DEFAULT '',
   status TEXT DEFAULT 'pending',
-  worker TEXT,
+  worker TEXT CHECK (octet_length(worker) <= 128),
   lease_expires INTEGER,
   primitives JSON,
   body TEXT NOT NULL DEFAULT '',
@@ -479,9 +504,29 @@ func writeTaskStateError(w http.ResponseWriter, q queryer, id, worker string) {
 	}
 }
 
-func cleanWorker(raw string) (string, bool) {
+const maxWorkerLen = 128
+
+var errMissingWorker = errors.New("missing worker")
+var errWorkerTooLong = errors.New("worker too long")
+
+func cleanWorker(raw string) (string, error) {
 	worker := strings.TrimSpace(raw)
-	return worker, worker != ""
+	if worker == "" {
+		return "", errMissingWorker
+	}
+	if len(worker) > maxWorkerLen {
+		return "", errWorkerTooLong
+	}
+	return worker, nil
+}
+
+func checkWorker(w http.ResponseWriter, raw string) (string, bool) {
+	worker, err := cleanWorker(raw)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return "", false
+	}
+	return worker, true
 }
 
 func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
@@ -491,12 +536,7 @@ func decodeWorker(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if !decodeJSON(w, r, &req) {
 		return "", false
 	}
-	worker, ok := cleanWorker(req.Worker)
-	if !ok {
-		writeError(w, http.StatusBadRequest, "missing worker")
-		return "", false
-	}
-	return worker, true
+	return checkWorker(w, req.Worker)
 }
 
 func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) (leaseEnvelope, bool) {
@@ -820,8 +860,7 @@ FROM tasks`
 			return
 		}
 		var ok bool
-		if req.Worker, ok = cleanWorker(req.Worker); !ok {
-			writeError(w, http.StatusBadRequest, "missing worker")
+		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
 			return
 		}
 		req.Project = strings.TrimSpace(req.Project)
@@ -908,8 +947,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			return
 		}
 		var ok bool
-		if req.Worker, ok = cleanWorker(req.Worker); !ok {
-			writeError(w, http.StatusBadRequest, "missing worker")
+		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db, r.PathValue("id"))
@@ -991,9 +1029,8 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		worker, ok := cleanWorker(req.Worker)
+		worker, ok := checkWorker(w, req.Worker)
 		if !ok {
-			writeError(w, http.StatusBadRequest, "missing worker")
 			return
 		}
 		if req.Priority != nil && *req.Priority < 0 {
