@@ -225,17 +225,22 @@ func (m model) View() tea.View {
 
 	var tabParts []string
 	for _, tab := range tabDefs {
-		isActive := (m.filter == tab.filter)
-		countStr := strconv.Itoa(tab.count)
-		if isActive && m.connected {
+		countStr := "-"
+		if m.hasStats {
+			countStr = strconv.Itoa(tab.count)
+		}
+		if m.filter == tab.filter {
 			body := tab.key + " " + tab.name + " " + countStr
 			tabParts = append(tabParts, m.theme.accent.Render(m.glyph.pillL)+m.theme.tabActive.Render(body)+m.theme.accent.Render(m.glyph.pillR))
-		} else if isActive {
-			// Counts are from the last successful poll; keep them but
-			// drop them out of the pill so they read as stale.
-			tabParts = append(tabParts, m.theme.accent.Render(m.glyph.pillL)+m.theme.tabActive.Render(tab.key+" "+tab.name)+m.theme.accent.Render(m.glyph.pillR)+" "+m.theme.dim.Render(countStr))
 		} else {
 			tabParts = append(tabParts, m.theme.tabKey.Render(tab.key)+" "+tab.name+" "+m.theme.dim.Render(countStr))
+		}
+	}
+	// Counts come from the last successful poll; while disconnected the
+	// whole row is dimmed so none of them read as live.
+	if !m.connected {
+		for i := range tabParts {
+			tabParts[i] = m.theme.dim.Render(ansi.Strip(tabParts[i]))
 		}
 	}
 	tabsLeft := strings.Join(tabParts, "  ")
@@ -684,6 +689,11 @@ func (m model) View() tea.View {
 				detailLines = append(detailLines, strings.Repeat(" ", w))
 			}
 		}
+	}
+	// The rule, title and chips are fixed lines; on a very short terminal
+	// they alone exceed dRows, so cut from the bottom to keep the footer.
+	if len(detailLines) > dRows {
+		detailLines = detailLines[:dRows]
 	}
 
 	// 8. Footer (1 row)

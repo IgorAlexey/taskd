@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -317,6 +318,22 @@ func TestGlyphModesUseTheirOwnTextGlyphs(t *testing.T) {
 		searchOut := ansi.Strip(mSearch.View().Content)
 		if !strings.Contains(searchOut, "/abc"+c.glyph.caret) {
 			t.Errorf("%s: search footer does not use caret %q: %q", c.name, c.glyph.caret, searchOut)
+		}
+	}
+}
+
+func TestShortTerminalKeepsTheFooter(t *testing.T) {
+	for _, h := range []int{8, 10, 12} {
+		m := newModel(config{}, nil)
+		m.glyph = asciiGlyphs
+		m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: h})
+		m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
+		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+		if len(lines) != h {
+			t.Fatalf("height %d rendered %d lines", h, len(lines))
+		}
+		if !strings.Contains(lines[h-1], "q quit") {
+			t.Fatalf("height %d lost the footer: %q", h, lines[h-1])
 		}
 	}
 }

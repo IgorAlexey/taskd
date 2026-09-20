@@ -155,14 +155,15 @@ func pollCmd(c *client, project, etag string) tea.Cmd {
 	return func() tea.Msg {
 		tasks, newETag, changed, err := c.list(project, etag)
 		if err != nil {
-			return pollMsg{err: err}
+			return pollMsg{project: project, err: err}
 		}
 		st, err := c.getStats(project)
 		if err != nil {
-			return pollMsg{tasks: tasks, etag: newETag, changed: changed, err: err}
+			return pollMsg{project: project, tasks: tasks, etag: newETag, changed: changed, err: err}
 		}
 		projs, _ := c.getProjects()
 		return pollMsg{
+			project:  project,
 			tasks:    tasks,
 			etag:     newETag,
 			changed:  changed,

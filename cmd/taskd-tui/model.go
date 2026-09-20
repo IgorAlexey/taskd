@@ -89,6 +89,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pollMsg:
 		m.polling = false
+		if msg.project != m.project {
+			// Reply to a query for a project that is no longer selected.
+			return m, nil
+		}
 		if msg.changed {
 			m.etag = msg.etag
 			selID := ""
@@ -116,6 +120,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.connected = true
 		m.lastErr = ""
 		m.stats = msg.stats
+		m.hasStats = true
 		if msg.projects != nil {
 			m.projects = msg.projects
 		}
@@ -390,7 +395,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.project = next
 				}
-				m.etag = "" // the tag names the previous project's list
 				m.rebuild()
 				poll := m.startPoll()
 				return m, poll
@@ -424,10 +428,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if t.Status == "done" {
-					return m, m.setMsg("cannot edit done task")
+					cmd := m.setMsg("cannot edit done task")
+					return m, cmd
 				}
 				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					return m, m.setMsg("cannot edit actively leased task")
+					cmd := m.setMsg("cannot edit actively leased task")
+					return m, cmd
 				}
 				m.form = newEditForm(t, m.width)
 				m.mode = modeForm
@@ -461,7 +467,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if t.Status != "pending" {
-					return m, m.setMsg("task is not pending")
+					cmd := m.setMsg("task is not pending")
+					return m, cmd
 				}
 				id7 := shortID(t.ID)
 				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7)
@@ -471,7 +478,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if t.Status != "leased" {
-					return m, m.setMsg("task is not leased")
+					cmd := m.setMsg("task is not leased")
+					return m, cmd
 				}
 				id7 := shortID(t.ID)
 				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": t.Worker}, "released task "+id7)
@@ -481,7 +489,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					return m, m.setMsg("cannot delete actively leased task")
+					cmd := m.setMsg("cannot delete actively leased task")
+					return m, cmd
 				}
 				id7 := shortID(t.ID)
 				_, title := titleOf(t)
@@ -501,10 +510,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 				if t.Status == "done" {
-					return m, m.setMsg("task is already done")
+					cmd := m.setMsg("task is already done")
+					return m, cmd
 				}
 				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					return m, m.setMsg("cannot complete actively leased task")
+					cmd := m.setMsg("cannot complete actively leased task")
+					return m, cmd
 				}
 				id7 := shortID(t.ID)
 				_, title := titleOf(t)

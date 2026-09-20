@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func newTestModel(t *testing.T) model {
@@ -892,5 +894,39 @@ func TestQuitKeysQuitFromTheTable(t *testing.T) {
 		if _, ok := cmd().(tea.QuitMsg); !ok {
 			t.Errorf("%v produced %T, want tea.QuitMsg", key, cmd())
 		}
+	}
+}
+
+func TestPollReplyForAnotherProjectIsDropped(t *testing.T) {
+	m := newModel(config{refresh: time.Second}, nil)
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	m, _ = send(t, m, pollMsg{project: "", tasks: []task{{ID: "a1", Project: "alpha", Status: "pending"}}, etag: `"alpha"`, changed: true, projects: []string{"alpha", "beta"}})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"}) // -> alpha
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"}) // -> beta
+	if m.project != "beta" {
+		t.Fatalf("project = %q, want beta", m.project)
+	}
+	m, _ = send(t, m, pollMsg{project: "alpha", tasks: []task{{ID: "a2", Project: "alpha", Status: "pending"}}, etag: `"alpha-v2"`, changed: true})
+	if m.polling || m.etag != `"alpha"` || len(m.tasks) != 1 || m.tasks[0].ID != "a1" {
+		t.Fatalf("reply for alpha must not touch a beta model: polling=%v etag=%q tasks=%v", m.polling, m.etag, m.tasks)
+	}
+	m, _ = send(t, m, pollMsg{project: "beta", tasks: []task{{ID: "b1", Project: "beta", Status: "pending"}}, etag: `"beta"`, changed: true})
+	if m.etag != `"beta"` || len(m.shown) != 1 {
+		t.Fatalf("beta reply must apply: etag=%q shown=%d", m.etag, len(m.shown))
+	}
+}
+
+func TestTabsShowDashUntilStatsArrive(t *testing.T) {
+	m := newModel(config{refresh: time.Second}, nil)
+	m.glyph = asciiGlyphs
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
+	line := strings.Split(ansi.Strip(m.View().Content), "\n")[1]
+	if !strings.Contains(line, "0 all -") || !strings.Contains(line, "1 pending -") {
+		t.Fatalf("tabs before the first poll: %q", line)
+	}
+	m, _ = send(t, m, pollMsg{stats: stats{Total: 3, Pending: 3}})
+	line = strings.Split(ansi.Strip(m.View().Content), "\n")[1]
+	if !strings.Contains(line, "0 all 3") {
+		t.Fatalf("tabs after stats: %q", line)
 	}
 }
