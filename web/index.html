@@ -614,6 +614,7 @@
         status: q.get('status') || '',
         priority: q.get('priority') || '',
         worker: q.get('worker') || '',
+        q: q.get('q') || '',
         task: q.get('task') || '',
         page: q.get('page') || ''
       };
@@ -624,11 +625,13 @@
       const statusEl = document.getElementById('filter-status');
       const prioEl = document.getElementById('filter-priority');
       const workerEl = document.getElementById('filter-worker');
+      const searchEl = document.getElementById('filter-search');
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: statusEl ? statusEl.value : '',
         priority: prioEl ? prioEl.value : '',
         worker: workerEl ? workerEl.value : '',
+        q: searchEl ? searchEl.value.trim() : '',
         task: selectedTaskId || ''
       };
       if (currentPage > 1) state.page = String(currentPage);
@@ -642,6 +645,7 @@
       if (state.status) q.set('status', state.status);
       if (state.priority) q.set('priority', state.priority);
       if (state.worker) q.set('worker', state.worker);
+      if (state.q) q.set('q', state.q);
       if (state.task) q.set('task', state.task);
       if (state.page) q.set('page', state.page);
       const query = q.toString();
@@ -711,6 +715,8 @@
         }
       }
       setFilter(workerEl, state.worker);
+      const searchEl = document.getElementById('filter-search');
+      if (searchEl) searchEl.value = state.q || '';
       selectedTaskId = state.task || null;
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
@@ -1829,6 +1835,7 @@
       if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
       searchDebounceTimer = setTimeout(() => {
         currentPage = 1;
+        syncURL(false);
         loadTasks();
       }, 200);
     }
@@ -1839,6 +1846,7 @@
         el.value = '';
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
         currentPage = 1;
+        syncURL(false);
         loadTasks();
       }
     }

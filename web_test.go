@@ -243,6 +243,32 @@ func TestWebUIURLState(t *testing.T) {
 		ProjectPrefill struct {
 			FormProject string `json:"formProject"`
 		}
+		Search struct {
+			Entry  string
+			URL    string `json:"url"`
+			Search string
+			List   string
+		}
+		SearchSelect struct {
+			Entry  string
+			URL    string `json:"url"`
+			Search string
+		}
+		SearchBack struct {
+			URL    string `json:"url"`
+			Task   string
+			Search string
+		}
+		SearchClear struct {
+			URL    string `json:"url"`
+			Search string
+		}
+		SearchRestore struct {
+			ParsedQ    string `json:"parsedQ"`
+			InputValue string `json:"inputValue"`
+			URL        string `json:"url"`
+			List       string
+		}
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -331,6 +357,27 @@ func TestWebUIURLState(t *testing.T) {
 	}
 	if got.ProjectPrefill.FormProject != "p1" {
 		t.Errorf("filter change form project = %q, want p1", got.ProjectPrefill.FormProject)
+	}
+	if got.Search.Entry != "replace" || got.Search.URL != "/ui?q=needle" || got.Search.Search != "?q=needle" {
+		t.Errorf("search input = %+v, want replace and /ui?q=needle", got.Search)
+	}
+	if !strings.Contains(got.Search.List, "&q=needle") {
+		t.Errorf("search fetch list = %q, want &q=needle", got.Search.List)
+	}
+	if got.SearchSelect.Entry != "push" || got.SearchSelect.URL != "/ui?q=needle&task=t2" {
+		t.Errorf("search select = %+v, want push and /ui?q=needle&task=t2", got.SearchSelect)
+	}
+	if got.SearchBack.URL != "/ui?q=needle" || got.SearchBack.Task != "" || got.SearchBack.Search != "needle" {
+		t.Errorf("search back = %+v, want /ui?q=needle with search restored", got.SearchBack)
+	}
+	if got.SearchClear.URL != "/ui" || got.SearchClear.Search != "" {
+		t.Errorf("search clear = %+v, want /ui and empty search input", got.SearchClear)
+	}
+	if got.SearchRestore.ParsedQ != "prefilled" || got.SearchRestore.InputValue != "prefilled" || got.SearchRestore.URL != "/ui?q=prefilled" {
+		t.Errorf("search restore = %+v, want parsed and input set to prefilled", got.SearchRestore)
+	}
+	if !strings.Contains(got.SearchRestore.List, "&q=prefilled") {
+		t.Errorf("search restore fetch list = %q, want &q=prefilled", got.SearchRestore.List)
 	}
 }
 func TestWebUITaskDetailsGuard(t *testing.T) {

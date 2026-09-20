@@ -49,6 +49,7 @@ function boot(search, world) {
   const els = {
     'filter-project': element([{ value: '', textContent: '(all)' }]),
     'filter-status': element(statusOptions.map(v => ({ value: v }))),
+    'filter-search': element(),
     'form-project': element(),
     'task-details-content': element(),
     'error-banner': element(),
@@ -109,6 +110,7 @@ function boot(search, world) {
     'document', 'location', 'history', 'window', 'fetch', 'console',
     'setInterval', 'clearInterval',
     script + '\nreturn {loadTasks, loadProjects, selectTask, onFilterChange, filterByStatus,' +
+    ' onSearchInput, clearSearch, readURLState, applyURLState,' +
     ' currentURLState, get selected() { return selectedTaskId; }};'
   )(document, location, history, window, fetchStub, console, () => 0, () => {});
   return {
@@ -129,7 +131,7 @@ function boot(search, world) {
   };
 }
 
-const settle = () => new Promise(r => setTimeout(r, 0));
+const settle = (ms = 0) => new Promise(r => setTimeout(r, ms));
 
 const t1 = { id: 't1', project: 'p1', status: 'pending', priority: 1, body: 'one' };
 const t2 = { id: 't2', project: 'p1', status: 'done', priority: 1, body: 'two' };
@@ -228,6 +230,48 @@ const world = { projects: ['p1'], tasks: [t1, t2], page: [t1, t2] };
   };
   out.projectPrefill = {
     formProject: w.els['form-project'] ? w.els['form-project'].value : '',
+  };
+  w = boot('', world);
+  await settle();
+  w.els['filter-search'].value = 'needle';
+  w.api.onSearchInput();
+  await settle(250);
+  out.search = {
+    entry: w.history.log.length ? w.history.log[w.history.log.length - 1][0] : '',
+    url: w.url(),
+    search: w.location.search,
+    list: w.listFetches[w.listFetches.length - 1],
+  };
+
+  w.api.selectTask('t2');
+  await settle();
+  out.searchSelect = {
+    entry: w.history.log[w.history.log.length - 1][0],
+    url: w.url(),
+    search: w.location.search,
+  };
+
+  await w.back();
+  out.searchBack = {
+    url: w.url(),
+    task: w.api.selected || '',
+    search: w.els['filter-search'].value,
+  };
+
+  w.api.clearSearch();
+  await settle();
+  out.searchClear = {
+    url: w.url(),
+    search: w.els['filter-search'].value,
+  };
+
+  w = boot('?q=prefilled', world);
+  await settle();
+  out.searchRestore = {
+    parsedQ: w.api.readURLState().q,
+    inputValue: w.els['filter-search'].value,
+    url: w.url(),
+    list: w.listFetches[0],
   };
   process.stdout.write(JSON.stringify(out, null, 1));
 })();
