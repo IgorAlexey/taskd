@@ -2969,7 +2969,7 @@ HTTP Endpoints:
                              lease_expires, priority, body, primitives,
                              project, claim_count, summary, created_at, version
          ?columns=           alias for fields
-  POST   /tasks              create a task (requires project, body/asset_path)
+  POST   /tasks              create a task (requires project, body/asset_path; optional id, priority)
   POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait)
   GET    /tasks/{id}         get task details
   PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path, optional if_version)
