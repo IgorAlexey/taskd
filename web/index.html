@@ -798,7 +798,7 @@
   </div>
   <noscript>
     <div class="noscript-banner" role="alert">
-      JavaScript is disabled. This dashboard requires JavaScript to query daemon status. Query tasks via the CLI or HTTP API (/tasks, /stats) instead.
+      JavaScript is disabled. This dashboard requires JavaScript to query daemon status. Query tasks via the CLI or HTTP API (<a href="/tasks">/tasks</a>, <a href="/stats">/stats</a>) instead.
     </div>
   </noscript>
   <header>
@@ -922,7 +922,7 @@
       <section class="panel" aria-labelledby="submit-heading">
         <h2 class="panel-header" id="submit-heading">Submit Task</h2>
         <div class="sidebar-section">
-          <form id="submit-task-form" class="stack stack-sm" onsubmit="submitTask(event)" novalidate>
+          <form id="submit-task-form" class="stack stack-sm" action="/tasks" method="POST" onsubmit="submitTask(event)" novalidate>
             <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1" hidden>
               <div class="error-summary-title">There is a problem</div>
               <ul class="error-summary-list" id="form-error-summary-list"></ul>
@@ -935,33 +935,33 @@
               <label for="form-project">Project *</label>
               <div class="hint" id="form-project-hint">e.g. default</div>
               <span class="field-error" id="form-project-error" hidden></span>
-              <input type="text" id="form-project" list="form-project-list" required aria-required="true" aria-invalid="false" aria-describedby="form-project-hint form-project-error">
+              <input type="text" id="form-project" name="project" list="form-project-list" required aria-required="true" aria-invalid="false" aria-describedby="form-project-hint form-project-error">
               <datalist id="form-project-list"></datalist>
             </div>
             <div class="field">
               <label for="form-priority">Priority</label>
               <div class="hint" id="form-priority-hint">1 is top, blank for default</div>
               <span class="field-error" id="form-priority-error" hidden></span>
-              <input type="number" id="form-priority" min="0" step="1" inputmode="numeric" value="" aria-invalid="false" aria-describedby="form-priority-hint form-priority-error">
+              <input type="number" id="form-priority" name="priority" min="0" step="1" inputmode="numeric" value="" aria-invalid="false" aria-describedby="form-priority-hint form-priority-error">
             </div>
             <div class="field">
               <label for="form-body">Body</label>
               <div class="hint" id="form-body-hint">Task description or prompt</div>
               <span class="field-error" id="form-body-error" hidden></span>
-              <textarea id="form-body" aria-invalid="false" aria-describedby="form-body-hint form-body-count form-body-error"></textarea>
+              <textarea id="form-body" name="body" aria-invalid="false" aria-describedby="form-body-hint form-body-count form-body-error"></textarea>
               <div class="hint" id="form-body-count">0 characters</div>
             </div>
             <div class="field">
               <label for="form-asset">Asset Path (optional)</label>
               <div class="hint" id="form-asset-hint">/path/to/asset</div>
               <span class="field-error" id="form-asset-error" hidden></span>
-              <input type="text" id="form-asset" aria-invalid="false" aria-describedby="form-asset-hint form-asset-error">
+              <input type="text" id="form-asset" name="asset_path" aria-invalid="false" aria-describedby="form-asset-hint form-asset-error">
             </div>
             <div class="field">
               <label for="form-id">Custom ID (optional)</label>
               <div class="hint" id="form-id-hint">Auto-generated if empty</div>
               <span class="field-error" id="form-id-error" hidden></span>
-              <input type="text" id="form-id" aria-invalid="false" aria-describedby="form-id-hint form-id-error">
+              <input type="text" id="form-id" name="id" aria-invalid="false" aria-describedby="form-id-hint form-id-error">
             </div>
             <button type="submit" id="submit-task-btn" data-variant="primary" class="w-full" aria-busy="false">Submit Task</button>
           </form>

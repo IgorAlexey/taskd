@@ -1711,29 +1711,55 @@ FROM tasks`
 	}
 
 	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {
-		var raw json.RawMessage
-		if !decodeJSON(w, r, &raw) {
-			return
-		}
-		trimmed := bytes.TrimSpace(raw)
-		isBatch := len(trimmed) > 0 && trimmed[0] == '['
-
-		dec := json.NewDecoder(bytes.NewReader(raw))
-		dec.DisallowUnknownFields()
-
+		ct := r.Header.Get("Content-Type")
+		isForm := strings.HasPrefix(ct, "application/x-www-form-urlencoded")
 		var reqs []taskCreateReq
-		if isBatch {
-			if err := dec.Decode(&reqs); err != nil {
-				writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+		var isBatch bool
+		if isForm {
+			if err := r.ParseForm(); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid form data: "+err.Error())
 				return
 			}
+			var prio *int
+			if pStr := strings.TrimSpace(r.FormValue("priority")); pStr != "" {
+				p, err := strconv.Atoi(pStr)
+				if err != nil {
+					writeFieldError(w, http.StatusBadRequest, "priority must be an integer", "priority")
+					return
+				}
+				prio = &p
+			}
+			reqs = []taskCreateReq{{
+				ID:        r.FormValue("id"),
+				AssetPath: r.FormValue("asset_path"),
+				Body:      r.FormValue("body"),
+				Priority:  prio,
+				Project:   r.FormValue("project"),
+			}}
 		} else {
-			var single taskCreateReq
-			if err := dec.Decode(&single); err != nil {
-				writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+			var raw json.RawMessage
+			if !decodeJSON(w, r, &raw) {
 				return
 			}
-			reqs = []taskCreateReq{single}
+			trimmed := bytes.TrimSpace(raw)
+			isBatch = len(trimmed) > 0 && trimmed[0] == '['
+
+			dec := json.NewDecoder(bytes.NewReader(raw))
+			dec.DisallowUnknownFields()
+
+			if isBatch {
+				if err := dec.Decode(&reqs); err != nil {
+					writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+					return
+				}
+			} else {
+				var single taskCreateReq
+				if err := dec.Decode(&single); err != nil {
+					writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+					return
+				}
+				reqs = []taskCreateReq{single}
+			}
 		}
 
 		tasks := make([]validatedTask, len(reqs))
@@ -1785,6 +1811,11 @@ FROM tasks`
 
 		for _, t := range tasks {
 			db.notifyPending(t.project)
+		}
+
+		if isForm && strings.Contains(r.Header.Get("Accept"), "text/html") {
+			http.Redirect(w, r, "/ui", http.StatusSeeOther)
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
