@@ -1321,9 +1321,14 @@ type leaseEnvelope struct {
 
 const maxTaskIDLen = 128
 const maxProjectLen = 64
+const maxAuthorLen = 128
 
 func validNameByte(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
+}
+
+func validAuthorByte(c byte) bool {
+	return validNameByte(c) || c == '/' || c == ':'
 }
 
 func validTaskID(id string) bool {
@@ -1364,6 +1369,21 @@ func checkProject(p string) (string, bool) {
 	for i := range len(p) {
 		if !validNameByte(p[i]) {
 			return "invalid project", false
+		}
+	}
+	return "", true
+}
+
+func checkAuthor(author string) (string, bool) {
+	if author == "" {
+		return "invalid author", false
+	}
+	if len(author) > maxAuthorLen {
+		return "author too long", false
+	}
+	for i := range len(author) {
+		if !validAuthorByte(author[i]) {
+			return "invalid author", false
 		}
 	}
 	return "", true
@@ -2361,12 +2381,13 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if strings.TrimSpace(req.Author) == "" || strings.TrimSpace(req.Text) == "" {
+		req.Author = strings.TrimSpace(req.Author)
+		if req.Author == "" || strings.TrimSpace(req.Text) == "" {
 			writeError(w, http.StatusBadRequest, "missing author or text")
 			return
 		}
-		if len(req.Author) > maxWorkerLen {
-			writeError(w, http.StatusBadRequest, "author too long")
+		if msg, ok := checkAuthor(req.Author); !ok {
+			writeError(w, http.StatusBadRequest, msg)
 			return
 		}
 		if len(req.Text) > maxNoteTextLen {

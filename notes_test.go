@@ -500,3 +500,108 @@ func TestNoteTextLengthLimit(t *testing.T) {
 		t.Fatalf("expected status 201 Created for 65536 byte note, got %d", resValid.StatusCode)
 	}
 }
+func TestCreateNoteAuthorValidation(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 30))
+	defer srv.Close()
+
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-author-val","body":"spec","project":"p1"}`))
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	createRes.Body.Close()
+
+	validTrimBody := `{"author":"  alice:worker  ","text":"test trimmed author"}`
+	res, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewBufferString(validTrimBody))
+	if err != nil {
+		t.Fatalf("post note failed: %v", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for trimmed author, got %d", res.StatusCode)
+	}
+	var createdNote taskNote
+	if err := json.NewDecoder(res.Body).Decode(&createdNote); err != nil {
+		t.Fatalf("decode note response failed: %v", err)
+	}
+	if createdNote.Author != "alice:worker" {
+		t.Fatalf("expected author %q, got %q", "alice:worker", createdNote.Author)
+	}
+
+	getRes, err := http.Get(srv.URL + "/tasks/task-author-val/notes")
+	if err != nil {
+		t.Fatalf("get notes failed: %v", err)
+	}
+	defer getRes.Body.Close()
+	var notes []taskNote
+	if err := json.NewDecoder(getRes.Body).Decode(&notes); err != nil {
+		t.Fatalf("decode notes failed: %v", err)
+	}
+	if len(notes) != 1 || notes[0].Author != "alice:worker" {
+		t.Fatalf("expected 1 note with author 'alice:worker', got %+v", notes)
+	}
+
+	validCharsBody := `{"author":"worker.1_sub:dir/node-a","text":"test valid chars"}`
+	resChars, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewBufferString(validCharsBody))
+	if err != nil {
+		t.Fatalf("post note failed: %v", err)
+	}
+	defer resChars.Body.Close()
+	if resChars.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for valid characters, got %d", resChars.StatusCode)
+	}
+	validWhitespaceBody := `{"author":"  alice\n\t  ","text":"test whitespace author"}`
+	resWs, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewBufferString(validWhitespaceBody))
+	if err != nil {
+		t.Fatalf("post note failed: %v", err)
+	}
+	defer resWs.Body.Close()
+	if resWs.StatusCode != http.StatusCreated {
+		t.Fatalf("expected 201 Created for whitespace trimmed author, got %d", resWs.StatusCode)
+	}
+	var wsNote taskNote
+	if err := json.NewDecoder(resWs.Body).Decode(&wsNote); err != nil {
+		t.Fatalf("decode note failed: %v", err)
+	}
+	if wsNote.Author != "alice" {
+		t.Fatalf("expected author 'alice', got %q", wsNote.Author)
+	}
+
+	invalidAuthors := []string{
+		"  alice\nworker  ",
+		"alice\tbob",
+		"bad author",
+		"author@domain",
+		"author!",
+		"author#1",
+		"author$foo",
+	}
+	for _, badAuthor := range invalidAuthors {
+		reqBody, _ := json.Marshal(map[string]string{
+			"author": badAuthor,
+			"text":   "some note",
+		})
+		badRes, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewReader(reqBody))
+		if err != nil {
+			t.Fatalf("post note with bad author %q failed: %v", badAuthor, err)
+		}
+		if badRes.StatusCode != http.StatusBadRequest {
+			badRes.Body.Close()
+			t.Fatalf("expected 400 Bad Request for author %q, got %d", badAuthor, badRes.StatusCode)
+		}
+		var errResp map[string]string
+		if err := json.NewDecoder(badRes.Body).Decode(&errResp); err != nil {
+			badRes.Body.Close()
+			t.Fatalf("decode error response for author %q failed: %v", badAuthor, err)
+		}
+		badRes.Body.Close()
+		if errResp["error"] != "invalid author" {
+			t.Fatalf("expected error 'invalid author' for author %q, got %q", badAuthor, errResp["error"])
+		}
+	}
+}
