@@ -61,3 +61,72 @@ func TestSearchFilterIndicatorTruncation(t *testing.T) {
 		t.Fatalf("footer missing filter or esc hint: %q", footer)
 	}
 }
+
+func TestSearchNavigationKeys(t *testing.T) {
+	m := newModel(config{refresh: time.Hour}, nil)
+	m.width = 80
+	m.height = 24
+	m.mode = modeTable
+	m.tasks = []task{
+		{ID: "task-1", Body: "alpha first\nfirst detail"},
+		{ID: "task-2", Body: "alpha second\nsecond detail"},
+		{ID: "task-3", Body: "alpha third\nthird detail"},
+	}
+	m.query = "alpha"
+	m.rebuildShown()
+	m.cursor = 0
+	m.clamp()
+	m.syncDetail()
+
+	up, _ := m.Update(tea.KeyPressMsg{Text: "/"})
+	m = up.(model)
+	if m.mode != modeSearch {
+		t.Fatalf("expected modeSearch, got %v", m.mode)
+	}
+
+	assertState := func(step string, wantCursor int, wantID, wantDetail string) {
+		t.Helper()
+		if m.mode != modeSearch {
+			t.Fatalf("%s: expected modeSearch, got %v", step, m.mode)
+		}
+		if m.cursor != wantCursor {
+			t.Fatalf("%s: expected cursor %d, got %d", step, wantCursor, m.cursor)
+		}
+		if sel, ok := m.selected(); !ok || sel.ID != wantID {
+			t.Fatalf("%s: expected %s selected, got %+v", step, wantID, sel)
+		}
+		if m.detailID != wantID || !strings.Contains(m.detail.GetContent(), wantDetail) {
+			t.Fatalf("%s: expected detail %s (%q), got %q (%q)",
+				step, wantID, wantDetail, m.detailID, m.detail.GetContent())
+		}
+	}
+
+	assertState("initial", 0, "task-1", "first detail")
+
+	press := func(step string, msg tea.Msg, wantCursor int, wantID, wantDetail string) {
+		up, _ = m.Update(msg)
+		m = up.(model)
+		assertState(step, wantCursor, wantID, wantDetail)
+	}
+
+	press("down", tea.KeyPressMsg{Code: tea.KeyDown}, 1, "task-2", "second detail")
+	press("ctrl-n", tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'n'}, 2, "task-3", "third detail")
+	press("down clamp", tea.KeyPressMsg{Code: tea.KeyDown}, 2, "task-3", "third detail")
+	press("up", tea.KeyPressMsg{Code: tea.KeyUp}, 1, "task-2", "second detail")
+	press("ctrl-p", tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'p'}, 0, "task-1", "first detail")
+	press("up clamp", tea.KeyPressMsg{Code: tea.KeyUp}, 0, "task-1", "first detail")
+
+	m.shown = nil
+	for _, msg := range []tea.Msg{
+		tea.KeyPressMsg{Code: tea.KeyDown},
+		tea.KeyPressMsg{Code: tea.KeyUp},
+		tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'n'},
+		tea.KeyPressMsg{Mod: tea.ModCtrl, Code: 'p'},
+	} {
+		up, _ = m.Update(msg)
+		m = up.(model)
+		if m.mode != modeSearch {
+			t.Fatalf("expected modeSearch on empty shown for %v, got %v", msg, m.mode)
+		}
+	}
+}

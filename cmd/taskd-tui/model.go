@@ -366,6 +366,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.query = string(r[:len(r)-1])
 					return m, m.typeQuery()
 				}
+			case msg.Code == tea.KeyDown || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'n'):
+				m.move(1)
+				return m, nil
+			case msg.Code == tea.KeyUp || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'p'):
+				m.move(-1)
+				return m, nil
 			default:
 				if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
 					m.query += msg.Text
