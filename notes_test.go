@@ -109,17 +109,18 @@ func TestNotes_ValidationAndNotFound(t *testing.T) {
 	createRes.Body.Close()
 
 	cases := []struct {
-		url    string
-		body   string
-		status int
+		url       string
+		body      string
+		status    int
+		wantField string
 	}{
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"","text":"hello"}`, http.StatusBadRequest},
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"   ","text":"hello"}`, http.StatusBadRequest},
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"alice","text":""}`, http.StatusBadRequest},
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"alice","text":"   "}`, http.StatusBadRequest},
-		{srv.URL + "/tasks/task-val-1/notes", fmt.Sprintf(`{"author":"%s","text":"hello"}`, strings.Repeat("a", 129)), http.StatusBadRequest},
-		{srv.URL + "/tasks/task-val-1/notes", `{}`, http.StatusBadRequest},
-		{srv.URL + "/tasks/nonexistent-task-id/notes", `{"author":"alice","text":"note"}`, http.StatusNotFound},
+		{srv.URL + "/tasks/task-val-1/notes", `{"author":"","text":"hello"}`, http.StatusBadRequest, "author"},
+		{srv.URL + "/tasks/task-val-1/notes", `{"author":"   ","text":"hello"}`, http.StatusBadRequest, "author"},
+		{srv.URL + "/tasks/task-val-1/notes", `{"author":"alice","text":""}`, http.StatusBadRequest, "text"},
+		{srv.URL + "/tasks/task-val-1/notes", `{"author":"alice","text":"   "}`, http.StatusBadRequest, "text"},
+		{srv.URL + "/tasks/task-val-1/notes", fmt.Sprintf(`{"author":"%s","text":"hello"}`, strings.Repeat("a", 129)), http.StatusBadRequest, "author"},
+		{srv.URL + "/tasks/task-val-1/notes", `{}`, http.StatusBadRequest, "author"},
+		{srv.URL + "/tasks/nonexistent-task-id/notes", `{"author":"alice","text":"note"}`, http.StatusNotFound, ""},
 	}
 
 	for _, tc := range cases {
@@ -127,10 +128,22 @@ func TestNotes_ValidationAndNotFound(t *testing.T) {
 		if err != nil {
 			t.Fatalf("post failed: %v", err)
 		}
-		res.Body.Close()
 		if res.StatusCode != tc.status {
 			t.Fatalf("POST %s with %s: expected status %d, got %d", tc.url, tc.body, tc.status, res.StatusCode)
 		}
+		if tc.wantField != "" {
+			var errResp struct {
+				Error string `json:"error"`
+				Field string `json:"field"`
+			}
+			if err := json.NewDecoder(res.Body).Decode(&errResp); err != nil {
+				t.Fatalf("decode error response failed: %v", err)
+			}
+			if errResp.Field != tc.wantField {
+				t.Fatalf("POST %s with %s: expected field %q, got %q", tc.url, tc.body, tc.wantField, errResp.Field)
+			}
+		}
+		res.Body.Close()
 	}
 }
 

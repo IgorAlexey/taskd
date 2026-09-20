@@ -2481,16 +2481,20 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		req.Author = strings.TrimSpace(req.Author)
-		if req.Author == "" || strings.TrimSpace(req.Text) == "" {
-			writeError(w, http.StatusBadRequest, "missing author or text")
+		if req.Author == "" {
+			writeFieldError(w, http.StatusBadRequest, "missing author or text", "author")
+			return
+		}
+		if strings.TrimSpace(req.Text) == "" {
+			writeFieldError(w, http.StatusBadRequest, "missing author or text", "text")
 			return
 		}
 		if msg, ok := checkAuthor(req.Author); !ok {
-			writeError(w, http.StatusBadRequest, msg)
+			writeFieldError(w, http.StatusBadRequest, msg, "author")
 			return
 		}
 		if len(req.Text) > maxNoteTextLen {
-			writeError(w, http.StatusBadRequest, "text too long")
+			writeFieldError(w, http.StatusBadRequest, "text too long", "text")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
