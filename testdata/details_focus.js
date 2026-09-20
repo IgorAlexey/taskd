@@ -26,9 +26,12 @@ function createRow(id) {
 
 const tr1 = createRow('task-1');
 const tr2 = createRow('task-2');
+const tr3 = createRow('task-3');
 tr1.nextElementSibling = tr2;
 tr2.previousElementSibling = tr1;
-const rows = [tr1, tr2];
+tr2.nextElementSibling = tr3;
+tr3.previousElementSibling = tr2;
+const rows = [tr1, tr2, tr3];
 
 const tbody = {
   addEventListener(event, handler) {
@@ -126,6 +129,62 @@ const api = new Function(
   });
   const arrowFocus = (document.activeElement === tr2);
 
+  document.activeElement = tr1;
+  listeners.keydown({
+    key: 'j',
+    preventDefault() {},
+    target: tr1,
+  });
+  const jFocus = (document.activeElement === tr2);
+
+  document.activeElement = tr2;
+  listeners.keydown({
+    key: 'k',
+    preventDefault() {},
+    target: tr2,
+  });
+  const kFocus = (document.activeElement === tr1);
+
+  document.activeElement = tr2;
+  listeners.keydown({
+    key: 'ArrowUp',
+    preventDefault() {},
+    target: tr2,
+  });
+  const arrowUpFocus = (document.activeElement === tr1);
+
+  document.activeElement = tr1;
+  listeners.keydown({
+    key: 'End',
+    preventDefault() {},
+    target: tr1,
+  });
+  const endFocus = (document.activeElement === tr3);
+
+  document.activeElement = tr3;
+  listeners.keydown({
+    key: 'Home',
+    preventDefault() {},
+    target: tr3,
+  });
+  const homeFocus = (document.activeElement === tr1);
+
+  document.activeElement = tr1;
+  listeners.keydown({
+    key: 'PageDown',
+    preventDefault() {},
+    target: tr1,
+  });
+  const pageDownFocus = (document.activeElement === tr3);
+
+  document.activeElement = tr3;
+  listeners.keydown({
+    key: 'PageUp',
+    preventDefault() {},
+    target: tr3,
+  });
+  const pageUpFocus = (document.activeElement === tr1);
+
   process.stdout.write(JSON.stringify({
     clickFocus,
     ctrlIgnored,
@@ -133,5 +192,12 @@ const api = new Function(
     enterFocus,
     enterPrevented,
     arrowFocus,
+    jFocus,
+    kFocus,
+    arrowUpFocus,
+    homeFocus,
+    endFocus,
+    pageDownFocus,
+    pageUpFocus,
   }));
 })();

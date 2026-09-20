@@ -356,6 +356,13 @@ func TestWebUIDetailsPaneFocusOnSelection(t *testing.T) {
 		EnterFocus     bool `json:"enterFocus"`
 		EnterPrevented bool `json:"enterPrevented"`
 		ArrowFocus     bool `json:"arrowFocus"`
+		JFocus         bool `json:"jFocus"`
+		KFocus         bool `json:"kFocus"`
+		ArrowUpFocus   bool `json:"arrowUpFocus"`
+		HomeFocus      bool `json:"homeFocus"`
+		EndFocus       bool `json:"endFocus"`
+		PageDownFocus  bool `json:"pageDownFocus"`
+		PageUpFocus    bool `json:"pageUpFocus"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -378,6 +385,27 @@ func TestWebUIDetailsPaneFocusOnSelection(t *testing.T) {
 	}
 	if !got.ArrowFocus {
 		t.Errorf("expected arrow navigation to focus adjacent row, got %v", got.ArrowFocus)
+	}
+	if !got.JFocus {
+		t.Errorf("expected j keydown to focus next row, got %v", got.JFocus)
+	}
+	if !got.KFocus {
+		t.Errorf("expected k keydown to focus previous row, got %v", got.KFocus)
+	}
+	if !got.ArrowUpFocus {
+		t.Errorf("expected ArrowUp keydown to focus previous row, got %v", got.ArrowUpFocus)
+	}
+	if !got.HomeFocus {
+		t.Errorf("expected Home keydown to focus first row, got %v", got.HomeFocus)
+	}
+	if !got.EndFocus {
+		t.Errorf("expected End keydown to focus last row, got %v", got.EndFocus)
+	}
+	if !got.PageDownFocus {
+		t.Errorf("expected PageDown keydown to focus lower row, got %v", got.PageDownFocus)
+	}
+	if !got.PageUpFocus {
+		t.Errorf("expected PageUp keydown to focus upper row, got %v", got.PageUpFocus)
 	}
 }
 func TestWebUIFieldHintsAndCharacterCount(t *testing.T) {
