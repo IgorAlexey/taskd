@@ -763,7 +763,7 @@
               <span class="field-error" id="form-id-error" hidden></span>
               <input type="text" id="form-id" placeholder="auto-generated if empty" aria-invalid="false" aria-describedby="form-id-error">
             </div>
-            <button type="submit" id="submit-task-btn" class="primary w-full">Submit Task</button>
+            <button type="submit" id="submit-task-btn" class="primary w-full" aria-busy="false">Submit Task</button>
           </form>
         </div>
       </section>
@@ -2260,6 +2260,8 @@
     }
     async function submitTask(e) {
       if (e && e.preventDefault) e.preventDefault();
+      const submitBtn = document.getElementById('submit-task-btn');
+      if (submitBtn && submitBtn.disabled) return;
       clearFormErrors();
       clearFormSuccess();
       const projEl = document.getElementById('form-project');
@@ -2307,8 +2309,10 @@
       if (asset) payload.asset_path = asset;
       if (customId) payload.id = customId;
 
-      const submitBtn = document.getElementById('submit-task-btn');
-      if (submitBtn) submitBtn.disabled = true;
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.setAttribute('aria-busy', 'true');
+      }
 
       try {
         const res = await fetchJSON('/tasks', {
@@ -2335,7 +2339,10 @@
         const fieldId = err.field ? ('form-' + err.field) : (err.status === 409 ? 'form-id' : null);
         showFormErrors([{ fieldId: fieldId, message: err.message || 'Failed to submit task' }]);
       } finally {
-        if (submitBtn) submitBtn.disabled = false;
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.setAttribute('aria-busy', 'false');
+        }
       }
     }
 

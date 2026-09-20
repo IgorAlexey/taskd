@@ -285,3 +285,45 @@ func TestWebUISaveTaskEditVersionConflict(t *testing.T) {
 			got.BannerHidden, got.BannerText)
 	}
 }
+
+func TestWebUISubmitBusyState(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/submit_busy.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	var got struct {
+		InFlightDisabled bool   `json:"inFlightDisabled"`
+		InFlightBusy     string `json:"inFlightBusy"`
+		SettledDisabled  bool   `json:"settledDisabled"`
+		SettledBusy      string `json:"settledBusy"`
+		FetchCount       int    `json:"fetchCount"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if !got.InFlightDisabled {
+		t.Errorf("expected submit button disabled while in-flight, got %v", got.InFlightDisabled)
+	}
+	if got.InFlightBusy != "true" {
+		t.Errorf("expected aria-busy 'true' while in-flight, got %q", got.InFlightBusy)
+	}
+	if got.SettledDisabled {
+		t.Errorf("expected submit button re-enabled on settle, got %v", got.SettledDisabled)
+	}
+	if got.SettledBusy != "false" {
+		t.Errorf("expected aria-busy 'false' on settle, got %q", got.SettledBusy)
+	}
+	if got.FetchCount != 1 {
+		t.Errorf("expected 1 fetch, got %d (duplicate submission was not blocked)", got.FetchCount)
+	}
+}
