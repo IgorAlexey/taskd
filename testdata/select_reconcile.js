@@ -19,9 +19,18 @@ class Option {
 }
 
 class Select {
-  constructor() {
-    this.options = [];
-    this.value = '';
+  constructor(options = []) {
+    this.options = options;
+    this.selectedIndex = 0;
+  }
+  get value() {
+    const opt = this.options[this.selectedIndex];
+    return opt ? opt.value : '';
+  }
+  set value(val) {
+    const idx = this.options.findIndex(o => o.value === val);
+    if (idx >= 0) this.selectedIndex = idx;
+    else this.selectedIndex = 0;
   }
   appendChild(opt) {
     opt.parent = this;
@@ -37,9 +46,15 @@ class Select {
   }
 }
 
-const workerSelect = new Select();
-const projectSelect = new Select();
-
+const workerSelect = new Select([
+  new Option('', '(all)'),
+  new Option('', '(unassigned)'),
+]);
+workerSelect.id = 'filter-worker';
+const projectSelect = new Select([
+  new Option('', '(all)'),
+]);
+projectSelect.id = 'filter-project';
 const els = {
   'filter-worker': workerSelect,
   'filter-project': projectSelect,
@@ -70,13 +85,20 @@ const fetchStub = async (url) => {
   };
 };
 
+const loc = { pathname: '/ui', search: '', hash: '' };
+let lastReplacedURL = '';
+const historyObj = {
+  pushState() {},
+  replaceState(state, title, url) { lastReplacedURL = url; },
+};
+
 const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'AbortSignal',
-  script + '\nreturn { syncSelectOptions, loadWorkers, loadProjects };'
+  script + '\nreturn { syncSelectOptions, loadWorkers, loadProjects, getWorkerFilter, applyURLState, syncURL };'
 )(
-  document, { pathname: '/ui', search: '', hash: '' },
-  { pushState() {}, replaceState() {} }, { addEventListener() {} },
+  document, loc,
+  historyObj, { addEventListener() {} },
   fetchStub, { log() {}, error() {} },
   () => 0, () => {}, () => 1, () => {},
   Date,
@@ -85,15 +107,15 @@ const api = new Function(
 
 (async () => {
   await api.loadWorkers();
-  if (workerSelect.options.length !== 3) throw new Error('workerSelect init failed');
-  const w1Node = workerSelect.options[1];
+  if (workerSelect.options.length !== 4) throw new Error('workerSelect init failed');
+  const w1Node = workerSelect.options[2];
 
   await api.loadWorkers();
-  const workerNodePreservedOnSame = (workerSelect.options[1] === w1Node);
+  const workerNodePreservedOnSame = (workerSelect.options[2] === w1Node);
 
   workerData = ['w1', 'w3'];
   await api.loadWorkers();
-  const workerNodePreservedOnChange = (workerSelect.options[1] === w1Node && workerSelect.options[2].value === 'w3');
+  const workerNodePreservedOnChange = (workerSelect.options[2] === w1Node && workerSelect.options[3].value === 'w3');
 
   await api.loadProjects();
   if (projectSelect.options.length !== 3) throw new Error('projectSelect init failed');
@@ -106,10 +128,35 @@ const api = new Function(
   await api.loadProjects();
   const projectNodePreservedOnChange = (projectSelect.options[1] === p1Node && projectSelect.options[2].value === 'p4');
 
+  loc.search = '?worker=';
+  api.applyURLState();
+  const unassignedIndex = workerSelect.selectedIndex;
+  const unassignedWorker = api.getWorkerFilter();
+
+  api.syncURL(false);
+  const unassignedSyncURL = lastReplacedURL;
+
+  loc.search = '';
+  api.applyURLState();
+  const allIndex = workerSelect.selectedIndex;
+  const allWorker = api.getWorkerFilter();
+
+  loc.search = '?worker=w1';
+  api.applyURLState();
+  const namedIndex = workerSelect.selectedIndex;
+  const namedWorker = api.getWorkerFilter();
+
   process.stdout.write(JSON.stringify({
     workerNodePreservedOnSame,
     workerNodePreservedOnChange,
     projectNodePreservedOnSame,
     projectNodePreservedOnChange,
+    unassignedIndex,
+    unassignedWorker,
+    unassignedSyncURL,
+    allIndex,
+    allWorker,
+    namedIndex,
+    namedWorker,
   }));
 })();

@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -610,10 +612,17 @@ func TestWebUISelectPollReconciliation(t *testing.T) {
 	}
 
 	var got struct {
-		WorkerNodePreservedOnSame    bool `json:"workerNodePreservedOnSame"`
-		WorkerNodePreservedOnChange  bool `json:"workerNodePreservedOnChange"`
-		ProjectNodePreservedOnSame   bool `json:"projectNodePreservedOnSame"`
-		ProjectNodePreservedOnChange bool `json:"projectNodePreservedOnChange"`
+		WorkerNodePreservedOnSame    bool    `json:"workerNodePreservedOnSame"`
+		WorkerNodePreservedOnChange  bool    `json:"workerNodePreservedOnChange"`
+		ProjectNodePreservedOnSame   bool    `json:"projectNodePreservedOnSame"`
+		ProjectNodePreservedOnChange bool    `json:"projectNodePreservedOnChange"`
+		UnassignedIndex              int     `json:"unassignedIndex"`
+		UnassignedWorker             *string `json:"unassignedWorker"`
+		UnassignedSyncURL            string  `json:"unassignedSyncURL"`
+		AllIndex                     int     `json:"allIndex"`
+		AllWorker                    *string `json:"allWorker"`
+		NamedIndex                   int     `json:"namedIndex"`
+		NamedWorker                  *string `json:"namedWorker"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -630,6 +639,69 @@ func TestWebUISelectPollReconciliation(t *testing.T) {
 	}
 	if !got.ProjectNodePreservedOnChange {
 		t.Error("project option DOM node not preserved when projects list updated")
+	}
+	if got.UnassignedIndex != 1 || got.UnassignedWorker == nil || *got.UnassignedWorker != "" {
+		t.Errorf("expected unassigned worker state at index 1 with '', got index %d, worker %v", got.UnassignedIndex, got.UnassignedWorker)
+	}
+	if got.AllIndex != 0 || got.AllWorker != nil {
+		t.Errorf("expected all worker state at index 0 with null, got index %d, worker %v", got.AllIndex, got.AllWorker)
+	}
+	if got.NamedIndex != 2 || got.NamedWorker == nil || *got.NamedWorker != "w1" {
+		t.Errorf("expected named worker state at index 2 with 'w1', got index %d, worker %v", got.NamedIndex, got.NamedWorker)
+	}
+	if !strings.Contains(got.UnassignedSyncURL, "worker=") || strings.Contains(got.UnassignedSyncURL, "worker=none") {
+		t.Errorf("expected unassigned sync URL to set empty worker query, got %q", got.UnassignedSyncURL)
+	}
+}
+
+func TestWebUIUnassignedWorkerFilter(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	postJSON := func(endpoint string, body any) {
+		t.Helper()
+		data, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal failed: %v", err)
+		}
+		resp, err := http.Post(srv.URL+endpoint, "application/json", strings.NewReader(string(data)))
+		if err != nil {
+			t.Fatalf("POST %s failed: %v", endpoint, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+			b, _ := io.ReadAll(resp.Body)
+			t.Fatalf("POST %s status %d: %s", endpoint, resp.StatusCode, b)
+		}
+	}
+
+	postJSON("/tasks", map[string]string{"id": "t-unassigned", "project": "p", "body": "unclaimed task"})
+	postJSON("/tasks", map[string]string{"id": "t-claimed", "project": "p", "body": "claimed task"})
+	postJSON("/tasks/t-claimed/claim", map[string]string{"worker": "worker-1"})
+
+	resp, err := http.Get(srv.URL + "/tasks?worker=")
+	if err != nil {
+		t.Fatalf("GET /tasks?worker= failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /tasks?worker=: got %d, want 200", resp.StatusCode)
+	}
+	var tasks []struct {
+		ID     string `json:"id"`
+		Worker string `json:"worker"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(tasks) != 1 || tasks[0].ID != "t-unassigned" || tasks[0].Worker != "" {
+		t.Fatalf("expected only unclaimed tasks from ?worker=, got %+v", tasks)
 	}
 }
 

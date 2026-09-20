@@ -794,6 +794,7 @@
         <label for="filter-worker" class="text-muted text-sm">Worker:</label>
         <select id="filter-worker" onchange="onFilterChange()">
           <option value="">(all)</option>
+          <option value="">(unassigned)</option>
         </select>
         <label for="filter-search" class="text-muted text-sm">Search tasks:</label>
         <input type="text" id="filter-search" aria-label="Search tasks" oninput="onSearchInput()" class="input-sm">
@@ -973,7 +974,7 @@
         project: q.get('project') || '',
         status: q.get('status') || '',
         priority: q.get('priority') || '',
-        worker: q.get('worker') || '',
+        worker: q.has('worker') ? q.get('worker') : null,
         q: q.get('q') || '',
         task: q.get('task') || '',
         page: q.get('page') || ''
@@ -991,16 +992,23 @@
       if (radio) radio.checked = true;
     }
 
+    function getWorkerFilter() {
+      const workerEl = document.getElementById('filter-worker');
+      if (!workerEl) return null;
+      if (workerEl.selectedIndex === 1) return '';
+      if (workerEl.selectedIndex > 1) return workerEl.value;
+      return null;
+    }
+
     function currentURLState() {
       const projEl = document.getElementById('filter-project');
       const prioEl = document.getElementById('filter-priority');
-      const workerEl = document.getElementById('filter-worker');
       const searchEl = document.getElementById('filter-search');
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: getStatusFilter(),
         priority: cleanPriority(prioEl ? prioEl.value : ''),
-        worker: workerEl ? workerEl.value : '',
+        worker: getWorkerFilter(),
         q: searchEl ? searchEl.value.trim() : '',
         task: selectedTaskId || ''
       };
@@ -1014,7 +1022,7 @@
       if (state.project) q.set('project', state.project);
       if (state.status) q.set('status', state.status);
       if (state.priority) q.set('priority', state.priority);
-      if (state.worker) q.set('worker', state.worker);
+      if (state.worker !== null && state.worker !== undefined) q.set('worker', state.worker);
       if (state.q) q.set('q', state.q);
       if (state.task) q.set('task', state.task);
       if (state.page) q.set('page', state.page);
@@ -1053,21 +1061,16 @@
       }
     }
 
-    function syncSelectOptions(select, items) {
+    function syncSelectOptions(select, items, staticCount = 1) {
       if (!select || !Array.isArray(items)) return;
       const current = select.value;
-      if (select.options.length === 0) {
-        const allOpt = document.createElement('option');
-        allOpt.value = '';
-        allOpt.textContent = '(all)';
-        select.appendChild(allOpt);
-      }
-      const existing = Array.from(select.options).slice(1).map(o => o.value);
+      const currentIdx = select.selectedIndex;
+      const existing = Array.from(select.options).slice(staticCount).map(o => o.value);
       const same = existing.length === items.length && existing.every((val, i) => val === items[i]);
       if (same) return;
 
       const map = new Map();
-      for (let i = 1; i < select.options.length; i++) {
+      for (let i = staticCount; i < select.options.length; i++) {
         map.set(select.options[i].value, select.options[i]);
       }
       const itemSet = new Set(items);
@@ -1086,12 +1089,16 @@
           opt.textContent = val;
           map.set(val, opt);
         }
-        const targetIdx = i + 1;
+        const targetIdx = i + staticCount;
         if (select.options[targetIdx] !== opt) {
           select.insertBefore(opt, select.options[targetIdx] || null);
         }
       }
-      setFilter(select, current);
+      if (currentIdx >= 0 && currentIdx < staticCount) {
+        select.selectedIndex = currentIdx;
+      } else {
+        setFilter(select, current);
+      }
     }
 
     async function loadWorkers() {
@@ -1102,7 +1109,7 @@
         if (!res.ok) return;
         const workers = await res.json();
         if (Array.isArray(workers)) {
-          syncSelectOptions(select, workers);
+          syncSelectOptions(select, workers, 2);
         }
       } catch (err) {
         logFailure('Failed to sync filter workers:', err);
@@ -1117,16 +1124,22 @@
       setStatusFilter(state.status);
       setPriorityFilter(state.priority);
       const workerEl = document.getElementById('filter-worker');
-      if (workerEl && state.worker) {
-        const exists = Array.from(workerEl.options).some(o => o.value === state.worker);
-        if (!exists) {
-          const opt = document.createElement('option');
-          opt.value = state.worker;
-          opt.textContent = state.worker;
-          workerEl.appendChild(opt);
+      if (workerEl) {
+        if (state.worker === null || state.worker === undefined) {
+          workerEl.selectedIndex = 0;
+        } else if (state.worker === '') {
+          workerEl.selectedIndex = 1;
+        } else {
+          const exists = Array.from(workerEl.options).some(o => o.value === state.worker);
+          if (!exists) {
+            const opt = document.createElement('option');
+            opt.value = state.worker;
+            opt.textContent = state.worker;
+            workerEl.appendChild(opt);
+          }
+          workerEl.value = state.worker;
         }
       }
-      setFilter(workerEl, state.worker);
       const searchEl = document.getElementById('filter-search');
       if (searchEl) searchEl.value = state.q || '';
       selectedTaskId = state.task || null;
@@ -1422,13 +1435,12 @@
 
     async function loadStats() {
       const select = document.getElementById('filter-project');
-      const workerEl = document.getElementById('filter-worker');
       const proj = select ? select.value : '';
-      const worker = workerEl ? workerEl.value : '';
+      const worker = getWorkerFilter();
       let url = '/stats';
       const params = [];
       if (proj) params.push('project=' + encodeURIComponent(proj));
-      if (worker) params.push('worker=' + encodeURIComponent(worker));
+      if (worker !== null) params.push('worker=' + encodeURIComponent(worker));
       if (params.length > 0) url += '?' + params.join('&');
       try {
         const stats = await fetchJSON(url);
@@ -1550,12 +1562,11 @@
     async function loadTasks() {
       const projEl = document.getElementById('filter-project');
       const prioEl = document.getElementById('filter-priority');
-      const workerEl = document.getElementById('filter-worker');
       const searchEl = document.getElementById('filter-search');
       const proj = projEl ? projEl.value : '';
       const status = getStatusFilter();
       const prio = cleanPriority(prioEl ? prioEl.value : '');
-      const worker = workerEl ? workerEl.value : '';
+      const worker = getWorkerFilter();
       const search = searchEl ? searchEl.value.trim() : '';
       while (true) {
         const offset = (currentPage - 1) * PAGE_SIZE;
@@ -1564,7 +1575,7 @@
         if (proj) url += '&project=' + encodeURIComponent(proj);
         if (status) url += '&status=' + encodeURIComponent(status);
         if (prio !== '') url += '&priority=' + encodeURIComponent(prio);
-        if (worker) url += '&worker=' + encodeURIComponent(worker);
+        if (worker !== null) url += '&worker=' + encodeURIComponent(worker);
         if (search) url += '&q=' + encodeURIComponent(search);
         if (sortCol) {
           url += '&sort=' + encodeURIComponent(sortCol);
