@@ -63,6 +63,21 @@ func TestTUIHelpFlags(t *testing.T) {
 	}
 }
 
+func TestTUIVersionFlags(t *testing.T) {
+	for _, flag := range []string{"-v", "-version", "--v", "--version"} {
+		t.Run(flag, func(t *testing.T) {
+			var buf bytes.Buffer
+			if err := run(&buf, []string{flag}); err != nil {
+				t.Fatalf("run(%q) returned error: %v", flag, err)
+			}
+			out := buf.String()
+			if !strings.Contains(out, "taskd-tui") {
+				t.Fatalf("run(%q) output = %q, want containing 'taskd-tui'", flag, out)
+			}
+		})
+	}
+}
+
 func TestTUIRuntimeErrorExitsOne(t *testing.T) {
 	var stderr bytes.Buffer
 	if code := reportError(&stderr, errors.New("terminal disconnected")); code != 1 {

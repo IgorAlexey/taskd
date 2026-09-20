@@ -90,7 +90,7 @@ func TestBackupDestinationDirectory(t *testing.T) {
 		t.Fatalf("mkdir failed: %v", err)
 	}
 
-	err = run([]string{"-db", dbPath, "-backup", destDir})
+	err = run(io.Discard, []string{"-db", dbPath, "-backup", destDir})
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

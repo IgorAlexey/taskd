@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"taskd/internal/version"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -102,6 +104,8 @@ func parseFlags(args []string) (config, error) {
 		switch name {
 		case "h", "help":
 			return cfg, flag.ErrHelp
+		case "v", "version":
+			cfg.version = true
 		case "ascii":
 			if hasVal {
 				b, err := strconv.ParseBool(val)
@@ -157,6 +161,10 @@ func parseFlags(args []string) (config, error) {
 		}
 	}
 
+	if cfg.version {
+		return cfg, nil
+	}
+
 	validURL, err := parseAndValidateURL(rawURL)
 	if err != nil {
 		return cfg, usagef("%w", err)
@@ -183,6 +191,7 @@ Options:
   -worker <name>      worker identifier for claiming tasks
   -ascii              use ASCII characters instead of Nerd Font icons
   -refresh <dur>      polling interval, min 250ms (default: 1s)
+  -v, -version        print version and exit
   -h, --help          show this help message
 
 Environment variables:
@@ -298,14 +307,18 @@ func reportError(stderr io.Writer, err error) int {
 	return 1
 }
 
-func main() {
-	cfg, err := parseFlags(os.Args[1:])
+func run(stdout io.Writer, args []string) error {
+	cfg, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printUsage(os.Stdout)
-			os.Exit(0)
+			printUsage(stdout)
+			return nil
 		}
-		os.Exit(reportError(os.Stderr, err))
+		return err
+	}
+	if cfg.version {
+		fmt.Fprintf(stdout, "taskd-tui %s\n", version.Version)
+		return nil
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -313,6 +326,13 @@ func main() {
 
 	p := tea.NewProgram(newModel(cfg, newClient(cfg.url)), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
+}
+
+func main() {
+	if err := run(os.Stdout, os.Args[1:]); err != nil {
 		os.Exit(reportError(os.Stderr, err))
 	}
 }

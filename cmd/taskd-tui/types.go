@@ -41,6 +41,7 @@ type config struct {
 	worker  string
 	icons   bool
 	refresh time.Duration
+	version bool
 }
 
 // mode is the single source of truth for which keymap and overlay are

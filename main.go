@@ -29,6 +29,8 @@ import (
 	"syscall"
 	"time"
 
+	"taskd/internal/version"
+
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
 )
@@ -2043,6 +2045,7 @@ type config struct {
 	maxClaims  int
 	backupPath string
 	corsOrigin string
+	version    bool
 }
 
 func printUsage(w io.Writer) {
@@ -2140,6 +2143,8 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 	fs.IntVar(&cfg.maxClaims, "max-claims", 0, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
+	fs.BoolVar(&cfg.version, "v", false, "print version and exit")
+	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
 	return fs
 }
 
@@ -2159,6 +2164,9 @@ func parseFlags(args []string) (config, error) {
 	}
 	if len(fs.Args()) > 0 {
 		return cfg, usagef("unexpected argument: %s", fs.Args()[0])
+	}
+	if cfg.version {
+		return cfg, nil
 	}
 	cfg.dbPath = strings.TrimSpace(cfg.dbPath)
 	if cfg.dbPath == "" {
@@ -2406,14 +2414,18 @@ func openReadOnlyDB(path string) (db *sql.DB, err error) {
 	return db, nil
 }
 
-func run(args []string) error {
+func run(stdout io.Writer, args []string) error {
 	cfg, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printUsage(os.Stdout)
+			printUsage(stdout)
 			return nil
 		}
 		return err
+	}
+	if cfg.version {
+		fmt.Fprintf(stdout, "taskd %s\n", version.Version)
+		return nil
 	}
 
 	if cfg.backupPath != "" {
@@ -2461,7 +2473,7 @@ func fatal(stderr io.Writer, err error) int {
 }
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
+	if err := run(os.Stdout, os.Args[1:]); err != nil {
 		os.Exit(fatal(os.Stderr, err))
 	}
 }
