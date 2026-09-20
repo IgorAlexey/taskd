@@ -2045,18 +2045,17 @@ HTTP Endpoints:
                              project, claim_count, summary
          ?columns=           alias for fields
   POST   /tasks              create a task (requires project, body/asset_path)
-  POST   /tasks/claim        claim next pending task (requires worker)
+  POST   /tasks/claim        claim next pending task (requires worker, optional project)
   GET    /tasks/{id}         get task details
-  PATCH  /tasks/{id}         update task (requires body, priority, or project)
+  PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path)
   POST   /tasks/{id}/claim   claim a specific task (requires worker)
-  POST   /tasks/{id}/done    complete task with primitives (requires worker)
+  POST   /tasks/{id}/done    complete task with primitives (requires worker, optional claim_count)
   POST   /tasks/{id}/close   close task without result
   POST   /tasks/{id}/touch   extend lease, return expiration (requires worker)
   POST   /tasks/{id}/release release task back to pending (requires worker)
-  POST   /tasks/{id}/bury    park a blocked task (requires worker)
+  POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority)
   POST   /tasks/{id}/kick    return a parked task to pending
-  DELETE /tasks/{id}         delete task
-         ?force=             1 or true (required to delete done task)
+  DELETE /tasks/{id}         delete task (?force=1 to delete done task)
   GET    /projects           list active projects
   GET    /workers            list active workers
   GET    /stats              task queue statistics
