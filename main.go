@@ -3084,9 +3084,14 @@ HTTP Endpoints:
                              project, claim_count, summary, created_at, version
          ?columns=           alias for fields
   POST   /tasks              create a task (requires project, body/asset_path; optional id, priority)
-  POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait)
+                             accepts JSON array for atomic batch creation
+  POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait in seconds)
   GET    /tasks/{id}         get task details
          {id} accepts unique prefixes (returns 409 on collision)
+         ?fields=            comma list from id, asset_path, status, worker,
+                             lease_expires, priority, body, primitives,
+                             project, claim_count, summary, created_at, version
+         ?columns=           alias for fields
   PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path, optional if_version)
   POST   /tasks/{id}/claim   claim a specific task (requires worker)
   POST   /tasks/{id}/done    complete task with primitives (requires worker, optional claim_count)
@@ -3120,6 +3125,7 @@ Examples:
   # Task lifecycle (create, claim, complete):
   T=${T:-http://localhost:8080}
   curl -s -XPOST $T/tasks -d '{"id":"t1","body":"hello","project":"demo"}'
+  curl -s -XPOST $T/tasks -d '[{"id":"t2","body":"batch","project":"demo"}]'
   curl -s -XPOST $T/tasks/claim -d '{"worker":"me","project":"demo"}'
   curl -s -i -XPOST $T/tasks/t1/done -d '{"worker":"me"}'
 `)
