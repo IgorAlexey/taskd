@@ -319,3 +319,24 @@ func TestHiddenAssetFieldLeavesTheFocusRing(t *testing.T) {
 		t.Fatalf("Shift-Tab from body must skip the hidden asset field, got focus %d", f.focus)
 	}
 }
+
+func TestShrinkingMovesFocusOffAHiddenField(t *testing.T) {
+	m := newModel(config{}, nil)
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 24})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // project -> priority
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> asset
+	if m.form.focus != 2 {
+		t.Fatalf("focus = %d, want asset", m.form.focus)
+	}
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 8}) // asset row is gone
+	if m.form.level != 2 || m.form.focus == 2 {
+		t.Fatalf("after shrink level=%d focus=%d; focus must leave the hidden field", m.form.level, m.form.focus)
+	}
+	for _, r := range "secret" {
+		m, _ = send(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
+	}
+	if m.form.asset.Value() != "" {
+		t.Fatalf("typed into a hidden field: %q", m.form.asset.Value())
+	}
+}

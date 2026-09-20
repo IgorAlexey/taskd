@@ -347,14 +347,9 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 				if md == modeForm && w >= 20 && h >= 4 && !strings.Contains(strings.Join(lines, "\n"), "first line") {
 					t.Fatalf("%dx%d form hides the focused body field:\n%s", w, h, strings.Join(lines, "\n"))
 				}
-				// Border, three fields, one body row, the error and the
-				// button need eight rows, nine when the error wraps (the
-				// text is 23 cells; the box is w-4 outside, 8 less inside).
-				errRows := 8
-				if w-8 < 23 {
-					errRows = 9
-				}
-				if md == modeForm && w >= 20 && h >= errRows {
+				// From six rows the focused field, the error (two lines at
+				// 20 columns) and the button all fit inside the border.
+				if md == modeForm && w >= 20 && h >= 6 {
 					all := strings.Join(lines, "\n")
 					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "cannot") {
 						t.Fatalf("%dx%d form hides the button or the error:\n%s", w, h, all)

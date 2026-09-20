@@ -112,35 +112,48 @@ func (f *formModel) resize(inner int) {
 	f.body.SetWidth(inner)
 }
 
+// visible reports whether a field (0 project, 1 priority, 2 asset,
+// 3 body) is drawn at a compaction level: 0 and 1 draw every field, 2
+// drops the asset field, 3 draws only the focused one. The button
+// (focus 4) is always drawn and, at level 3, shows the body with it.
+func (f formModel) visible(level, field int) bool {
+	switch {
+	case level < 2:
+		return true
+	case level == 2:
+		return field != 2
+	default:
+		return f.focus == field || (field == 3 && f.focus == 4)
+	}
+}
+
 // lines is the form's rows at a given level of compaction: 0 keeps the
 // separators and hint, 1 drops them, 2 also drops the asset field and
-// body label, 3 shows only the focused field and the button, since an
-// error is no help when the field it names is off screen. slot is the
-// index the textarea goes at (-1 when it is not drawn); rows[keepAt:]
-// up to keepN are the error and the button, which a short frame must
-// never cut; anything after them is the hint.
+// body label, 3 shows only the focused field, the error and the button.
+// slot is the index the textarea goes at (-1 when it is not drawn);
+// rows[keepAt:] up to keepN are the error and the button, which a short
+// frame must never cut; anything after them is the hint.
 func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keepN int) {
-	show := func(field int) bool { return level < 3 || f.focus == field || (field == 3 && f.focus == 4) }
 	if level < 3 {
 		rows = append(rows, th.accent.Render(f.title))
 	}
 	if level == 0 {
 		rows = append(rows, "")
 	}
-	if show(0) {
+	if f.visible(level, 0) {
 		rows = append(rows, th.dim.Render("project:  ")+f.project.View())
 	}
-	if show(1) {
+	if f.visible(level, 1) {
 		rows = append(rows, th.dim.Render("priority: ")+f.priority.View())
 	}
-	if level < 2 || (level == 3 && f.focus == 2) {
+	if f.visible(level, 2) {
 		rows = append(rows, th.dim.Render("asset:    ")+f.asset.View())
 	}
 	if level < 2 {
 		rows = append(rows, th.dim.Render("body:"))
 	}
 	slot = -1
-	if show(3) {
+	if f.visible(level, 3) {
 		slot = len(rows)
 		rows = append(rows, "")
 	}
@@ -148,7 +161,7 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 		rows = append(rows, "")
 	}
 	keepAt = len(rows)
-	if f.errText != "" && level < 3 {
+	if f.errText != "" {
 		rows = append(rows, th.err.Render(f.errText))
 	}
 	if f.focus == 4 {
@@ -182,9 +195,9 @@ func wrapRows(rows []string, width int) []string {
 // box draws an overlay. head and tail are lines that may be cut; keep
 // are rows, each already wrapped to boxWidth-4, drawn between them and
 // meant to survive: when the frame is short, tail goes first, then head,
-// then whole keep rows from the front, and a last row that still does
-// not fit shows its first lines, so an action row or a hint is never
-// reduced to its tail.
+// then the middle keep rows from the front, then the first keep row, and
+// a last row that still does not fit shows its first lines, so an action
+// row or a hint is never reduced to its tail.
 func box(head []string, keep [][]string, tail []string, boxWidth, height int, align lipgloss.Position, th theme) string {
 	if boxWidth < 5 {
 		return ""
@@ -197,7 +210,11 @@ func box(head []string, keep [][]string, tail []string, boxWidth, height int, al
 	if len(head)+need+len(tail) > room {
 		tail = tail[:max(0, room-len(head)-need)]
 		head = head[:max(0, room-need)]
-		for need > room && len(keep) > 1 {
+		for need > room && len(keep) > 2 {
+			need -= len(keep[1])
+			keep = append(keep[:1:1], keep[2:]...)
+		}
+		if need > room && len(keep) > 1 {
 			need -= len(keep[0])
 			keep = keep[1:]
 		}
@@ -220,14 +237,14 @@ func box(head []string, keep [][]string, tail []string, boxWidth, height int, al
 }
 
 func (f *formModel) setFocus(target int) tea.Cmd {
-	if f.level == 2 && (target%5+5)%5 == 2 {
-		// The asset field is not drawn at this level; skip it in the
-		// direction of travel.
-		if target > f.focus {
-			target++
-		} else {
-			target--
-		}
+	step := 1
+	if target < f.focus {
+		step = -1
+	}
+	// Fields that are not drawn at this level are skipped in the
+	// direction of travel; the button is always drawn.
+	for target%5 != 4 && !f.visible(f.level, (target%5+5)%5) {
+		target += step
 	}
 	f.focus = (target%5 + 5) % 5
 	f.project.Blur()
@@ -443,6 +460,15 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 			break
 		}
 	}
+	if f.focus < 4 && !f.visible(f.level, f.focus) {
+		// The chosen level does not draw the focused field: typing
+		// must not land in a row nobody can see.
+		f.setFocus(f.focus + 1)
+		rows, slot, keepAt, keepN = f.lines(f.level, th)
+	}
+	if f.level == 3 {
+		bodyH = 1 // the box must not jump as focus moves between fields
+	}
 	bodyH = max(1, min(12, bodyH))
 	f.body.SetHeight(bodyH)
 	head = wrapRows(rows[:keepAt], inner)
@@ -454,6 +480,11 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 			body = body[:bodyH]
 		}
 		head = append(append(wrapRows(rows[:slot], inner), body...), wrapRows(rows[slot+1:keepAt], inner)...)
+	}
+	if f.level == 3 {
+		// Only the focused field is drawn; it outranks the error.
+		keep = append(keep, head)
+		head = nil
 	}
 	for _, r := range rows[keepAt : keepAt+keepN] {
 		keep = append(keep, wrapRows([]string{r}, inner))
