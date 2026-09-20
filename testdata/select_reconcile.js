@@ -146,6 +146,16 @@ const api = new Function(
   const namedIndex = workerSelect.selectedIndex;
   const namedWorker = api.getWorkerFilter();
 
+  loc.search = '?worker=idle-worker';
+  api.applyURLState();
+  const idleIndexBefore = workerSelect.selectedIndex;
+  const idleWorkerBefore = api.getWorkerFilter();
+
+  workerData = [];
+  await api.loadWorkers();
+  const idleIndexAfter = workerSelect.selectedIndex;
+  const idleWorkerAfter = api.getWorkerFilter();
+  const idleWorkerValue = workerSelect.value;
   process.stdout.write(JSON.stringify({
     workerNodePreservedOnSame,
     workerNodePreservedOnChange,
@@ -158,5 +168,10 @@ const api = new Function(
     allWorker,
     namedIndex,
     namedWorker,
+    idleIndexBefore,
+    idleWorkerBefore,
+    idleIndexAfter,
+    idleWorkerAfter,
+    idleWorkerValue,
   }));
 })();

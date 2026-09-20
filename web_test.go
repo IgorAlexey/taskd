@@ -624,6 +624,9 @@ func TestWebUISelectPollReconciliation(t *testing.T) {
 		AllWorker                    *string `json:"allWorker"`
 		NamedIndex                   int     `json:"namedIndex"`
 		NamedWorker                  *string `json:"namedWorker"`
+		IdleIndexAfter               int     `json:"idleIndexAfter"`
+		IdleWorkerAfter              *string `json:"idleWorkerAfter"`
+		IdleWorkerValue              string  `json:"idleWorkerValue"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -652,6 +655,12 @@ func TestWebUISelectPollReconciliation(t *testing.T) {
 	}
 	if !strings.Contains(got.UnassignedSyncURL, "worker=") || strings.Contains(got.UnassignedSyncURL, "worker=none") {
 		t.Errorf("expected unassigned sync URL to set empty worker query, got %q", got.UnassignedSyncURL)
+	}
+	if got.IdleWorkerAfter == nil || *got.IdleWorkerAfter != "idle-worker" {
+		t.Errorf("expected idle-worker to be retained after empty workers poll, got %v", got.IdleWorkerAfter)
+	}
+	if got.IdleWorkerValue != "idle-worker" {
+		t.Errorf("expected worker select value to be idle-worker, got %q", got.IdleWorkerValue)
 	}
 }
 

@@ -1109,6 +1109,11 @@
         if (!res.ok) return;
         const workers = await res.json();
         if (Array.isArray(workers)) {
+          const currentWorker = getWorkerFilter();
+          if (currentWorker && !workers.includes(currentWorker)) {
+            workers.push(currentWorker);
+            workers.sort();
+          }
           syncSelectOptions(select, workers, 2);
         }
       } catch (err) {
