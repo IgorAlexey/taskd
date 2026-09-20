@@ -27,6 +27,7 @@ type glyphs struct {
 	ellipsis string
 	rule     string
 	caret    string
+	sort     string
 }
 
 var nerdGlyphs = glyphs{
@@ -52,6 +53,7 @@ var nerdGlyphs = glyphs{
 	ellipsis: "…",
 	rule:     "─",
 	caret:    "▏",
+	sort:     "▼",
 }
 
 var asciiGlyphs = glyphs{
@@ -77,6 +79,7 @@ var asciiGlyphs = glyphs{
 	ellipsis: "...",
 	rule:     "-",
 	caret:    "_",
+	sort:     "*",
 }
 
 type theme struct {

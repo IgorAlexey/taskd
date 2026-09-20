@@ -42,6 +42,7 @@ type config struct {
 	icons   bool
 	refresh time.Duration
 	version bool
+	sortCol sortColumn
 }
 
 // mode is the single source of truth for which keymap and overlay are
@@ -56,6 +57,17 @@ const (
 	modeForm                // n/e: create or edit form overlay
 	modeConfirm             // D/x: yes/no overlay
 	modeHelp                // ?: key reference overlay
+)
+
+type sortColumn int
+
+const (
+	sortPriority sortColumn = iota
+	sortStatus
+	sortProject
+	sortWorker
+	sortLease
+	sortColCount
 )
 
 // Messages. Every asynchronous result enters Update as one of these.
@@ -129,6 +141,8 @@ type model struct {
 	worker    string
 	query     string // / substring filter, case-insensitive
 	mode      mode
+	sortCol   sortColumn
+	cols      tableCols
 	etag      string     // ETag of m.tasks for m.project
 	pages     int        // pages of the daemon cursor to walk; 1 is a live poll
 	total     int        // the daemon's count for the current question

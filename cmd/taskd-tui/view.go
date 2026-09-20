@@ -350,47 +350,34 @@ func (m model) View() tea.View {
 		if end > len(m.shown) {
 			end = len(m.shown)
 		}
-		maxScope := 0
-		maxWorker := 0
-		maxClaims := 0
-		for _, idx := range m.shown {
-			if idx >= 0 && idx < len(m.tasks) {
-				t := m.tasks[idx]
-				sc, _ := m.displayScope(t)
-				if sc != "" {
-					sw := ansi.StringWidth(sc)
-					if sw > maxScope {
-						maxScope = sw
-					}
-				}
-				_, co := workerParts(t.Worker)
-				if co != "" {
-					ww := ansi.StringWidth(m.glyph.branch + path.Base(co))
-					if ww > maxWorker {
-						maxWorker = ww
-					}
-				}
-				if t.ClaimCount > 1 {
-					cw := ansi.StringWidth(m.glyph.refresh + " " + strconv.Itoa(t.ClaimCount))
-					if cw > maxClaims {
-						maxClaims = cw
-					}
-				}
-			}
-		}
+		cols := m.cols
 		sb := calcScrollbar(len(m.shown), m.offset, tRows)
 		hasScrollbar := sb.hasScrollbar
-		cols := budgetColumns(w, maxScope, maxWorker, maxClaims, hasScrollbar)
 		wScope, wClaims, wWorker := cols.scope, cols.claims, cols.worker
 		wLease, wLeft, wID, wTitle := cols.lease, cols.left, cols.id, cols.title
 
 		// 4. Column header (1 row, dim, lowercase)
 		var colH strings.Builder
-		colH.WriteString("  p ")
+		ind := m.glyph.sort
+		if ind == "" {
+			ind = "▼"
+		}
+
+		if m.sortCol == sortStatus {
+			colH.WriteString(" " + ind + "p ")
+		} else if m.sortCol == sortPriority {
+			colH.WriteString("  p" + ind)
+		} else {
+			colH.WriteString("  p ")
+		}
+
 		if wScope > 0 {
 			scopeHead := "scope"
-			if len(scopeHead) > wScope {
-				scopeHead = scopeHead[:wScope]
+			if m.sortCol == sortProject {
+				scopeHead += ind
+			}
+			if ansi.StringWidth(scopeHead) > wScope {
+				scopeHead = ansi.Truncate(scopeHead, wScope, "")
 			}
 			colH.WriteString(padRight(scopeHead, wScope))
 			colH.WriteString(" ")
@@ -403,14 +390,24 @@ func (m model) View() tea.View {
 		if wWorker > 0 {
 			colH.WriteString(" ")
 			workerHead := "worker"
-			if len(workerHead) > wWorker {
-				workerHead = workerHead[:wWorker]
+			if m.sortCol == sortWorker {
+				workerHead += ind
+			}
+			if ansi.StringWidth(workerHead) > wWorker {
+				workerHead = ansi.Truncate(workerHead, wWorker, "")
 			}
 			colH.WriteString(padRight(workerHead, wWorker))
 		}
 		if wLease > 0 {
 			colH.WriteString(" ")
-			colH.WriteString(padRight("lease", wLease))
+			leaseHead := "lease"
+			if m.sortCol == sortLease {
+				leaseHead += ind
+			}
+			if ansi.StringWidth(leaseHead) > wLease {
+				leaseHead = ansi.Truncate(leaseHead, wLease, "")
+			}
+			colH.WriteString(padRight(leaseHead, wLease))
 		}
 		if wLeft > 0 {
 			colH.WriteString(" ")
@@ -893,6 +890,7 @@ func (m model) footerItems() [][2]string {
 	return [][2]string{
 		{"j/k", "move"},
 		{"0-4", "filter"},
+		{"s", "sort"},
 		{"p", "project"},
 		{"w", "worker"},
 		{"n", "new"},
@@ -935,6 +933,8 @@ func (m model) footerTargets() []footerTarget {
 	for _, it := range items {
 		w := ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1])
 		switch it[0] {
+		case "s":
+			targets = append(targets, footerTarget{action: "sort", start: x, end: x + w})
 		case "p":
 			targets = append(targets, footerTarget{action: "project", start: x, end: x + w})
 		case "w":

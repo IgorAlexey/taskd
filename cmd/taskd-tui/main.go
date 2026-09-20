@@ -156,6 +156,19 @@ func parseFlags(args []string) (config, error) {
 				return cfg, usagef("invalid duration %q for flag %s", val, token)
 			}
 			refresh = d
+		case "s", "sort":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			col, ok := parseSortColumn(val)
+			if !ok {
+				return cfg, usagef("invalid sort column %q for %s", val, token)
+			}
+			cfg.sortCol = col
 		default:
 			return cfg, usagef("unrecognized flag %s", token)
 		}
@@ -191,6 +204,7 @@ Options:
   -worker <name>      worker identifier for claiming tasks
   -ascii              use ASCII characters instead of Nerd Font icons
   -refresh <dur>      polling interval, min 250ms (default: 1s)
+  -s, -sort <col>     initial sort column: priority, status, project, worker, lease
   -v, -version        print version and exit
   -h, --help          show this help message
 
@@ -207,6 +221,7 @@ Keyboard shortcuts:
   ctrl-d/ctrl-u       move half page down / up
   PgUp/PgDn           move page down / up
   0-4                 filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried)
+  s                   cycle sort (lower case 's': priority, status, project, worker, lease)
   p                   cycle project filter
   w, W                cycle worker filter forward / backward
   /                   search / filter by query
@@ -232,6 +247,23 @@ Examples:
   taskd-tui -url http://localhost:8080 -project taskd
   taskd-tui -ascii -refresh 2s
 `)
+}
+
+func parseSortColumn(val string) (sortColumn, bool) {
+	switch strings.ToLower(val) {
+	case "priority":
+		return sortPriority, true
+	case "status":
+		return sortStatus, true
+	case "project":
+		return sortProject, true
+	case "worker":
+		return sortWorker, true
+	case "lease":
+		return sortLease, true
+	default:
+		return 0, false
+	}
 }
 
 func defaultWorker() string {

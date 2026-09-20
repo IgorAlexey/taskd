@@ -2,16 +2,18 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
-	"fmt"
-	"slices"
-	"strings"
-	"time"
-
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"cmp"
+	"encoding/json"
+	"fmt"
 	"github.com/charmbracelet/x/ansi"
+	"path"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 )
 
 func newModel(cfg config, c *client) model {
@@ -29,6 +31,7 @@ func newModel(cfg config, c *client) model {
 		height:  24,
 		project: cfg.project,
 		mode:    modeTable,
+		sortCol: cfg.sortCol,
 		pages:   1,
 		now:     time.Now(),
 		detail:  vp,
@@ -188,6 +191,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.updateCols()
 		if m.mode == modeForm {
 			m.form.fit(msg.Width, msg.Height, m.theme)
 		}
@@ -386,6 +390,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.mode = modeTable
 					return m.cycleWorker(1)
 				}
+				return m, nil
+			}
+			if msg.Y == headerRows+tabRows+1 && (m.mode == modeTable || m.mode == modeDetail) {
+				m.handleColHeadClick(msg.X)
 				return m, nil
 			}
 			if m.height > 0 && msg.Y == m.height-1 {
@@ -667,6 +675,10 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 	}
 
 	switch key {
+	case "s":
+		m.sortCol = (m.sortCol + 1) % sortColCount
+		m.rebuild()
+		return m, nil, true
 	case "n":
 		m, cmd := m.actionCreate()
 		return m, cmd, true
@@ -850,7 +862,7 @@ func (m model) row1Bounds() row1Bounds {
 }
 
 func (m *model) rebuildShown() {
-	var leased, pending, buried, done []int
+	var indices []int
 	for i, t := range m.tasks {
 		if m.project != "" && t.Project != m.project {
 			continue
@@ -861,25 +873,177 @@ func (m *model) rebuildShown() {
 		if m.filter != "" && t.Status != m.filter {
 			continue
 		}
-		switch t.Status {
-		case "leased":
-			leased = append(leased, i)
-		case "pending":
-			pending = append(pending, i)
-		case "buried":
-			buried = append(buried, i)
-		case "done":
-			done = append(done, i)
+		indices = append(indices, i)
+	}
+
+	slices.SortStableFunc(indices, func(a, b int) int {
+		ti, tj := m.tasks[a], m.tasks[b]
+		switch m.sortCol {
+		case sortStatus:
+			si := statusRank(ti.Status)
+			sj := statusRank(tj.Status)
+			if si != sj {
+				return cmp.Compare(si, sj)
+			}
+			return cmp.Compare(ti.Priority, tj.Priority)
+		case sortProject:
+			if c := compareFold(ti.Project, tj.Project); c != 0 {
+				return c
+			}
+			return cmp.Compare(ti.Priority, tj.Priority)
+		case sortWorker:
+			if (ti.Worker != "") != (tj.Worker != "") {
+				if ti.Worker != "" {
+					return -1
+				}
+				return 1
+			}
+			if c := compareFold(ti.Worker, tj.Worker); c != 0 {
+				return c
+			}
+			return cmp.Compare(ti.Priority, tj.Priority)
+		case sortLease:
+			if (ti.LeaseExpires > 0) != (tj.LeaseExpires > 0) {
+				if ti.LeaseExpires > 0 {
+					return -1
+				}
+				return 1
+			}
+			if ti.LeaseExpires != tj.LeaseExpires {
+				return cmp.Compare(ti.LeaseExpires, tj.LeaseExpires)
+			}
+			return cmp.Compare(ti.Priority, tj.Priority)
 		default:
-			pending = append(pending, i)
+			if ti.Priority != tj.Priority {
+				return cmp.Compare(ti.Priority, tj.Priority)
+			}
+			return cmp.Compare(statusRank(ti.Status), statusRank(tj.Status))
+		}
+	})
+
+	m.shown = indices
+	m.updateCols()
+}
+
+func compareFold(a, b string) int {
+	n := min(len(a), len(b))
+	for i := 0; i < n; i++ {
+		ca, cb := a[i], b[i]
+		if ca >= 'A' && ca <= 'Z' {
+			ca += 'a' - 'A'
+		}
+		if cb >= 'A' && cb <= 'Z' {
+			cb += 'a' - 'A'
+		}
+		if ca != cb {
+			if ca < cb {
+				return -1
+			}
+			return 1
 		}
 	}
-	shown := make([]int, 0, len(leased)+len(pending)+len(buried)+len(done))
-	shown = append(shown, leased...)
-	shown = append(shown, pending...)
-	shown = append(shown, buried...)
-	shown = append(shown, done...)
-	m.shown = shown
+	if len(a) < len(b) {
+		return -1
+	} else if len(a) > len(b) {
+		return 1
+	}
+	return 0
+}
+
+func statusRank(s string) int {
+	switch s {
+	case "leased":
+		return 0
+	case "pending":
+		return 1
+	case "buried":
+		return 2
+	case "done":
+		return 3
+	default:
+		return 4
+	}
+}
+
+func (m *model) updateCols() {
+	maxScope, maxWorker, maxClaims := 0, 0, 0
+	for _, idx := range m.shown {
+		if idx >= 0 && idx < len(m.tasks) {
+			t := m.tasks[idx]
+			sc, _ := m.displayScope(t)
+			if sc != "" {
+				if sw := ansi.StringWidth(sc); sw > maxScope {
+					maxScope = sw
+				}
+			}
+			_, co := workerParts(t.Worker)
+			if co != "" {
+				if ww := ansi.StringWidth(m.glyph.branch + path.Base(co)); ww > maxWorker {
+					maxWorker = ww
+				}
+			}
+			if t.ClaimCount > 1 {
+				if cw := ansi.StringWidth(m.glyph.refresh + " " + strconv.Itoa(t.ClaimCount)); cw > maxClaims {
+					maxClaims = cw
+				}
+			}
+		}
+	}
+	tRows, _ := m.layout()
+	sb := calcScrollbar(len(m.shown), m.offset, tRows)
+	m.cols = budgetColumns(m.width, maxScope, maxWorker, maxClaims, sb.hasScrollbar)
+}
+
+func (m *model) handleColHeadClick(x int) {
+	if x < 2 {
+		m.sortCol = sortStatus
+		m.rebuild()
+		return
+	}
+	if x < 4 {
+		m.sortCol = sortPriority
+		m.rebuild()
+		return
+	}
+
+	cols := m.cols
+	currX := 4
+	if cols.scope > 0 {
+		if x >= currX && x < currX+cols.scope {
+			m.sortCol = sortProject
+			m.rebuild()
+			return
+		}
+		currX += cols.scope + 1
+	}
+
+	currX += cols.title
+	if cols.claims > 0 {
+		currX += 1 + cols.claims
+	}
+
+	if cols.worker > 0 {
+		currX += 1
+		if x >= currX && x < currX+cols.worker {
+			m.sortCol = sortWorker
+			m.rebuild()
+			return
+		}
+		currX += cols.worker
+	}
+
+	if cols.lease > 0 {
+		currX += 1
+		leaseWidth := cols.lease
+		if cols.left > 0 {
+			leaseWidth += 1 + cols.left
+		}
+		if x >= currX && x < currX+leaseWidth {
+			m.sortCol = sortLease
+			m.rebuild()
+			return
+		}
+	}
 }
 
 func (m *model) rebuild() {
@@ -1216,6 +1380,10 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 				return m.cycleProject(1)
 			case "worker":
 				return m.cycleWorker(1)
+			case "sort":
+				m.sortCol = (m.sortCol + 1) % sortColCount
+				m.rebuild()
+				return m, nil
 			}
 		}
 	}
