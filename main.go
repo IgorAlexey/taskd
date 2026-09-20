@@ -2056,7 +2056,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 	}
 
 	handleMethods(mux, "/health", map[string]route{
-		http.MethodGet: {handler: healthHandler},
+		http.MethodGet: {handler: healthHandler, anyParams: true},
 	})
 
 	handleMethods(mux, "/stats", map[string]route{
