@@ -424,16 +424,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Text == "q":
 				return m, tea.Quit
-			case msg.Text == "y":
-				if t, ok := m.selected(); ok {
-					return m, copyToClipboard(t.ID)
-				}
-				return m, nil
-			case msg.Text == "Y":
-				if t, ok := m.selected(); ok {
-					return m, copyToClipboard(t.Body)
-				}
-				return m, nil
 			case msg.Text == "j":
 				m.detail.ScrollDown(1)
 				return m, nil
@@ -457,12 +447,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeHelp
 				return m, nil
 			default:
+				if m, cmd, ok := m.handleAction(msg); ok {
+					return m, cmd
+				}
 				var cmd tea.Cmd
 				m.detail, cmd = m.detail.Update(msg)
 				return m, cmd
 			}
 
 		case modeTable:
+			if m, cmd, ok := m.handleAction(msg); ok {
+				return m, cmd
+			}
 			switch {
 			case msg.Text == "q":
 				return m, tea.Quit
@@ -553,171 +549,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.clamp()
 				m.detail.SetHeight(m.detailViewportHeight())
 				return m, nil
-			case msg.Text == "n":
-				var cmd tea.Cmd
-				m.form, cmd = newCreateForm(m.project)
-				m.form.fit(m.width, m.height, m.theme)
-				m.mode = modeForm
-				return m, cmd
-			case msg.Text == "e":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status == "done" {
-					cmd := m.setMsg("cannot edit done task")
-					return m, cmd
-				}
-				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					cmd := m.setMsg("cannot edit actively leased task")
-					return m, cmd
-				}
-				var cmd tea.Cmd
-				m.form, cmd = newEditForm(t)
-				m.form.fit(m.width, m.height, m.theme)
-				m.mode = modeForm
-				return m, cmd
-			case msg.Text == "+" || msg.Text == "=" || msg.Code == '+' || msg.Code == '=':
-				t, ok := m.selected()
-				if !ok || t.Priority == 0 {
-					return m, nil
-				}
-				pri := t.Priority - 1
-				if pri < 1 {
-					pri = 1
-				}
-				if pri != t.Priority {
-					return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
-				}
-				return m, nil
-			case msg.Text == "-" || msg.Code == '-':
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				pri := t.Priority + 1
-				if pri != t.Priority {
-					return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
-				}
-				return m, nil
-			case msg.Text == "c":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status != "pending" {
-					cmd := m.setMsg("task is not pending")
-					return m, cmd
-				}
-				id7 := shortID(t.ID)
-				m.msg = ""
-				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7)
-			case msg.Text == "u":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status != "leased" {
-					cmd := m.setMsg("task is not leased")
-					return m, cmd
-				}
-				id7 := shortID(t.ID)
-				m.msg = ""
-				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": t.Worker}, "released task "+id7)
-			case msg.Text == "t":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status != "leased" {
-					cmd := m.setMsg("task is not leased")
-					return m, cmd
-				}
-				if t.Worker != m.cfg.worker {
-					cmd := m.setMsg("cannot touch lease held by another worker")
-					return m, cmd
-				}
-				now := m.now
-				if now.IsZero() {
-					now = time.Now()
-				}
-				if t.LeaseExpires <= now.Unix() {
-					cmd := m.setMsg("lease has expired")
-					return m, cmd
-				}
-				id7 := shortID(t.ID)
-				m.msg = ""
-				return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7)
-			case msg.Text == "b":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status != "leased" {
-					cmd := m.setMsg("task is not leased")
-					return m, cmd
-				}
-				if t.Worker != m.cfg.worker {
-					cmd := m.setMsg("task leased by another worker")
-					return m, cmd
-				}
-				m.confirmTask("Bury", "buried", "POST", "/tasks/"+t.ID+"/bury", t, map[string]any{"worker": m.cfg.worker})
-				return m, nil
-			case msg.Text == "K":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status != "buried" {
-					cmd := m.setMsg("task is not buried")
-					return m, cmd
-				}
-				m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
-				return m, nil
-			case msg.Text == "D":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					cmd := m.setMsg("cannot delete actively leased task")
-					return m, cmd
-				}
-				m.confirmTask("Delete", "deleted", "DELETE", "/tasks/"+t.ID, t, nil)
-				return m, nil
-			case msg.Text == "x":
-				t, ok := m.selected()
-				if !ok {
-					return m, nil
-				}
-				if t.Status == "done" {
-					cmd := m.setMsg("task is already done")
-					return m, cmd
-				}
-				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					if m.cfg.worker == "" {
-						cmd := m.setMsg("worker not configured")
-						return m, cmd
-					}
-					if t.Worker != m.cfg.worker {
-						cmd := m.setMsg("task leased by another worker")
-						return m, cmd
-					}
-					m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/done", t, map[string]any{"worker": m.cfg.worker})
-					return m, nil
-				}
-				m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
-				return m, nil
-			case msg.Text == "y":
-				if t, ok := m.selected(); ok {
-					return m, copyToClipboard(t.ID)
-				}
-				return m, nil
-			case msg.Text == "Y":
-				if t, ok := m.selected(); ok {
-					return m, copyToClipboard(t.Body)
-				}
-				return m, nil
 			case msg.Text == "r":
 				poll := m.startPoll()
 				return m, poll
@@ -737,6 +568,154 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
+	key := msg.Text
+	if key == "" {
+		switch msg.Code {
+		case '+':
+			key = "+"
+		case '-':
+			key = "-"
+		case '=':
+			key = "="
+		}
+	}
+
+	switch key {
+	case "n":
+		var cmd tea.Cmd
+		m.form, cmd = newCreateForm(m.project)
+		m.form.fit(m.width, m.height, m.theme)
+		m.mode = modeForm
+		return m, cmd, true
+
+	case "e", "c", "u", "t", "b", "K", "D", "x", "y", "Y", "+", "-", "=":
+		t, ok := m.selected()
+		if !ok {
+			return m, nil, true
+		}
+		switch key {
+		case "e":
+			if t.Status == "done" {
+				cmd := m.setMsg("cannot edit done task")
+				return m, cmd, true
+			}
+			if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+				cmd := m.setMsg("cannot edit actively leased task")
+				return m, cmd, true
+			}
+			var cmd tea.Cmd
+			m.form, cmd = newEditForm(t)
+			m.form.fit(m.width, m.height, m.theme)
+			m.mode = modeForm
+			return m, cmd, true
+		case "+", "=":
+			if t.Priority == 0 {
+				return m, nil, true
+			}
+			pri := t.Priority - 1
+			if pri < 1 {
+				pri = 1
+			}
+			if pri != t.Priority {
+				return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri)), true
+			}
+			return m, nil, true
+		case "-":
+			pri := t.Priority + 1
+			if pri != t.Priority {
+				return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri)), true
+			}
+			return m, nil, true
+		case "c":
+			if t.Status != "pending" {
+				cmd := m.setMsg("task is not pending")
+				return m, cmd, true
+			}
+			id7 := shortID(t.ID)
+			m.msg = ""
+			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/claim", map[string]any{"worker": m.cfg.worker}, "claimed task "+id7), true
+		case "u":
+			if t.Status != "leased" {
+				cmd := m.setMsg("task is not leased")
+				return m, cmd, true
+			}
+			id7 := shortID(t.ID)
+			m.msg = ""
+			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": t.Worker}, "released task "+id7), true
+		case "t":
+			if t.Status != "leased" {
+				cmd := m.setMsg("task is not leased")
+				return m, cmd, true
+			}
+			if t.Worker != m.cfg.worker {
+				cmd := m.setMsg("cannot touch lease held by another worker")
+				return m, cmd, true
+			}
+			now := m.now
+			if now.IsZero() {
+				now = time.Now()
+			}
+			if t.LeaseExpires <= now.Unix() {
+				cmd := m.setMsg("lease has expired")
+				return m, cmd, true
+			}
+			id7 := shortID(t.ID)
+			m.msg = ""
+			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/touch", map[string]any{"worker": m.cfg.worker}, "touched task "+id7), true
+		case "b":
+			if t.Status != "leased" {
+				cmd := m.setMsg("task is not leased")
+				return m, cmd, true
+			}
+			if t.Worker != m.cfg.worker {
+				cmd := m.setMsg("task leased by another worker")
+				return m, cmd, true
+			}
+			m.confirmTask("Bury", "buried", "POST", "/tasks/"+t.ID+"/bury", t, map[string]any{"worker": m.cfg.worker})
+			return m, nil, true
+		case "K":
+			if t.Status != "buried" {
+				cmd := m.setMsg("task is not buried")
+				return m, cmd, true
+			}
+			m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
+			return m, nil, true
+		case "D":
+			if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+				cmd := m.setMsg("cannot delete actively leased task")
+				return m, cmd, true
+			}
+			m.confirmTask("Delete", "deleted", "DELETE", "/tasks/"+t.ID, t, nil)
+			return m, nil, true
+		case "x":
+			if t.Status == "done" {
+				cmd := m.setMsg("task is already done")
+				return m, cmd, true
+			}
+			if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+				if m.cfg.worker == "" {
+					cmd := m.setMsg("worker not configured")
+					return m, cmd, true
+				}
+				if t.Worker != m.cfg.worker {
+					cmd := m.setMsg("task leased by another worker")
+					return m, cmd, true
+				}
+				m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/done", t, map[string]any{"worker": m.cfg.worker})
+				return m, nil, true
+			}
+			m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
+			return m, nil, true
+		case "y":
+			return m, copyToClipboard(t.ID), true
+		case "Y":
+			return m, copyToClipboard(t.Body), true
+		}
+	}
+	return m, nil, false
 }
 
 func (m model) setFilter(f string) (model, tea.Cmd) {
