@@ -150,6 +150,8 @@ type ui struct {
 	msg            string
 	msgRev         int
 	msgTimeout     time.Duration
+	actMsg         bool
+	actSeq         atomic.Int64
 	shownID        string
 	shownBody      string
 	refreshing     atomic.Bool
@@ -694,6 +696,22 @@ func (u *ui) setMsg(msg string) {
 	}
 }
 
+// setStaleMsg reports a background refresh failure. From the moment an
+// action reports until a whole refresh round lands again it says nothing,
+// so a mutation the daemon already committed is never relabelled as the
+// poll behind it timing out, not even after the action's own message has
+// expired. For that stretch the [disconnected] marker and the body banner
+// are the only report of staleness, which is where it belongs. A round is
+// /tasks plus /projects because those are the two fetches whose errors can
+// reach setMsg; /stats is left out only because its error merely clears
+// hasServerStats. Teach stats to speak here and it joins the round.
+func (u *ui) setStaleMsg(msg string) {
+	if u.actMsg {
+		return
+	}
+	u.setMsg(msg)
+}
+
 func metaHeader(t task, now int64) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "ID:        %s\n", t.ID)
@@ -773,11 +791,12 @@ func (u *ui) refresh(project string) {
 func (u *ui) refreshOnce(project, worker, query string) {
 	defer u.refreshing.Store(false)
 	wide := u.wide(query)
+	seq := u.actSeq.Load()
 	ts, total, err := u.fetch(project, worker, query)
 	if err != nil {
 		u.disconnected.Store(true)
 		u.app.QueueUpdateDraw(func() {
-			u.setMsg(err.Error())
+			u.setStaleMsg(err.Error())
 			u.jumpBottom = false
 			if u.project != project || u.workerFilter != worker || u.query != query {
 				return
@@ -793,9 +812,12 @@ func (u *ui) refreshOnce(project, worker, query string) {
 	st, serr := u.fetchStats(project)
 	u.app.QueueUpdateDraw(func() {
 		if perr != nil {
-			u.setMsg(perr.Error())
+			u.setStaleMsg(perr.Error())
 		} else {
 			u.projects = ps
+			if u.actSeq.Load() == seq {
+				u.actMsg = false
+			}
 		}
 		if u.project != project || u.workerFilter != worker || u.query != query {
 			return
@@ -833,15 +855,14 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			for _, cb := range callbacks {
 				cb(err)
 			}
-			switch {
-			case err != nil:
+			if err != nil {
 				u.setMsg(err.Error())
-			case fetchErr != nil:
-				u.setMsg(fetchErr.Error())
-			case projErr != nil:
-				u.setMsg(projErr.Error())
-			default:
+			} else {
 				u.setMsg(msg)
+			}
+			u.actMsg = fetchErr != nil || projErr != nil
+			if u.actMsg {
+				u.actSeq.Add(1)
 			}
 			if fetchErr != nil {
 				u.disconnected.Store(true)
