@@ -14,13 +14,28 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+const maxTaskIDLen = 128
+
+type formField int
+
+const (
+	fieldProject formField = iota
+	fieldPriority
+	fieldAsset
+	fieldID
+	fieldBody
+	fieldSave
+	fieldCancel
+)
+
 type formModel struct {
 	title           string
 	project         textinput.Model
 	priority        textinput.Model
 	asset           textinput.Model
+	customID        textinput.Model
 	body            textarea.Model
-	focus           int // 0 project, 1 priority, 2 asset, 3 body, 4 save button
+	focus           formField
 	editing         bool
 	id              string
 	version         int
@@ -33,7 +48,7 @@ type formModel struct {
 	origHasPriority bool
 	origAsset       string
 	origBody        string
-	width, height   int // terminal fit laid out for; zero before the first fit
+	width, height   int
 	th              theme
 }
 
@@ -56,15 +71,18 @@ func newCreateForm(project string) (formModel, tea.Cmd) {
 	f.asset.Prompt = ""
 	f.asset.Placeholder = "optional"
 
+	f.customID = textinput.New()
+	f.customID.Prompt = ""
+	f.customID.Placeholder = "optional"
 	f.body = textarea.New()
 	f.body.Prompt = ""
 	f.body.Placeholder = "first line is the title"
 	f.body.ShowLineNumbers = false
 
 	if project == "" {
-		return f, f.setFocus(0)
+		return f, f.setFocus(fieldProject)
 	}
-	return f, f.setFocus(3)
+	return f, f.setFocus(fieldBody)
 }
 
 func newEditForm(t task) (formModel, tea.Cmd) {
@@ -98,9 +116,13 @@ func newEditForm(t task) (formModel, tea.Cmd) {
 	f.body.Prompt = ""
 	f.body.Placeholder = "first line is the title"
 	f.body.ShowLineNumbers = false
+	f.customID = textinput.New()
+	f.customID.Prompt = ""
+	f.customID.SetValue(t.ID)
+
 	f.body.SetValue(t.Body)
 
-	cmd := f.setFocus(3)
+	cmd := f.setFocus(fieldBody)
 	return f, cmd
 }
 
@@ -116,6 +138,7 @@ func (f *formModel) resize(inner int) {
 	f.project.SetWidth(max(1, inner-11))
 	f.priority.SetWidth(max(1, inner-11))
 	f.asset.SetWidth(max(1, inner-11))
+	f.customID.SetWidth(max(1, inner-11))
 	f.body.SetWidth(inner)
 }
 
@@ -127,7 +150,7 @@ func (f *formModel) resize(inner int) {
 type formRow struct {
 	text  string
 	rank  int
-	field int // 0 project, 1 priority, 2 asset, 3 body (textarea), -1 other
+	field formField
 }
 
 // Drop ranks, lowest goes first. A field row with text in it adds
@@ -139,15 +162,23 @@ const (
 	rankHint      = 1
 	rankSeparator = 2
 	rankBodyLabel = 3
-	rankAsset     = 4 // empty and unfocused: below the title
+	rankAsset     = 4
+	rankID        = 4
 	rankTitle     = 5
 	rankBody      = 6
 	rankPriority  = 7
 	rankProject   = 8
-	rankFilled    = 5 // a filled asset outranks the title and an empty body
+	rankFilled    = 5
 	rankButton    = 14
 	rankError     = 15
 )
+
+func (f formModel) focusOrder() []formField {
+	if f.editing {
+		return []formField{fieldProject, fieldPriority, fieldAsset, fieldBody, fieldSave, fieldCancel}
+	}
+	return []formField{fieldProject, fieldPriority, fieldAsset, fieldID, fieldBody, fieldSave, fieldCancel}
+}
 
 // rows is the whole form in reading order. Field rows take their rank
 // unless focused, which pins them; a field with text in it outranks
@@ -162,7 +193,7 @@ func (f formModel) cancel() formModel {
 }
 
 func (f formModel) rows(th theme) []formRow {
-	field := func(n, rank int, value, text string) formRow {
+	field := func(n formField, rank int, value, text string) formRow {
 		switch {
 		case f.focus == n:
 			rank = 0
@@ -174,11 +205,11 @@ func (f formModel) rows(th theme) []formRow {
 	saveToken := "[ save ]"
 	cancelToken := "[ cancel ]"
 	save, saveRank := th.dim.Render(saveToken), rankButton
-	if f.focus == 4 {
+	if f.focus == fieldSave {
 		save, saveRank = th.accentPill.Render(saveToken), 0
 	}
 	cancel, cancelRank := th.dim.Render(cancelToken), rankButton
-	if f.focus == 5 {
+	if f.focus == fieldCancel {
 		cancel, cancelRank = th.accentPill.Render(cancelToken), 0
 	}
 	btnRank := min(saveRank, cancelRank)
@@ -186,18 +217,23 @@ func (f formModel) rows(th theme) []formRow {
 	rows := []formRow{
 		{text: th.accent.Render(f.title), rank: rankTitle, field: -1},
 		{rank: rankSeparator, field: -1},
-		field(0, rankProject, f.project.Value(), th.dim.Render("project:  ")+f.project.View()),
-		field(1, rankPriority, f.priority.Value(), th.dim.Render("priority: ")+f.priority.View()),
-		field(2, rankAsset, f.asset.Value(), th.dim.Render("asset:    ")+f.asset.View()),
-		{text: th.dim.Render("body:"), rank: rankBodyLabel, field: -1},
-		field(3, rankBody, f.body.Value(), ""),
-		{rank: rankSeparator, field: -1},
+		field(fieldProject, rankProject, f.project.Value(), th.dim.Render("project:  ")+f.project.View()),
+		field(fieldPriority, rankPriority, f.priority.Value(), th.dim.Render("priority: ")+f.priority.View()),
+		field(fieldAsset, rankAsset, f.asset.Value(), th.dim.Render("asset:    ")+f.asset.View()),
 	}
+	if !f.editing {
+		rows = append(rows, field(fieldID, rankID, f.customID.Value(), th.dim.Render("ID:       ")+f.customID.View()))
+	}
+	rows = append(rows,
+		formRow{text: th.dim.Render("body:"), rank: rankBodyLabel, field: -1},
+		field(fieldBody, rankBody, f.body.Value(), ""),
+		formRow{rank: rankSeparator, field: -1},
+	)
 	if f.errText != "" {
 		rows = append(rows, formRow{text: th.err.Render(f.errText), rank: rankError, field: -1})
 	}
 	rows = append(rows,
-		formRow{text: save + gapStr + cancel, rank: btnRank, field: 4},
+		formRow{text: save + gapStr + cancel, rank: btnRank, field: fieldSave},
 		formRow{rank: rankHint, field: -1},
 		formRow{text: th.dim.Render("Tab next  ctrl-s save  Esc cancel"), rank: rankHint, field: -1},
 	)
@@ -245,25 +281,50 @@ func box(head, keep []string, boxWidth, height int, align lipgloss.Position, th 
 		Render(lipgloss.JoinVertical(align, lines...))
 }
 
-func (f *formModel) setFocus(target int) tea.Cmd {
-	f.focus = (target%6 + 6) % 6
+func (f *formModel) setFocus(target formField) tea.Cmd {
+	f.focus = target
 	f.project.Blur()
 	f.priority.Blur()
 	f.asset.Blur()
+	f.customID.Blur()
 	f.body.Blur()
 	switch f.focus {
-	case 0:
+	case fieldProject:
 		return f.project.Focus()
-	case 1:
+	case fieldPriority:
 		return f.priority.Focus()
-	case 2:
+	case fieldAsset:
 		return f.asset.Focus()
-	case 3:
+	case fieldID:
+		if !f.editing {
+			return f.customID.Focus()
+		}
+	case fieldBody:
 		return f.body.Focus()
-	case 4, 5:
-		return nil
 	}
 	return nil
+}
+
+func validTaskByte(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
+}
+
+func validateCustomID(id string) string {
+	if id == "" {
+		return ""
+	}
+	if len(id) > maxTaskIDLen {
+		return fmt.Sprintf("id must not exceed %d characters", maxTaskIDLen)
+	}
+	if id == "." || id == ".." || strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") {
+		return fmt.Sprintf("id %q is reserved", id)
+	}
+	for i := range len(id) {
+		if !validTaskByte(id[i]) {
+			return "id may only contain [A-Za-z0-9._-]"
+		}
+	}
+	return ""
 }
 
 func (f formModel) validate() string {
@@ -292,8 +353,15 @@ func (f formModel) validate() string {
 		}
 	}
 
+	if !f.editing {
+		if idErr := validateCustomID(strings.TrimSpace(f.customID.Value())); idErr != "" {
+			return idErr
+		}
+	}
+
 	return ""
 }
+
 func (f formModel) dirty() bool {
 	if f.project.Value() != f.origProject {
 		return true
@@ -302,6 +370,9 @@ func (f formModel) dirty() bool {
 		return true
 	}
 	if f.body.Value() != f.origBody {
+		return true
+	}
+	if !f.editing && f.customID.Value() != "" {
 		return true
 	}
 	if f.editing {
@@ -348,20 +419,43 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		}
 
 		if msg.Code == tea.KeyTab {
+			order := f.focusOrder()
+			curIdx := 0
+			for i, fld := range order {
+				if fld == f.focus {
+					curIdx = i
+					break
+				}
+			}
 			if msg.Mod&tea.ModShift != 0 {
-				cmd := f.setFocus(f.focus - 1)
+				next := order[(curIdx-1+len(order))%len(order)]
+				cmd := f.setFocus(next)
 				return f.refit(), cmd
 			}
-			cmd := f.setFocus(f.focus + 1)
+			next := order[(curIdx+1)%len(order)]
+			cmd := f.setFocus(next)
 			return f.refit(), cmd
 		}
 
 		if msg.Code == tea.KeyEnter {
-			if f.focus >= 0 && f.focus <= 2 {
-				cmd := f.setFocus(f.focus + 1)
+			switch f.focus {
+			case fieldProject:
+				cmd := f.setFocus(fieldPriority)
 				return f.refit(), cmd
-			}
-			if f.focus == 4 {
+			case fieldPriority:
+				cmd := f.setFocus(fieldAsset)
+				return f.refit(), cmd
+			case fieldAsset:
+				if f.editing {
+					cmd := f.setFocus(fieldBody)
+					return f.refit(), cmd
+				}
+				cmd := f.setFocus(fieldID)
+				return f.refit(), cmd
+			case fieldID:
+				cmd := f.setFocus(fieldBody)
+				return f.refit(), cmd
+			case fieldSave:
 				if err := f.validate(); err != "" {
 					f.errText = err
 					return f.refit(), nil
@@ -369,23 +463,25 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				f.errText = ""
 				f.done = true
 				return f, nil
-			}
-			if f.focus == 5 {
+			case fieldCancel:
 				return f.cancel(), nil
 			}
 		}
 
 		var cmd tea.Cmd
 		switch f.focus {
-		case 0:
+		case fieldProject:
 			f.project, cmd = f.project.Update(msg)
-		case 1:
+		case fieldPriority:
 			f.priority, cmd = f.priority.Update(msg)
-		case 2:
+		case fieldAsset:
 			f.asset, cmd = f.asset.Update(msg)
-		case 3:
+		case fieldID:
+			if !f.editing {
+				f.customID, cmd = f.customID.Update(msg)
+			}
+		case fieldBody:
 			f.body, cmd = f.body.Update(msg)
-		case 4:
 		}
 		return f.refit(), cmd
 
@@ -406,6 +502,12 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		f.asset, cmd = f.asset.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		if !f.editing {
+			f.customID, cmd = f.customID.Update(msg)
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
 		}
 		f.body, cmd = f.body.Update(msg)
 		if cmd != nil {
@@ -429,6 +531,11 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 
 		body["project"] = strings.TrimSpace(f.project.Value())
 		body["body"] = f.body.Value()
+
+		customID := strings.TrimSpace(f.customID.Value())
+		if customID != "" {
+			body["id"] = customID
+		}
 
 		asset := strings.TrimSpace(f.asset.Value())
 		if asset != "" {
@@ -499,7 +606,7 @@ func (f *formModel) fitRows(width, height int, th theme) (rows []formRow, wrappe
 	wrapped = make([][]string, len(rows))
 	total := 2
 	for i, r := range rows {
-		if r.field == 3 {
+		if r.field == fieldBody {
 			wrapped[i] = []string{""}
 		} else {
 			wrapped[i] = wrapRows([]string{r.text}, inner)
@@ -523,7 +630,7 @@ func (f *formModel) fitRows(width, height int, th theme) (rows []formRow, wrappe
 
 	body := -1
 	for i, r := range rows {
-		if r.field == 3 {
+		if r.field == fieldBody {
 			body = i
 		}
 	}
@@ -544,7 +651,7 @@ func (f *formModel) fitRows(width, height int, th theme) (rows []formRow, wrappe
 }
 
 type formButtonTarget struct {
-	field int
+	field formField
 	start int
 	end   int
 }
@@ -553,8 +660,8 @@ func formButtonBounds(left int) []formButtonTarget {
 	saveW := ansi.StringWidth("[ save ]")
 	cancelW := ansi.StringWidth("[ cancel ]")
 	return []formButtonTarget{
-		{field: 4, start: left, end: left + saveW},
-		{field: 5, start: left + saveW + buttonGap, end: left + saveW + buttonGap + cancelW},
+		{field: fieldSave, start: left, end: left + saveW},
+		{field: fieldCancel, start: left + saveW + buttonGap, end: left + saveW + buttonGap + cancelW},
 	}
 }
 
@@ -592,15 +699,15 @@ func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 		rowLines := len(wrapped[i])
 		if lineIdx >= cur && lineIdx < cur+rowLines {
 			switch r.field {
-			case 0, 1, 2, 3:
+			case fieldProject, fieldPriority, fieldAsset, fieldID, fieldBody:
 				cmd := f.setFocus(r.field)
 				return f.refit(), cmd
-			case 4:
+			case fieldSave:
 				contentLeft := left + boxStyle.GetBorderLeftSize() + boxStyle.GetPaddingLeft()
 				for _, btn := range formButtonBounds(contentLeft) {
 					if msg.X >= btn.start && msg.X < btn.end {
 						f.setFocus(btn.field)
-						if btn.field == 4 {
+						if btn.field == fieldSave {
 							if err := f.validate(); err != "" {
 								f.errText = err
 								return f.refit(), nil
@@ -614,7 +721,7 @@ func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 				}
 			default:
 				if r.rank == rankBodyLabel {
-					cmd := f.setFocus(3)
+					cmd := f.setFocus(fieldBody)
 					return f.refit(), cmd
 				}
 			}
