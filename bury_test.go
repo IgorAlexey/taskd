@@ -293,3 +293,128 @@ func TestBuryFromSupersededGenerationIsRefused(t *testing.T) {
 		t.Fatalf("conflict = %+v, want task claimed again w1 claim 2", conflict)
 	}
 }
+
+func TestBuryPrimitives(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	createBody, _ := json.Marshal(map[string]string{"body": "t", "project": "p"})
+	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(createBody))
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode created task failed: %v", err)
+	}
+	resp.Body.Close()
+
+	claimBody, _ := json.Marshal(map[string]string{"worker": "w1", "project": "p"})
+	resp, err = http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimBody))
+	if err != nil {
+		t.Fatalf("claim task failed: %v", err)
+	}
+	resp.Body.Close()
+
+	buryBody, _ := json.Marshal(map[string]any{
+		"worker":     "w1",
+		"primitives": map[string]string{"error": "compiler crash"},
+	})
+	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	if err != nil {
+		t.Fatalf("bury task failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("bury status = %d, want 204", resp.StatusCode)
+	}
+
+	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	if err != nil {
+		t.Fatalf("get task failed: %v", err)
+	}
+	var item struct {
+		Status     string          `json:"status"`
+		Primitives json.RawMessage `json:"primitives"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode task failed: %v", err)
+	}
+	resp.Body.Close()
+	if item.Status != "buried" {
+		t.Fatalf("status = %q, want buried", item.Status)
+	}
+	var errPrim struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(item.Primitives, &errPrim); err != nil || errPrim.Error != "compiler crash" {
+		t.Fatalf("primitives = %s, want compiler crash", string(item.Primitives))
+	}
+
+	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/kick", "application/json", nil)
+	if err != nil {
+		t.Fatalf("kick task failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("kick status = %d, want 204", resp.StatusCode)
+	}
+
+	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	if err != nil {
+		t.Fatalf("get kicked task failed: %v", err)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode kicked task failed: %v", err)
+	}
+	resp.Body.Close()
+	if item.Status != "pending" {
+		t.Fatalf("status = %q, want pending", item.Status)
+	}
+	if len(item.Primitives) > 0 && string(item.Primitives) != "null" {
+		t.Fatalf("kicked primitives = %s, want null", string(item.Primitives))
+	}
+
+	resp, err = http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimBody))
+	if err != nil {
+		t.Fatalf("reclaim task failed: %v", err)
+	}
+	resp.Body.Close()
+
+	buryNoPrim, _ := json.Marshal(map[string]string{"worker": "w1"})
+	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryNoPrim))
+	if err != nil {
+		t.Fatalf("bury without primitives failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		t.Fatalf("bury status = %d, want 204", resp.StatusCode)
+	}
+
+	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	if err != nil {
+		t.Fatalf("get reburied task failed: %v", err)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&item); err != nil {
+		resp.Body.Close()
+		t.Fatalf("decode reburied task failed: %v", err)
+	}
+	resp.Body.Close()
+	if item.Status != "buried" {
+		t.Fatalf("status = %q, want buried", item.Status)
+	}
+	if len(item.Primitives) > 0 && string(item.Primitives) != "null" {
+		t.Fatalf("reburied primitives = %s, want null", string(item.Primitives))
+	}
+}

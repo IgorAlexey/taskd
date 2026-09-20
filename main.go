@@ -1827,9 +1827,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	}
 	buryIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Worker     string `json:"worker"`
-			Priority   *int   `json:"priority"`
-			ClaimCount *int   `json:"claim_count"`
+			Worker     string          `json:"worker"`
+			Priority   *int            `json:"priority"`
+			ClaimCount *int            `json:"claim_count"`
+			Primitives json.RawMessage `json:"primitives"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
@@ -1846,7 +1847,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority), version = version + 1", id, worker, req.ClaimCount, req.Priority); !ok {
+		var prim any
+		if len(req.Primitives) > 0 {
+			prim = string(req.Primitives)
+		}
+		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority), primitives=?, version = version + 1", id, worker, req.ClaimCount, req.Priority, prim); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1860,7 +1865,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		var project string
-		err := db.rw.QueryRow("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, version = version + 1 WHERE id=? AND status='buried' RETURNING project", id).Scan(&project)
+		err := db.rw.QueryRow("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, primitives=NULL, version = version + 1 WHERE id=? AND status='buried' RETURNING project", id).Scan(&project)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
@@ -2839,7 +2844,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/close   close task without result
   POST   /tasks/{id}/touch   extend lease, return expiration (requires worker)
   POST   /tasks/{id}/release release task back to pending (requires worker)
-  POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority, optional claim_count)
+  POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority, optional claim_count, optional primitives)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task (?force=1 to delete done task)
   GET    /tasks/{id}/notes   retrieve task notes collection
