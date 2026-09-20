@@ -444,3 +444,59 @@ func TestGetTaskNotesEndpoint(t *testing.T) {
 		t.Fatalf("expected Allow header to contain GET and POST, got %q", allow)
 	}
 }
+
+func TestNoteTextLengthLimit(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 30))
+	defer srv.Close()
+
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-limit-1","body":"spec","project":"p1"}`))
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	createRes.Body.Close()
+
+	longText := strings.Repeat("a", 65537)
+	body, _ := json.Marshal(map[string]string{
+		"author": "worker-1",
+		"text":   longText,
+	})
+
+	res, err := http.Post(srv.URL+"/tasks/task-limit-1/notes", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("post note failed: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusBadRequest {
+		t.Fatalf("expected status 400 Bad Request, got %d", res.StatusCode)
+	}
+
+	var errResp map[string]string
+	if err := json.NewDecoder(res.Body).Decode(&errResp); err != nil {
+		t.Fatalf("decode error response failed: %v", err)
+	}
+	if errResp["error"] != "text too long" {
+		t.Fatalf("expected error %q, got %q", "text too long", errResp["error"])
+	}
+
+	maxValidText := strings.Repeat("b", 65536)
+	validBody, _ := json.Marshal(map[string]string{
+		"author": "worker-1",
+		"text":   maxValidText,
+	})
+	resValid, err := http.Post(srv.URL+"/tasks/task-limit-1/notes", "application/json", bytes.NewReader(validBody))
+	if err != nil {
+		t.Fatalf("post valid note failed: %v", err)
+	}
+	defer resValid.Body.Close()
+
+	if resValid.StatusCode != http.StatusCreated {
+		t.Fatalf("expected status 201 Created for 65536 byte note, got %d", resValid.StatusCode)
+	}
+}

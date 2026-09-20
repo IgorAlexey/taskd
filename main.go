@@ -1132,6 +1132,8 @@ type taskItem struct {
 	summaryPrefix string
 }
 
+const maxNoteTextLen = 65536
+
 type taskNote struct {
 	ID        int64  `json:"id"`
 	CreatedAt int64  `json:"created_at"`
@@ -2164,6 +2166,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		}
 		if len(req.Author) > maxWorkerLen {
 			writeError(w, http.StatusBadRequest, "author too long")
+			return
+		}
+		if len(req.Text) > maxNoteTextLen {
+			writeError(w, http.StatusBadRequest, "text too long")
 			return
 		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
