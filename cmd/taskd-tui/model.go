@@ -1581,7 +1581,11 @@ func (m model) actionPriAdjust(delta int) (model, tea.Cmd) {
 	if pri < 0 {
 		pri = 0
 	}
-	return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
+	body := map[string]any{"priority": pri}
+	if t.Version > 0 {
+		body["if_version"] = t.Version
+	}
+	return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, body, fmt.Sprintf("priority set to %d", pri))
 }
 
 func (m model) actionPriRaise() (model, tea.Cmd) {

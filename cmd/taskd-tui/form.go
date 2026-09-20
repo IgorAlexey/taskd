@@ -23,6 +23,7 @@ type formModel struct {
 	focus           int // 0 project, 1 priority, 2 asset, 3 body, 4 save button
 	editing         bool
 	id              string
+	version         int
 	errText         string
 	done            bool
 	cancelled       bool
@@ -71,6 +72,7 @@ func newEditForm(t task) (formModel, tea.Cmd) {
 		title:           "Edit Task",
 		editing:         true,
 		id:              t.ID,
+		version:         t.Version,
 		origProject:     t.Project,
 		origPriority:    t.Priority,
 		origHasPriority: true,
@@ -472,7 +474,9 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 			}
 		}
 	}
-
+	if len(body) > 0 && f.version > 0 {
+		body["if_version"] = f.version
+	}
 	return method, path, body, success, ""
 }
 
