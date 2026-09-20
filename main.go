@@ -550,9 +550,8 @@ func requestQuery(r *http.Request) url.Values {
 }
 
 type listCursor struct {
-	Priority int    `json:"p"`
-	Rowid    int64  `json:"r"`
-	Filters  string `json:"f"`
+	Rowid   int64  `json:"r"`
+	Filters string `json:"f"`
 }
 
 func listFilterFingerprint(q url.Values) string {
@@ -588,7 +587,7 @@ func decodeListCursor(s, fingerprint string) (listCursor, bool) {
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		return c, false
 	}
-	if c.Priority < 0 || c.Rowid < 1 || c.Filters != fingerprint {
+	if c.Rowid < 1 || c.Filters != fingerprint {
 		return c, false
 	}
 	return c, true
@@ -1448,12 +1447,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		countArgs := slices.Clone(args)
 		dataWhereSQL := whereSQL
 		if after != nil {
-			dataWhere := append(slices.Clone(where), "(priority, rowid) > (?, ?)")
+			dataWhere := append(slices.Clone(where), "rowid > ?")
 			dataWhereSQL = " WHERE " + strings.Join(dataWhere, " AND ")
-			args = append(args, after.Priority, after.Rowid)
+			args = append(args, after.Rowid)
 		}
 		query += dataWhereSQL
-		query += " ORDER BY priority ASC, rowid ASC LIMIT ?"
+		query += " ORDER BY rowid ASC LIMIT ?"
 		args = append(args, limit)
 		if offset > 0 {
 			query += " OFFSET ?"
@@ -1483,7 +1482,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			item.Worker = worker.String
 			item.LeaseExpires = leaseExpires.Int64
 			item.Primitives = prim
-			next = listCursor{Priority: item.Priority, Rowid: rowid}
+			next = listCursor{Rowid: rowid}
 			item.normalize(now)
 			tasks = append(tasks, item)
 		}

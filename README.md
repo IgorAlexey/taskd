@@ -104,16 +104,22 @@ behaviour.
 
 ## Paging
 
-`GET /tasks` is ordered by priority, then insertion order. A full page, one
+`GET /tasks` is ordered by insertion order, every page of it, and priority is
+a filter and the claim order rather than a list order. A full page, one
 holding as many rows as `limit` asked for, sets an `X-Next-Cursor` header
 with an opaque token for its last row. A short page sets no header, and
 that absence is how a walk ends; no trailing empty request is needed. Pass
 the token back as `?after=<cursor>` for the rows after that point. Unlike
 `&offset=`, a cursor does not skip rows when workers claim tasks in the
-middle of a walk. It does not fix everything: a row that enters the
-filtered set behind the cursor is missed. A release, a kick or a lease
-expiring puts a task back in `pending` at its old place, and a priority
-edit moves a task outright, so either can be skipped or repeated.
+middle of a walk.
+
+The token names an insertion sequence, which nothing rewrites, so
+re-prioritising a task in the middle of a walk can neither hide it nor hand
+it out twice; the old priority-keyed token lost one promoted past the cursor
+and repeated one demoted behind it. It does not fix everything: a row that
+enters the filtered set behind the cursor is missed, because a release, a
+kick or a lease expiring puts a task back in `pending` at its old insertion
+place.
 
 A token is bound to the filters that produced it, which catches a cursor
 replayed against the wrong query, not a forged one: it is an unkeyed
@@ -131,15 +137,15 @@ from. Paging this way buys correctness, not speed.
 curl -si 'http://localhost:8080/tasks?project=demo&limit=2'
 # Output:
 # X-Total-Count: 5
-# X-Next-Cursor: eyJwIjozLCJyIjoyLCJmIjoiOWYyYTFjN2QifQ
+# X-Next-Cursor: eyJyIjoyLCJmIjoiZl9wS2Y0Y09Td3VGIn0
 
 # Second page: full again, so another cursor, and no X-Total-Count
-curl -si 'http://localhost:8080/tasks?project=demo&limit=2&after=eyJwIjozLCJyIjoyLCJmIjoiOWYyYTFjN2QifQ'
+curl -si 'http://localhost:8080/tasks?project=demo&limit=2&after=eyJyIjoyLCJmIjoiZl9wS2Y0Y09Td3VGIn0'
 # Output:
-# X-Next-Cursor: eyJwIjozLCJyIjo0LCJmIjoiOWYyYTFjN2QifQ
+# X-Next-Cursor: eyJyIjo0LCJmIjoiZl9wS2Y0Y09Td3VGIn0
 
 # Last page: one row, no X-Next-Cursor, the walk is done
-curl -si 'http://localhost:8080/tasks?project=demo&limit=2&after=eyJwIjozLCJyIjo0LCJmIjoiOWYyYTFjN2QifQ'
+curl -si 'http://localhost:8080/tasks?project=demo&limit=2&after=eyJyIjo0LCJmIjoiZl9wS2Y0Y09Td3VGIn0'
 # Output:
 # X-Total-Count and X-Next-Cursor both absent
 ```

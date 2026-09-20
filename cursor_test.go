@@ -142,20 +142,22 @@ func TestListAfterCursorInvalid(t *testing.T) {
 	enc := func(payload string) string {
 		return base64.RawURLEncoding.EncodeToString([]byte(payload))
 	}
+	fp := listFilterFingerprint(url.Values{"project": {"bad-cursor"}})
 	cases := []string{
 		"garbage",
 		"!!!!",
 		"",
-		enc(`{"p":1,"r":1}`) + "trailing",
-		enc(`{"p":1,"r":1}{"p":2,"r":2}`),
-		enc(`{"p":1,"r":1,"x":2}`),
-		enc(`{"p":-1,"r":1}`),
-		enc(`{"p":0,"r":0}`),
+		enc(`{"r":1}`) + "trailing",
+		enc(`{"r":1}{"r":2}`),
+		enc(`{"r":1,"x":2}`),
+		enc(fmt.Sprintf(`{"r":-1,"f":%q}`, fp)),
+		enc(fmt.Sprintf(`{"r":0,"f":%q}`, fp)),
 		enc(`[1,2]`),
-		enc(`{"p":5,"r":1}`),
-		enc(`{"p":5,"r":1,"f":"not-the-real-fingerprint"}`),
+		enc(`{"r":1}`),
+		enc(`{"r":1,"f":"not-the-real-fingerprint"}`),
+		enc(fmt.Sprintf(`{"p":3,"r":2,"f":%q}`, fp)),
 	}
-	if padded := base64.StdEncoding.EncodeToString([]byte(`{"p":1,"r":1}`)); padded != enc(`{"p":1,"r":1}`) {
+	if padded := base64.StdEncoding.EncodeToString([]byte(`{"r":1}`)); padded != enc(`{"r":1}`) {
 		cases = append(cases, padded)
 	}
 
@@ -371,5 +373,71 @@ func TestListAfterCursorRejectsForeignFilters(t *testing.T) {
 	}
 	if got := itemBodies(resized); !slices.Equal(got, []string{"alpha-2", "alpha-3"}) {
 		t.Fatalf("resized page bodies %v, want [alpha-2 alpha-3]", got)
+	}
+}
+
+func TestListCursorWalkExactUnderRepriority(t *testing.T) {
+	srv := cursorServer(t)
+
+	ids := make([]string, 0, 12)
+	for i := 1; i <= 12; i++ {
+		ids = append(ids, cursorTask(t, srv.URL, "repri", fmt.Sprintf("repri-%d", i), (i%3)+1))
+	}
+
+	base := srv.URL + "/tasks?project=repri&limit=2"
+	code, page1, total, cursor, raw := cursorList(t, base)
+	if code != http.StatusOK {
+		t.Fatalf("page 1 expected 200, got %d: %s", code, raw)
+	}
+	if total != "12" {
+		t.Fatalf("page 1 X-Total-Count %q, want 12", total)
+	}
+	if cursor == "" {
+		t.Fatal("page 1 is full and must carry X-Next-Cursor")
+	}
+	walked := itemIDs(page1)
+
+	promoted := ids[10]
+	if slices.Contains(walked, promoted) {
+		t.Fatalf("test needs a row page 1 has not returned; repri-11 (%s) was returned", promoted)
+	}
+	code, raw = do(t, http.MethodPatch, srv.URL+"/tasks/"+promoted, map[string]any{"priority": 1})
+	if code != http.StatusNoContent {
+		t.Fatalf("promote repri-11 expected 204, got %d: %s", code, raw)
+	}
+	code, raw = do(t, http.MethodPatch, srv.URL+"/tasks/"+walked[0], map[string]any{"priority": 9})
+	if code != http.StatusNoContent {
+		t.Fatalf("demote an already returned row expected 204, got %d: %s", code, raw)
+	}
+
+	for pages := 0; cursor != ""; pages++ {
+		if pages > 20 {
+			t.Fatalf("cursor walk did not terminate (collected %v)", walked)
+		}
+		code, page, pageTotal, next, raw := cursorList(t, base+"&after="+url.QueryEscape(cursor))
+		if code != http.StatusOK {
+			t.Fatalf("walk page %d expected 200, got %d: %s", pages, code, raw)
+		}
+		if pageTotal != "" {
+			t.Fatalf("walk page %d set X-Total-Count %q", pages, pageTotal)
+		}
+		walked = append(walked, itemIDs(page)...)
+		cursor = next
+	}
+
+	seen := map[string]bool{}
+	for _, id := range walked {
+		if seen[id] {
+			t.Fatalf("cursor walk returned %s twice: %v", id, walked)
+		}
+		seen[id] = true
+	}
+	if len(walked) != 12 {
+		t.Fatalf("cursor walk visited %d rows, want the 12 X-Total-Count promised: %v", len(walked), walked)
+	}
+	for i, id := range ids {
+		if !seen[id] {
+			t.Fatalf("repri-%d (%s) was re-prioritised mid-walk and the walk lost it", i+1, id)
+		}
 	}
 }
