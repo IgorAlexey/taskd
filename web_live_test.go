@@ -8,7 +8,7 @@ import (
 func TestWebUILiveStatCard(t *testing.T) {
 	ui := string(uiHTML)
 
-	card := `<button type="button" class="card" data-status-filter="live">`
+	card := `<button type="button" class="card-btn" data-status-filter="live">`
 	if !strings.Contains(ui, card) {
 		t.Fatalf("expected live card button %q in web/index.html", card)
 	}
@@ -19,8 +19,8 @@ func TestWebUILiveStatCard(t *testing.T) {
 		t.Fatal("expected live card inside .grid-stats")
 	}
 
-	if !strings.Contains(ui, `<div class="stat-label">Live</div>`) {
-		t.Fatal("expected Live stat label in web/index.html")
+	if !strings.Contains(ui, `<h3 class="stat-label">Live</h3>`) {
+		t.Fatal("expected Live stat label heading in web/index.html")
 	}
 	if !strings.Contains(ui, `<div class="stat-val" id="stat-live">-</div>`) {
 		t.Fatal("expected #stat-live initial placeholder in web/index.html")

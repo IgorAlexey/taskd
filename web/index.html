@@ -219,8 +219,15 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 12px;
+    list-style: none;
+    padding: 0;
+    margin: 0;
   }
   .card {
+    display: flex;
+  }
+  .card-btn {
+    width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -231,7 +238,7 @@
     color: inherit;
     transition: border-color 0.15s ease, background 0.15s ease;
   }
-  .card:hover {
+  .card-btn:hover {
     border-color: var(--accent);
     background: var(--surface-raised);
   }
@@ -247,6 +254,7 @@
     color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.08em;
+    font-weight: 600;
   }
   .layout {
     display: flex;
@@ -824,32 +832,44 @@
   </header>
 
   <main class="stack">
-  <div class="grid-stats">
-    <button type="button" class="card" data-status-filter="live">
-      <div class="stat-label">Live</div>
-      <div class="stat-val" id="stat-live">-</div>
-    </button>
-    <button type="button" class="card" data-status-filter="pending">
-      <div class="stat-label">Pending</div>
-      <div class="stat-val" id="stat-pending">-</div>
-    </button>
-    <button type="button" class="card" data-status-filter="leased">
-      <div class="stat-label">Leased</div>
-      <div class="stat-val" id="stat-leased">-</div>
-    </button>
-    <button type="button" class="card" data-status-filter="done">
-      <div class="stat-label">Done</div>
-      <div class="stat-val" id="stat-done">-</div>
-    </button>
-    <button type="button" class="card" data-status-filter="buried">
-      <div class="stat-label">Buried</div>
-      <div class="stat-val" id="stat-buried">-</div>
-    </button>
-    <button type="button" class="card" data-status-filter="">
-      <div class="stat-label">Total</div>
-      <div class="stat-val" id="stat-total">-</div>
-    </button>
-  </div>
+  <ul class="grid-stats">
+    <li class="card">
+      <button type="button" class="card-btn" data-status-filter="live">
+        <h3 class="stat-label">Live</h3>
+        <div class="stat-val" id="stat-live">-</div>
+      </button>
+    </li>
+    <li class="card">
+      <button type="button" class="card-btn" data-status-filter="pending">
+        <h3 class="stat-label">Pending</h3>
+        <div class="stat-val" id="stat-pending">-</div>
+      </button>
+    </li>
+    <li class="card">
+      <button type="button" class="card-btn" data-status-filter="leased">
+        <h3 class="stat-label">Leased</h3>
+        <div class="stat-val" id="stat-leased">-</div>
+      </button>
+    </li>
+    <li class="card">
+      <button type="button" class="card-btn" data-status-filter="done">
+        <h3 class="stat-label">Done</h3>
+        <div class="stat-val" id="stat-done">-</div>
+      </button>
+    </li>
+    <li class="card">
+      <button type="button" class="card-btn" data-status-filter="buried">
+        <h3 class="stat-label">Buried</h3>
+        <div class="stat-val" id="stat-buried">-</div>
+      </button>
+    </li>
+    <li class="card">
+      <button type="button" class="card-btn" data-status-filter="">
+        <h3 class="stat-label">Total</h3>
+        <div class="stat-val" id="stat-total">-</div>
+      </button>
+    </li>
+  </ul>
 
   <div class="layout">
     <section class="panel" aria-labelledby="queue-heading">
@@ -2170,7 +2190,7 @@
       const stats = document.querySelector('.grid-stats');
       if (!stats) return;
       stats.addEventListener('click', (e) => {
-        const card = e.target.closest ? e.target.closest('.card[data-status-filter]') : null;
+        const card = e.target.closest ? e.target.closest('.card-btn[data-status-filter]') : null;
         if (card) filterByStatus(card.dataset.statusFilter);
       });
     }
