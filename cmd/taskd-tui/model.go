@@ -191,6 +191,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeForm:
 			var cmd tea.Cmd
 			m.form, cmd = m.form.Update(msg)
+			m.form.fit(m.width, m.height, m.theme) // rows may have changed
 			if m.form.cancelled {
 				m.mode = modeTable
 				return m, cmd
@@ -428,7 +429,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detail.SetHeight(vh)
 				return m, nil
 			case msg.Text == "n":
-				m.form = newCreateForm(m.project, m.width)
+				m.form = newCreateForm(m.project)
 				m.form.fit(m.width, m.height, m.theme)
 				m.mode = modeForm
 				return m, nil
@@ -445,7 +446,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					cmd := m.setMsg("cannot edit actively leased task")
 					return m, cmd
 				}
-				m.form = newEditForm(t, m.width)
+				m.form = newEditForm(t)
 				m.form.fit(m.width, m.height, m.theme)
 				m.mode = modeForm
 				return m, nil

@@ -31,7 +31,7 @@ type formModel struct {
 	origBody        string
 }
 
-func newCreateForm(project string, width int) formModel {
+func newCreateForm(project string) formModel {
 	f := formModel{
 		title:   "New Task",
 		editing: false,
@@ -54,8 +54,6 @@ func newCreateForm(project string, width int) formModel {
 	f.body.Placeholder = "first line is the title"
 	f.body.ShowLineNumbers = false
 
-	f.resize(width)
-
 	if project == "" {
 		f.setFocus(0)
 	} else {
@@ -65,7 +63,7 @@ func newCreateForm(project string, width int) formModel {
 	return f
 }
 
-func newEditForm(t task, width int) formModel {
+func newEditForm(t task) formModel {
 	f := formModel{
 		title:           "Edit Task",
 		editing:         true,
@@ -97,31 +95,31 @@ func newEditForm(t task, width int) formModel {
 	f.body.ShowLineNumbers = false
 	f.body.SetValue(t.Body)
 
-	f.resize(width)
-
 	f.setFocus(3)
 
 	return f
 }
 
-// formBoxWidth is the form's outer width for a terminal width.
-func formBoxWidth(width int) int {
-	return min(max(20, min(width-4, 90)), max(3, width))
+// boxSize is an overlay's outer width for a terminal, between lo and
+// hi but never past the screen, and the text width inside its border
+// and padding, never below one cell.
+func boxSize(width, lo, hi int) (outer, inner int) {
+	outer = min(max(lo, min(width-4, hi)), max(5, width))
+	return outer, max(1, outer-4)
 }
 
-func (f *formModel) resize(width int) {
-	inner := formBoxWidth(width) - 4
+func (f *formModel) resize(inner int) {
 	f.project.SetWidth(max(1, inner-11))
 	f.priority.SetWidth(max(1, inner-11))
 	f.asset.SetWidth(max(1, inner-11))
-	f.body.SetWidth(max(1, inner))
+	f.body.SetWidth(inner)
 }
 
 // lines is the form's rows at a given level of compaction: 0 keeps the
 // separators and hint, 1 drops them, 2 also drops the asset field and
-// body label. slot is the index the textarea goes at. The error sits
-// above the button so neither is the first to go.
-func (f formModel) lines(level int, th theme) (rows []string, slot int) {
+// body label. slot is the index the textarea goes at; keep are the rows
+// a short frame must never cut, the error and the button.
+func (f formModel) lines(level int, th theme) (rows []string, slot int, keep []string) {
 	rows = append(rows, th.accent.Render(f.title))
 	if level == 0 {
 		rows = append(rows, "")
@@ -138,17 +136,18 @@ func (f formModel) lines(level int, th theme) (rows []string, slot int) {
 		rows = append(rows, "")
 	}
 	if f.errText != "" {
-		rows = append(rows, th.err.Render(f.errText))
+		keep = append(keep, th.err.Render(f.errText))
 	}
 	if f.focus == 4 {
-		rows = append(rows, th.accentPill.Render("[ save ]"))
+		keep = append(keep, th.accentPill.Render("[ save ]"))
 	} else {
-		rows = append(rows, th.dim.Render("[ save ]"))
+		keep = append(keep, th.dim.Render("[ save ]"))
 	}
+	rows = append(rows, keep...)
 	if level == 0 {
 		rows = append(rows, "", th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
 	}
-	return rows, slot
+	return rows, slot, keep
 }
 
 // wrapRows renders rows at width so each element is one terminal line;
@@ -170,8 +169,10 @@ func wrapRows(rows []string, width int) []string {
 // before them are cut, so a hint or an action row is never the casualty.
 func box(lines []string, keep, boxWidth, height int, align lipgloss.Position, th theme) string {
 	if room := max(1, height-2); len(lines) > room {
-		tail := lines[len(lines)-keep:]
-		lines = append(lines[:max(0, room-keep)], tail...)
+		keep = min(keep, room)
+		fitted := make([]string, 0, room)
+		fitted = append(fitted, lines[:room-keep]...)
+		lines = append(fitted, lines[len(lines)-keep:]...)
 	}
 	return lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
@@ -383,14 +384,15 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // even one is short. It sets the stored textarea size, so Update and
 // View agree on the layout.
 func (f *formModel) fit(width, height int, th theme) (lines []string, boxWidth, keep int) {
-	f.resize(width)
-	boxWidth = formBoxWidth(width)
-	inner := boxWidth - 4
+	boxWidth, inner := boxSize(width, 20, 90)
+	f.resize(inner)
 	var slot, bodyH int
+	var keepRows []string
 	for level := 0; level <= 2; level++ {
-		rows, s := f.lines(level, th)
-		head := wrapRows(rows[:s], inner)
-		tail := wrapRows(rows[s+1:], inner)
+		var rows []string
+		rows, slot, keepRows = f.lines(level, th)
+		head := wrapRows(rows[:slot], inner)
+		tail := wrapRows(rows[slot+1:], inner)
 		lines, slot = append(append(head, ""), tail...), len(head)
 		bodyH = height - 2 - (len(lines) - 1)
 		if bodyH >= 1 {
@@ -406,13 +408,7 @@ func (f *formModel) fit(width, height int, th theme) (lines []string, boxWidth, 
 		body = body[:bodyH]
 	}
 	lines = append(lines[:slot], append(body, lines[slot+1:]...)...)
-	// keep counts the wrapped lines of the error and the button, which a
-	// short frame must never cut; the hint after them may go.
-	keep = len(wrapRows([]string{"[ save ]"}, inner))
-	if f.errText != "" {
-		keep += len(wrapRows([]string{f.errText}, inner))
-	}
-	return lines, boxWidth, keep
+	return lines, boxWidth, len(wrapRows(keepRows, inner))
 }
 
 func (f formModel) View(width, height int, th theme) string {
@@ -431,9 +427,9 @@ func (c confirmModel) View(width, height int, th theme) string {
 		btn = "confirm"
 	}
 	actions := th.accent.Render("[y] "+btn) + "   " + th.dim.Render("[n] cancel")
-	boxWidth := min(max(20, min(width-4, 54)), max(3, width))
-	act := wrapRows([]string{actions}, boxWidth-4)
-	lines := append(wrapRows([]string{c.text, ""}, boxWidth-4), act...)
+	boxWidth, inner := boxSize(width, 20, 54)
+	act := wrapRows([]string{actions}, inner)
+	lines := append(wrapRows([]string{c.text, ""}, inner), act...)
 	return box(lines, len(act), boxWidth, height, lipgloss.Center, th)
 }
 
@@ -491,8 +487,8 @@ func helpView(width, height int, th theme) string {
 	// Wrap to the box first, then fit the lines to the terminal before
 	// drawing the border; the closing hint keeps all its lines.
 	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...)) + 4
-	boxWidth := min(natural, max(3, width))
-	hint := wrapRows(rows[len(rows)-1:], boxWidth-4)
-	lines := append(wrapRows(rows[:len(rows)-1], boxWidth-4), hint...)
+	boxWidth, inner := boxSize(width, natural, natural)
+	hint := wrapRows(rows[len(rows)-1:], inner)
+	lines := append(wrapRows(rows[:len(rows)-1], inner), hint...)
 	return box(lines, len(hint), boxWidth, height, lipgloss.Left, th)
 }
