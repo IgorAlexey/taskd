@@ -85,6 +85,7 @@ type (
 		more     bool // rows the daemon held back
 		stats    stats
 		projects []string
+		workers  []string
 		err      error
 	}
 
@@ -127,6 +128,7 @@ type model struct {
 	offset    int    // first index of shown drawn in the table
 	filter    string // "", "pending", "leased", "done", "buried" (keys 0-4)
 	project   string // "" means all projects
+	worker    string
 	query     string // / substring filter, case-insensitive
 	mode      mode
 	etag      string     // ETag of m.tasks for m.project
@@ -141,6 +143,7 @@ type model struct {
 	stats     stats
 	hasStats  bool // a poll has delivered stats at least once
 	projects  []string
+	workers   []string
 
 	connected bool
 	lastErr   string

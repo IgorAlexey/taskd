@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -51,7 +52,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) listFilter() listFilter {
-	return listFilter{project: m.project, status: m.filter, query: m.query}
+	return listFilter{project: m.project, worker: m.worker, status: m.filter, query: m.query}
 }
 
 const searchDebounce = 150 * time.Millisecond
@@ -209,6 +210,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.hasStats = true
 		if msg.projects != nil {
 			m.projects = msg.projects
+		}
+		if msg.workers != nil {
+			m.workers = msg.workers
 		}
 		return m, cmd
 
@@ -517,6 +521,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// previous project's list; the new one starts live.
 				m.stats, m.hasStats = stats{}, false
 				return m, m.rescope()
+			case msg.Text == "w":
+				m.worker = cycleWorker(m.worker, m.workers, 1)
+				return m, m.rescope()
+			case msg.Text == "W":
+				m.worker = cycleWorker(m.worker, m.workers, -1)
+				return m, m.rescope()
 			case msg.Text == "/":
 				m.mode = modeSearch
 				return m, nil
@@ -716,6 +726,9 @@ func (m *model) rebuildShown() {
 	var leased, pending, buried, done []int
 	for i, t := range m.tasks {
 		if m.project != "" && t.Project != m.project {
+			continue
+		}
+		if m.worker != "" && t.Worker != m.worker {
 			continue
 		}
 		if m.filter != "" && t.Status != m.filter {
@@ -974,4 +987,20 @@ func (m model) detailViewportHeight() int {
 		return 1
 	}
 	return vh
+}
+
+func cycleWorker(current string, workers []string, delta int) string {
+	if len(workers) == 0 {
+		return ""
+	}
+	idx := slices.Index(workers, current) + 1
+	n := len(workers) + 1
+	idx = (idx + delta) % n
+	if idx < 0 {
+		idx += n
+	}
+	if idx == 0 {
+		return ""
+	}
+	return workers[idx-1]
 }

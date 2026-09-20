@@ -63,6 +63,7 @@ type listScope struct {
 // from can be dropped on arrival.
 type listFilter struct {
 	project string
+	worker  string
 	status  string
 	query   string
 }
@@ -94,6 +95,9 @@ func (c *client) list(sc listScope, etag string) (listResult, error) {
 	q := url.Values{"limit": {strconv.Itoa(tasksPageLimit)}}
 	if sc.filter.project != "" {
 		q.Set("project", sc.filter.project)
+	}
+	if sc.filter.worker != "" {
+		q.Set("worker", sc.filter.worker)
 	}
 	if sc.filter.status != "" {
 		q.Set("status", sc.filter.status)
@@ -232,6 +236,29 @@ func (c *client) getProjects() ([]string, error) {
 	return projects, nil
 }
 
+func (c *client) getWorkers() ([]string, error) {
+	relPath := "/workers"
+	u := c.base + relPath
+	req, err := http.NewRequest(http.MethodGet, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, parseError(resp, http.MethodGet, relPath)
+	}
+	var workers []string
+	if err := json.NewDecoder(resp.Body).Decode(&workers); err != nil {
+		return nil, err
+	}
+	return workers, nil
+}
+
 func (c *client) do(method, path string, body any) error {
 	var bodyReader io.Reader
 	if body != nil {
@@ -277,13 +304,28 @@ func pollCmd(c *client, sc listScope, etag string, seq uint64) tea.Cmd {
 			msg.err = err
 			return msg
 		}
-		st, err := c.getStats(sc.filter.project)
-		if err != nil {
-			msg.err = err
+		var wg sync.WaitGroup
+		var st stats
+		var stErr error
+		wg.Add(3)
+		go func() {
+			defer wg.Done()
+			st, stErr = c.getStats(sc.filter.project)
+		}()
+		go func() {
+			defer wg.Done()
+			msg.projects, _ = c.getProjects()
+		}()
+		go func() {
+			defer wg.Done()
+			msg.workers, _ = c.getWorkers()
+		}()
+		wg.Wait()
+		if stErr != nil {
+			msg.err = stErr
 			return msg
 		}
 		msg.stats = st
-		msg.projects, _ = c.getProjects()
 		return msg
 	}
 }

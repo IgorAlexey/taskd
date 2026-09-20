@@ -308,7 +308,12 @@ func (m model) View() tea.View {
 	if projName == "" {
 		projName = "all"
 	}
-	tabsRight := m.glyph.folder + " " + m.theme.tabKey.Render("p") + " " + m.theme.dim.Render("project ") + projName
+	workerName := m.worker
+	if workerName == "" {
+		workerName = "all"
+	}
+	tabsRight := m.glyph.folder + " " + m.theme.tabKey.Render("p") + " " + m.theme.dim.Render("project ") + projName +
+		"  " + m.glyph.host + " " + m.theme.tabKey.Render("w") + " " + m.theme.dim.Render("worker ") + workerName
 
 	tlw := lipgloss.Width(tabsLeft)
 	trw := lipgloss.Width(tabsRight)
@@ -811,6 +816,7 @@ func (m model) View() tea.View {
 			{"j/k", "move"},
 			{"0-4", "filter"},
 			{"p", "project"},
+			{"w", "worker"},
 			{"n", "new"},
 			{"e", "edit"},
 			{"+/-", "pri"},

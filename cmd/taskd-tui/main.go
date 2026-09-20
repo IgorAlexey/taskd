@@ -185,6 +185,7 @@ Keyboard shortcuts:
   PgUp/PgDn           move page down / up
   0-4                 filter status (0: all, 1: pending, 2: leased, 3: done)
   p                   cycle project filter
+  w, W                cycle worker filter forward / backward
   /                   search / filter by query
   Tab                 switch focus to detail pane
   z                   toggle detail zoom
