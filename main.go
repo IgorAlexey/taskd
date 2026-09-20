@@ -2679,14 +2679,14 @@ RETURNING status, project`,
 		var query string
 		var args []any
 		if limit == nil {
-			query = "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, version = version + 1 WHERE status = 'buried'"
+			query = "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, primitives=NULL, version = version + 1 WHERE status = 'buried'"
 			if projectFilter != "" {
 				query += " AND project = ?"
 				args = append(args, projectFilter)
 			}
 			query += " RETURNING project"
 		} else {
-			query = "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, version = version + 1 WHERE id IN (SELECT id FROM tasks WHERE status = 'buried'"
+			query = "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0, primitives=NULL, version = version + 1 WHERE id IN (SELECT id FROM tasks WHERE status = 'buried'"
 			if projectFilter != "" {
 				query += " AND project = ?"
 				args = append(args, projectFilter)

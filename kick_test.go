@@ -254,3 +254,122 @@ func TestBulkKickWakesWaiters(t *testing.T) {
 		t.Fatalf("expected both waiters to be woken and claim tasks, got %d", count)
 	}
 }
+
+func TestBulkKickResetsPrimitives(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	createPayload := []byte(`{"project":"kick-proj","body":"task to bury"}`)
+	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(createPayload))
+	if err != nil {
+		t.Fatalf("POST /tasks failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created task: %v", err)
+	}
+
+	claimPayload := []byte(`{"worker":"w1","project":"kick-proj"}`)
+	claimResp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimPayload))
+	if err != nil {
+		t.Fatalf("POST /tasks/claim failed: %v", err)
+	}
+	claimResp.Body.Close()
+
+	buryPayload := []byte(`{"worker":"w1","primitives":{"error":"oom"}}`)
+	buryResp, err := http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryPayload))
+	if err != nil {
+		t.Fatalf("POST /tasks/{id}/bury failed: %v", err)
+	}
+	buryResp.Body.Close()
+
+	kickResp, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader([]byte(`{}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick failed: %v", err)
+	}
+	defer kickResp.Body.Close()
+
+	if kickResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", kickResp.StatusCode)
+	}
+
+	var kickResult struct {
+		Kicked int `json:"kicked"`
+	}
+	if err := json.NewDecoder(kickResp.Body).Decode(&kickResult); err != nil {
+		t.Fatalf("decode kick result: %v", err)
+	}
+	if kickResult.Kicked != 1 {
+		t.Fatalf("expected kicked 1, got %d", kickResult.Kicked)
+	}
+
+	getResp, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	if err != nil {
+		t.Fatalf("GET /tasks/{id} failed: %v", err)
+	}
+	defer getResp.Body.Close()
+
+	var fetched struct {
+		Status     string          `json:"status"`
+		Primitives json.RawMessage `json:"primitives"`
+	}
+	if err := json.NewDecoder(getResp.Body).Decode(&fetched); err != nil {
+		t.Fatalf("decode fetched task: %v", err)
+	}
+
+	if fetched.Status != "pending" {
+		t.Fatalf("expected status pending, got %q", fetched.Status)
+	}
+	if len(fetched.Primitives) > 0 && string(fetched.Primitives) != "null" {
+		t.Fatalf("expected primitives to be null, got %s", string(fetched.Primitives))
+	}
+
+	claimResp2, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimPayload))
+	if err != nil {
+		t.Fatalf("POST /tasks/claim 2 failed: %v", err)
+	}
+	claimResp2.Body.Close()
+
+	limitBuryPayload := []byte(`{"worker":"w1","primitives":{"error":"oom2"}}`)
+	buryResp2, err := http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(limitBuryPayload))
+	if err != nil {
+		t.Fatalf("POST /tasks/{id}/bury 2 failed: %v", err)
+	}
+	buryResp2.Body.Close()
+
+	kickLimitResp, err := http.Post(srv.URL+"/tasks/kick", "application/json", bytes.NewReader([]byte(`{"limit":1}`)))
+	if err != nil {
+		t.Fatalf("POST /tasks/kick with limit failed: %v", err)
+	}
+	defer kickLimitResp.Body.Close()
+
+	getResp2, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	if err != nil {
+		t.Fatalf("GET /tasks/{id} 2 failed: %v", err)
+	}
+	defer getResp2.Body.Close()
+
+	var fetched2 struct {
+		Status     string          `json:"status"`
+		Primitives json.RawMessage `json:"primitives"`
+	}
+	if err := json.NewDecoder(getResp2.Body).Decode(&fetched2); err != nil {
+		t.Fatalf("decode fetched task 2: %v", err)
+	}
+	if fetched2.Status != "pending" {
+		t.Fatalf("expected status pending, got %q", fetched2.Status)
+	}
+	if len(fetched2.Primitives) > 0 && string(fetched2.Primitives) != "null" {
+		t.Fatalf("expected primitives to be null after limit kick, got %s", string(fetched2.Primitives))
+	}
+}
