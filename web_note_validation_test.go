@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -20,5 +21,16 @@ func TestWebUINoteValidation(t *testing.T) {
 		if !strings.Contains(ui, `id="`+id+`"`) {
 			t.Errorf("missing DOM element id=%q", id)
 		}
+	}
+	matches := regexp.MustCompile(`<input\b[^>]*>`).FindAllString(ui, -1)
+	found := false
+	for _, m := range matches {
+		if strings.Contains(m, `id="note-author"`) && strings.Contains(m, `maxlength="64"`) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected note-author input element to define maxlength=64")
 	}
 }

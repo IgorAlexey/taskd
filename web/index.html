@@ -2147,6 +2147,11 @@
         if (typeof authorEl.focus === 'function') authorEl.focus();
         return;
       }
+      if (author.length > 64 || new TextEncoder().encode(author).length > 64) {
+        showError('Author must be 64 characters or less');
+        if (typeof authorEl.focus === 'function') authorEl.focus();
+        return;
+      }
       if (!text) {
         showError('Note text is required');
         if (typeof textEl.focus === 'function') textEl.focus();
@@ -2378,7 +2383,7 @@
           <form id="add-note-form">
             <div class="field">
               <label for="note-author" class="field-label">Author</label>
-              <input type="text" id="note-author" maxlength="128" required>
+              <input type="text" id="note-author" maxlength="64" required>
             </div>
             <div class="field">
               <label for="note-text" class="field-label">Note</label>
