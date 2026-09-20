@@ -380,3 +380,32 @@ func TestWebUIDetailsPaneFocusOnSelection(t *testing.T) {
 		t.Errorf("expected arrow navigation to focus adjacent row, got %v", got.ArrowFocus)
 	}
 }
+
+func TestWebUIFieldHintsAndCharacterCount(t *testing.T) {
+	ui := string(uiHTML)
+	hints := []string{
+		`class="hint" id="form-project-hint"`,
+		`class="hint" id="form-priority-hint"`,
+		`class="hint" id="form-body-hint"`,
+		`class="hint" id="form-asset-hint"`,
+		`class="hint" id="form-id-hint"`,
+		`class="hint" id="form-body-count"`,
+	}
+	for _, h := range hints {
+		if !strings.Contains(ui, h) {
+			t.Errorf("expected hint markup %q in web/index.html", h)
+		}
+	}
+	if !strings.Contains(ui, `aria-describedby="form-project-hint form-project-error"`) {
+		t.Error("expected form-project to link hint in aria-describedby")
+	}
+	if !strings.Contains(ui, `aria-describedby="form-body-hint form-body-count form-body-error"`) {
+		t.Error("expected form-body to link hint and count in aria-describedby")
+	}
+	if strings.Contains(ui, `id="form-body-count" aria-live=`) {
+		t.Error("form-body-count should not have aria-live to avoid screen reader chatter on keystrokes")
+	}
+	if !strings.Contains(ui, `function updateBodyCount()`) {
+		t.Error("expected updateBodyCount helper in web/index.html")
+	}
+}

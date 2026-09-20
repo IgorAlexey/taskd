@@ -614,6 +614,17 @@
     border-color: var(--danger);
     background: rgba(248,81,73,0.06);
   }
+  .hint {
+    display: block;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.4;
+    margin-bottom: 4px;
+  }
+  #form-body-count {
+    margin-top: 4px;
+    margin-bottom: 0;
+  }
 </style>
 </head>
 <body class="stack">
@@ -694,13 +705,13 @@
           <label for="filter-status-buried">Buried</label>
         </fieldset>
         <label for="filter-priority" class="text-muted text-sm">Priority:</label>
-        <input type="number" min="0" step="1" id="filter-priority" placeholder="all" onchange="onFilterChange()" class="input-sm">
+        <input type="number" min="0" step="1" id="filter-priority" aria-label="Filter by priority" onchange="onFilterChange()" class="input-sm">
         <label for="filter-worker" class="text-muted text-sm">Worker:</label>
         <select id="filter-worker" onchange="onFilterChange()">
           <option value="">(all)</option>
         </select>
-        <label for="filter-search" class="text-muted text-sm">Search:</label>
-        <input type="text" id="filter-search" placeholder="Search tasks..." oninput="onSearchInput()" class="input-sm">
+        <label for="filter-search" class="text-muted text-sm">Search tasks:</label>
+        <input type="text" id="filter-search" aria-label="Search tasks" oninput="onSearchInput()" class="input-sm">
         <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" class="btn-sm">Clear</button>
       </div>
       <div id="queue" tabindex="-1" class="overflow-x-auto">
@@ -745,29 +756,35 @@
             </div>
             <div class="field">
               <label for="form-project">Project *</label>
+              <div class="hint" id="form-project-hint">e.g. default</div>
               <span class="field-error" id="form-project-error" hidden></span>
-              <input type="text" id="form-project" list="form-project-list" required aria-required="true" placeholder="e.g. default" aria-invalid="false" aria-describedby="form-project-error">
+              <input type="text" id="form-project" list="form-project-list" required aria-required="true" aria-invalid="false" aria-describedby="form-project-hint form-project-error">
               <datalist id="form-project-list"></datalist>
             </div>
             <div class="field">
-              <label for="form-priority">Priority (1 is top, blank for default)</label>
+              <label for="form-priority">Priority</label>
+              <div class="hint" id="form-priority-hint">1 is top, blank for default</div>
               <span class="field-error" id="form-priority-error" hidden></span>
-              <input type="number" id="form-priority" value="" aria-invalid="false" aria-describedby="form-priority-error">
+              <input type="number" id="form-priority" value="" aria-invalid="false" aria-describedby="form-priority-hint form-priority-error">
             </div>
             <div class="field">
               <label for="form-body">Body</label>
+              <div class="hint" id="form-body-hint">Task description or prompt</div>
               <span class="field-error" id="form-body-error" hidden></span>
-              <textarea id="form-body" placeholder="Task description or prompt..." aria-invalid="false" aria-describedby="form-body-error"></textarea>
+              <textarea id="form-body" aria-invalid="false" aria-describedby="form-body-hint form-body-count form-body-error"></textarea>
+              <div class="hint" id="form-body-count">0 characters</div>
             </div>
             <div class="field">
               <label for="form-asset">Asset Path (optional)</label>
+              <div class="hint" id="form-asset-hint">/path/to/asset</div>
               <span class="field-error" id="form-asset-error" hidden></span>
-              <input type="text" id="form-asset" placeholder="/path/to/asset" aria-invalid="false" aria-describedby="form-asset-error">
+              <input type="text" id="form-asset" aria-invalid="false" aria-describedby="form-asset-hint form-asset-error">
             </div>
             <div class="field">
               <label for="form-id">Custom ID (optional)</label>
+              <div class="hint" id="form-id-hint">Auto-generated if empty</div>
               <span class="field-error" id="form-id-error" hidden></span>
-              <input type="text" id="form-id" placeholder="auto-generated if empty" aria-invalid="false" aria-describedby="form-id-error">
+              <input type="text" id="form-id" aria-invalid="false" aria-describedby="form-id-hint form-id-error">
             </div>
             <button type="submit" id="submit-task-btn" class="primary w-full" aria-busy="false">Submit Task</button>
           </form>
@@ -1802,10 +1819,12 @@
           </div>
           <form id="add-note-form">
             <div class="field">
-              <input type="text" id="note-author" placeholder="Author" value="${escapeHTML(currentNoteAuthor || claimWorker || '')}" maxlength="128" required>
+              <label for="note-author" class="field-label">Author</label>
+              <input type="text" id="note-author" value="${escapeHTML(currentNoteAuthor || claimWorker || '')}" maxlength="128" required>
             </div>
             <div class="field">
-              <textarea id="note-text" placeholder="Add a note…" required rows="2"></textarea>
+              <label for="note-text" class="field-label">Note</label>
+              <textarea id="note-text" required rows="2"></textarea>
             </div>
             <button type="submit" id="add-note-btn" class="primary">Add Note</button>
           </form>
@@ -2337,6 +2356,7 @@
         if (bodyEl) bodyEl.value = '';
         if (assetEl) assetEl.value = '';
         if (idEl) idEl.value = '';
+        updateBodyCount();
         clearFormErrors();
         showError(null);
         const createdId = (res && res.id) || customId;
@@ -2417,11 +2437,24 @@
       });
     }
 
+    function updateBodyCount() {
+      const bodyEl = document.getElementById('form-body');
+      const countEl = document.getElementById('form-body-count');
+      if (!bodyEl || !countEl) return;
+      const count = bodyEl.value.length;
+      countEl.textContent = `${count} ${count === 1 ? 'character' : 'characters'}`;
+    }
+
     function setupSubmitForm() {
       const form = document.getElementById('submit-task-form');
       if (!form) return;
       form.addEventListener('input', clearFormSuccess);
       form.addEventListener('change', clearFormSuccess);
+      const bodyEl = document.getElementById('form-body');
+      if (bodyEl) {
+        bodyEl.addEventListener('input', updateBodyCount);
+        updateBodyCount();
+      }
     }
 
     async function boot() {
