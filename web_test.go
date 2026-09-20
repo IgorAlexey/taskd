@@ -325,6 +325,8 @@ func TestWebUITaskActions(t *testing.T) {
 		{"delete-task-btn", "Delete Task"},
 		{"release-task-btn", "Release Task"},
 		{"complete-task-btn", "Complete Task"},
+		{"claim-task-btn", "Claim Task"},
+		{"close-task-btn", "Close Task"},
 	} {
 		if !strings.Contains(ui, `id="`+check.id+`"`) {
 			t.Fatalf("expected button with id=%q in web/index.html", check.id)
@@ -353,6 +355,8 @@ func TestWebUITaskActions(t *testing.T) {
 		PendingHasDelete        bool
 		PendingHasComplete      bool
 		PendingHasRelease       bool
+		PendingHasClaim         bool
+		PendingHasClose         bool
 		PendingHasCopy          bool
 		CopySuccess             bool
 		CopyFailure             bool
@@ -363,6 +367,8 @@ func TestWebUITaskActions(t *testing.T) {
 		LeasedHasDelete         bool
 		LeasedHasComplete       bool
 		LeasedHasRelease        bool
+		LeasedHasClaim          bool
+		LeasedHasClose          bool
 		LeasedDeleteErrorBanner bool
 		LeasedDeletePaneKept    bool
 		ErrorBannerSurvivesPoll bool
@@ -377,7 +383,27 @@ func TestWebUITaskActions(t *testing.T) {
 			Method string
 			Body   map[string]any
 		}
-		CompletePaneReset    bool
+		CompletePaneReset bool
+		ClaimCall         *struct {
+			URL    string
+			Method string
+			Body   map[string]any
+		}
+		ClaimPaneKept         bool
+		ClaimRefreshedList    bool
+		ClaimWorkerRemembered bool
+		ClaimConflictBanner   bool
+		ClaimConflictPaneKept bool
+		CancelClaimAsked      bool
+		CancelClaimCalls      int
+		CloseCall             *struct {
+			URL    string
+			Method string
+			Body   map[string]any
+		}
+		ClosePaneReset       bool
+		CancelCloseAsked     bool
+		CancelCloseCalls     int
 		DoneDeleteCall       *struct{ URL, Method string }
 		DoneDeletedPaneReset bool
 	}
@@ -387,6 +413,9 @@ func TestWebUITaskActions(t *testing.T) {
 
 	if !got.PendingHasDelete || got.PendingHasComplete || got.PendingHasRelease {
 		t.Errorf("pending buttons mismatch: %+v", got)
+	}
+	if !got.PendingHasClaim || !got.PendingHasClose {
+		t.Errorf("pending claim/close buttons missing: %+v", got)
 	}
 	if !got.CancelDeleteAsked || got.CancelDeleteCalls != 0 {
 		t.Errorf("cancel delete failed: asked=%v calls=%d", got.CancelDeleteAsked, got.CancelDeleteCalls)
@@ -409,6 +438,9 @@ func TestWebUITaskActions(t *testing.T) {
 
 	if !got.LeasedHasDelete || !got.LeasedHasComplete || !got.LeasedHasRelease {
 		t.Errorf("leased buttons mismatch: %+v", got)
+	}
+	if got.LeasedHasClaim || got.LeasedHasClose {
+		t.Errorf("leased must not offer claim or close: %+v", got)
 	}
 	if !got.LeasedDeleteErrorBanner || !got.LeasedDeletePaneKept {
 		t.Errorf("leased delete 409 mismatch: banner=%v paneKept=%v", got.LeasedDeleteErrorBanner, got.LeasedDeletePaneKept)
@@ -435,6 +467,35 @@ func TestWebUITaskActions(t *testing.T) {
 	}
 	if !got.CompletePaneReset {
 		t.Errorf("pane not reset after complete")
+	}
+
+	if !got.CancelClaimAsked || got.CancelClaimCalls != 0 {
+		t.Errorf("cancel claim failed: asked=%v calls=%d", got.CancelClaimAsked, got.CancelClaimCalls)
+	}
+	if !got.ClaimConflictBanner || !got.ClaimConflictPaneKept {
+		t.Errorf("claim 409 mismatch: banner=%v paneKept=%v", got.ClaimConflictBanner, got.ClaimConflictPaneKept)
+	}
+	if got.ClaimCall == nil || got.ClaimCall.URL != "/tasks/t-pending/claim" || got.ClaimCall.Method != "POST" || got.ClaimCall.Body["worker"] != "op-1" {
+		t.Errorf("claim call mismatch: %+v", got.ClaimCall)
+	}
+	if !got.ClaimPaneKept {
+		t.Errorf("claim must leave the leased task on screen: %+v", got)
+	}
+	if !got.ClaimRefreshedList {
+		t.Errorf("claim must refresh the list and the stats")
+	}
+	if !got.ClaimWorkerRemembered {
+		t.Errorf("claim must offer the last worker name as the default")
+	}
+
+	if !got.CancelCloseAsked || got.CancelCloseCalls != 0 {
+		t.Errorf("cancel close failed: asked=%v calls=%d", got.CancelCloseAsked, got.CancelCloseCalls)
+	}
+	if got.CloseCall == nil || got.CloseCall.URL != "/tasks/t-pending/close" || got.CloseCall.Method != "POST" || got.CloseCall.Body != nil {
+		t.Errorf("close call mismatch: %+v", got.CloseCall)
+	}
+	if !got.ClosePaneReset {
+		t.Errorf("pane not reset after close")
 	}
 
 	if got.DoneDeleteCall == nil || got.DoneDeleteCall.URL != "/tasks/t-done?force=1" || got.DoneDeleteCall.Method != "DELETE" {

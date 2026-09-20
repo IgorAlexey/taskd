@@ -532,6 +532,7 @@
     let currentTask = null;
     let isEditingTask = false;
     const PAGE_SIZE = 200;
+    let claimWorker = '';
     let currentPage = 1;
     let totalTasks = 0;
     // The project filter, the status filter and the selected task are the
@@ -1226,6 +1227,10 @@
             <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
             <button type="button" id="release-task-btn">Release Task</button>
           ` : ''}
+          ${t.status === 'pending' ? `
+            <button type="button" id="claim-task-btn" class="primary">Claim Task</button>
+            <button type="button" id="close-task-btn">Close Task</button>
+          ` : ''}
           <button type="button" id="delete-task-btn" class="danger">Delete Task</button>
         </div>
       `;
@@ -1236,6 +1241,10 @@
       if (compBtn) compBtn.onclick = () => completeTask(t.id, t.worker);
       const relBtn = document.getElementById('release-task-btn');
       if (relBtn) relBtn.onclick = () => releaseTask(t.id, t.worker);
+      const claimBtn = document.getElementById('claim-task-btn');
+      if (claimBtn) claimBtn.onclick = () => claimTask(t.id);
+      const closeBtn = document.getElementById('close-task-btn');
+      if (closeBtn) closeBtn.onclick = () => closeTask(t.id);
       const delBtn = document.getElementById('delete-task-btn');
       if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status);
       const copyBtn = document.getElementById('copy-id-btn');
@@ -1275,6 +1284,40 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worker: worker })
         });
+        await finishTaskAction();
+      } catch (_) {}
+    }
+
+    // A claim hands the task to whoever pressed the button, so the pane
+    // keeps the selection and shows the lease it just took instead of
+    // deselecting the way complete and release do. The worker name comes
+    // from the operator: the lease is theirs to touch or release, and a
+    // shared placeholder would collide with a real runner.
+    async function claimTask(id) {
+      if (!id || typeof prompt !== 'function') return;
+      const answer = prompt('Claim this task as which worker?', claimWorker);
+      const worker = answer === null ? '' : answer.trim();
+      if (!worker) return;
+      try {
+        const t = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/claim', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worker: worker })
+        });
+        claimWorker = worker;
+        if (t && t.id) {
+          currentTask = t;
+          renderTaskDetails(t, true);
+        }
+        await Promise.all([loadStats(), loadTasks()]);
+      } catch (_) {}
+    }
+
+    async function closeTask(id) {
+      if (!id) return;
+      if (typeof confirm === 'function' && !confirm('Close this task as done without a result?')) return;
+      try {
+        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST' });
         await finishTaskAction();
       } catch (_) {}
     }

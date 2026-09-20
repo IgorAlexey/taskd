@@ -54,6 +54,17 @@ global.confirm = () => {
   return confirmAnswer;
 };
 
+let promptAnswer = 'op-1';
+let promptAsked = 0;
+let promptDefault = null;
+global.prompt = (_msg, dflt) => {
+  promptAsked++;
+  promptDefault = dflt;
+  return promptAnswer;
+};
+
+let claimStatus = 200;
+
 const bannerText = element();
 const els = {
   'filter-project': element(),
@@ -96,6 +107,14 @@ const fetchStub = async (url, opts = {}) => {
   if (url.startsWith('/stats')) return response(200, { pending: 1, leased: 1, done: 1, total: 3 });
   if (url.endsWith('/done')) return response(204, null);
   if (url.endsWith('/release')) return response(204, null);
+  if (url.endsWith('/close')) return response(204, null);
+  if (url.endsWith('/claim')) {
+    const id = decodeURIComponent(url.slice('/tasks/'.length, -'/claim'.length));
+    const t = tasks.find(x => x.id === id);
+    if (!t) return response(404, 'task not found');
+    if (claimStatus !== 200) return response(claimStatus, 'task is leased by w-9');
+    return response(200, Object.assign({}, t, { status: 'leased', worker: promptAnswer }));
+  }
   if (url.startsWith('/tasks/')) {
     const raw = url.slice('/tasks/'.length);
     const id = decodeURIComponent(raw.split('?')[0]);
@@ -114,8 +133,8 @@ const fetchStub = async (url, opts = {}) => {
 const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setInterval', 'clearInterval',
-  script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, releaseTask, finishTaskAction,' +
-  ' get selected() { return selectedTaskId; }};'
+  script + '\nreturn {loadTasks, selectTask, deleteTask, completeTask, releaseTask, claimTask,' +
+  ' closeTask, finishTaskAction, get selected() { return selectedTaskId; }};'
 )(document, location, history, window, fetchStub, console, () => 0, () => {});
 
 (async () => {
@@ -127,6 +146,8 @@ const api = new Function(
   results.pendingHasDelete = pendingHTML.includes('id="delete-task-btn"');
   results.pendingHasComplete = pendingHTML.includes('id="complete-task-btn"');
   results.pendingHasRelease = pendingHTML.includes('id="release-task-btn"');
+  results.pendingHasClaim = pendingHTML.includes('id="claim-task-btn"');
+  results.pendingHasClose = pendingHTML.includes('id="close-task-btn"');
   let clipboardText = '';
   Object.defineProperty(global.navigator, 'clipboard', {
     value: { writeText: async (txt) => { clipboardText = txt; } },
@@ -165,6 +186,8 @@ const api = new Function(
   results.leasedHasDelete = leasedHTML.includes('id="delete-task-btn"');
   results.leasedHasComplete = leasedHTML.includes('id="complete-task-btn"');
   results.leasedHasRelease = leasedHTML.includes('id="release-task-btn"');
+  results.leasedHasClaim = leasedHTML.includes('id="claim-task-btn"');
+  results.leasedHasClose = leasedHTML.includes('id="close-task-btn"');
 
   confirmAnswer = true;
   calls.length = 0;
@@ -186,6 +209,55 @@ const api = new Function(
   await els['complete-task-btn'].onclick();
   results.completeCall = calls.find(c => c.url.includes('/done'));
   results.completePaneReset = els['task-details-content'].innerHTML.includes('Select a task');
+
+  api.selectTask('t-pending');
+  await new Promise(r => setTimeout(r, 10));
+  calls.length = 0;
+  promptAnswer = null;
+  promptAsked = 0;
+  await els['claim-task-btn'].onclick();
+  results.cancelClaimAsked = promptAsked === 1;
+  results.cancelClaimCalls = calls.length;
+
+  calls.length = 0;
+  promptAnswer = '  op-1  ';
+  claimStatus = 409;
+  els['error-banner'].textContent = '';
+  await els['claim-task-btn'].onclick();
+  results.claimConflictBanner = els['error-banner'].textContent.includes('task is leased by w-9');
+  results.claimConflictPaneKept = !els['task-details-content'].innerHTML.includes('Select a task');
+
+  calls.length = 0;
+  claimStatus = 200;
+  await els['claim-task-btn'].onclick();
+  await new Promise(r => setTimeout(r, 10));
+  results.claimCall = calls.find(c => c.url.endsWith('/claim'));
+  results.claimPaneKept = els['task-details-content'].innerHTML.includes('id="complete-task-btn"') &&
+    !els['task-details-content'].innerHTML.includes('id="claim-task-btn"');
+  results.claimRefreshedList = calls.some(c => c.url.startsWith('/tasks?')) && calls.some(c => c.url.startsWith('/stats'));
+
+  api.selectTask('t-pending');
+  await new Promise(r => setTimeout(r, 10));
+  calls.length = 0;
+  promptAnswer = 'op-2';
+  promptDefault = null;
+  await els['claim-task-btn'].onclick();
+  results.claimWorkerRemembered = promptDefault === 'op-1';
+
+  api.selectTask('t-pending');
+  await new Promise(r => setTimeout(r, 10));
+  calls.length = 0;
+  confirmAnswer = false;
+  confirmAsked = 0;
+  await els['close-task-btn'].onclick();
+  results.cancelCloseAsked = confirmAsked === 1;
+  results.cancelCloseCalls = calls.length;
+
+  calls.length = 0;
+  confirmAnswer = true;
+  await els['close-task-btn'].onclick();
+  results.closeCall = calls.find(c => c.url.endsWith('/close'));
+  results.closePaneReset = els['task-details-content'].innerHTML.includes('Select a task');
 
   api.selectTask('t-done');
   await new Promise(r => setTimeout(r, 10));
