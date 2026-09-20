@@ -136,3 +136,39 @@ func TestWebUIFooterShortcutButtons(t *testing.T) {
 		t.Error("expected Refresh shortcut button in footer legend to have an onclick handler")
 	}
 }
+func TestWebUITaskActionShortcuts(t *testing.T) {
+	ui := string(uiHTML)
+
+	modalIdx := strings.Index(ui, `<dialog id="shortcuts-modal"`)
+	if modalIdx == -1 {
+		t.Fatal("expected shortcuts modal in web/index.html")
+	}
+	modal := ui[modalIdx:]
+	if !strings.Contains(modal, "<h3>Task actions</h3>") {
+		t.Fatal("expected Task actions section in shortcuts modal")
+	}
+	for _, want := range []string{
+		"<kbd>e</kbd> <span>Toggle edit mode</span>",
+		"<kbd>c</kbd> <span>Claim task</span>",
+		"<kbd>a</kbd> <span>Focus note input</span>",
+		"<kbd>x</kbd> <span>Complete task (when leased)</span>",
+	} {
+		if !strings.Contains(modal, want) {
+			t.Fatalf("expected shortcut %q documented in modal", want)
+		}
+	}
+
+	for _, check := range []string{
+		"!e.ctrlKey && !e.metaKey && !e.altKey",
+		"selectedTaskId",
+		"toggleTaskEdit()",
+		"claimTask(selectedTaskId)",
+		"document.getElementById('note-text')",
+		"completeTask(currentTask.id, currentTask.worker)",
+		"isActivelyLeased(currentTask)",
+	} {
+		if !strings.Contains(ui, check) {
+			t.Fatalf("expected %q in web/index.html global shortcuts handling", check)
+		}
+	}
+}

@@ -1085,6 +1085,15 @@
           </div>
         </section>
         <section class="shortcuts-section">
+          <h3>Task actions</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><kbd>e</kbd> <span>Toggle edit mode</span></div>
+            <div class="shortcut-row"><kbd>c</kbd> <span>Claim task</span></div>
+            <div class="shortcut-row"><kbd>a</kbd> <span>Focus note input</span></div>
+            <div class="shortcut-row"><kbd>x</kbd> <span>Complete task (when leased)</span></div>
+          </div>
+        </section>
+        <section class="shortcuts-section">
           <h3>General</h3>
           <div class="shortcut-list">
             <div class="shortcut-row"><kbd>0-5</kbd> <span>Filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)</span></div>
@@ -3512,6 +3521,33 @@
             e.preventDefault();
             clearSelectedTask();
             return;
+          }
+        }
+        if (!e.ctrlKey && !e.metaKey && !e.altKey && selectedTaskId) {
+          if (e.key === 'e') {
+            e.preventDefault();
+            toggleTaskEdit();
+            return;
+          }
+          if (e.key === 'c') {
+            e.preventDefault();
+            claimTask(selectedTaskId);
+            return;
+          }
+          if (e.key === 'a') {
+            const el = document.getElementById('note-text') || document.getElementById('note-author');
+            if (el) {
+              e.preventDefault();
+              el.focus();
+              return;
+            }
+          }
+          if (e.key === 'x') {
+            if (currentTask && currentTask.id === selectedTaskId && isActivelyLeased(currentTask)) {
+              e.preventDefault();
+              completeTask(currentTask.id, currentTask.worker);
+              return;
+            }
           }
         }
         if (e.key === '/') {
