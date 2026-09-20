@@ -1563,51 +1563,52 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
   priority, %s, %s, %s, project, claim_count, created_at, rowid FROM tasks`, bodyCol, primCol, summaryCol)
 		var where []string
-		var args []any
-		args = append(args, now, now, now)
+		var whereArgs []any
 		if status == "pending" {
 			where = append(where, "(status = 'pending' OR (status = 'leased' AND lease_expires < ?))")
-			args = append(args, now)
+			whereArgs = append(whereArgs, now)
 		} else if status == "leased" {
 			where = append(where, "(status = 'leased' AND lease_expires >= ?)")
-			args = append(args, now)
+			whereArgs = append(whereArgs, now)
 		} else if status == "live" {
 			where = append(where, "(status = 'pending' OR status = 'leased')")
 		} else if status != "" {
 			where = append(where, "status = ?")
-			args = append(args, status)
+			whereArgs = append(whereArgs, status)
 		}
 		if project != "" && project != "*" {
 			where = append(where, "project = ?")
-			args = append(args, project)
+			whereArgs = append(whereArgs, project)
 		}
 		if q.Has("worker") {
 			clause, cargs := workerFilterClause(strings.TrimSpace(q.Get("worker")), now)
 			where = append(where, clause)
-			args = append(args, cargs...)
+			whereArgs = append(whereArgs, cargs...)
 		}
 		if priorityFilter != nil {
 			where = append(where, "priority = ?")
-			args = append(args, *priorityFilter)
+			whereArgs = append(whereArgs, *priorityFilter)
 		}
 		if q.Has("asset_path") {
 			where = append(where, "asset_path = ?")
-			args = append(args, q.Get("asset_path"))
+			whereArgs = append(whereArgs, q.Get("asset_path"))
 		}
 		if q.Has("q") {
 			search := strings.TrimSpace(q.Get("q"))
 			if search != "" {
 				pat := "%" + escapeLike(search) + "%"
 				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))) OR asset_path LIKE ? ESCAPE '\\')")
-				args = append(args, pat, pat, pat, pat, now, pat)
+				whereArgs = append(whereArgs, pat, pat, pat, pat, now, pat)
 			}
 		}
 		var whereSQL string
 		if len(where) > 0 {
 			whereSQL = " WHERE " + strings.Join(where, " AND ")
 		}
-		countArgs := slices.Clone(args)
 		dataWhereSQL := whereSQL
+		args := make([]any, 0, 3+len(whereArgs)+3)
+		args = append(args, now, now, now)
+		args = append(args, whereArgs...)
 		if after != nil {
 			dataWhere := append(slices.Clone(where), "rowid > ?")
 			dataWhereSQL = " WHERE " + strings.Join(dataWhere, " AND ")
@@ -1658,7 +1659,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		// skipped, so that case still has to count.
 		total := offset + len(tasks)
 		if after == nil && (len(tasks) == limit || (offset > 0 && len(tasks) == 0)) {
-			if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks"+whereSQL, countArgs...).Scan(&total); err != nil {
+			if err := db.ro.QueryRow("SELECT COUNT(*) FROM tasks"+whereSQL, whereArgs...).Scan(&total); err != nil {
 				internalError(w, err)
 				return
 			}
