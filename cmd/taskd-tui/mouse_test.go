@@ -678,3 +678,61 @@ func TestClickFooterShortcuts(t *testing.T) {
 		t.Fatalf("expected click on footer ignored in modeHelp, got mode %v", modHelpClick.(model).mode)
 	}
 }
+func TestClickWorkerChip(t *testing.T) {
+	m := setupTestModel()
+	m.workers = []string{"worker-1", "worker-2"}
+
+	clickChip := func(cur model) (model, tea.Cmd) {
+		bounds := cur.row1Bounds()
+		if bounds.worker[0] >= bounds.worker[1] {
+			t.Fatalf("expected valid worker chip bounds, got %v", bounds.worker)
+		}
+		res, cmd := cur.Update(tea.MouseClickMsg{
+			X:      (bounds.worker[0] + bounds.worker[1]) / 2,
+			Y:      headerRows,
+			Button: tea.MouseLeft,
+		})
+		return res.(model), cmd
+	}
+
+	var cmd tea.Cmd
+	for _, wantWorker := range []string{"worker-1", "worker-2", ""} {
+		m, cmd = clickChip(m)
+		if cmd == nil {
+			t.Fatalf("expected non-nil rescope command after clicking worker chip")
+		}
+		if m.worker != wantWorker {
+			t.Fatalf("expected worker %q, got %q", wantWorker, m.worker)
+		}
+	}
+
+	for _, startMode := range []mode{modeDetail, modeZoom} {
+		m.mode = startMode
+		m, cmd = clickChip(m)
+		if cmd == nil {
+			t.Fatalf("expected non-nil rescope command after clicking worker chip from mode %v", startMode)
+		}
+		if m.mode != modeTable {
+			t.Fatalf("expected modeTable after click from mode %v, got %v", startMode, m.mode)
+		}
+	}
+
+	bounds := m.row1Bounds()
+	if bounds.proj[1] >= bounds.worker[0] {
+		t.Fatalf("expected gap between project and worker chip, got proj=%v worker=%v", bounds.proj, bounds.worker)
+	}
+	gapX := (bounds.proj[1] + bounds.worker[0]) / 2
+	prevWorker := m.worker
+	res, gapCmd := m.Update(tea.MouseClickMsg{
+		X:      gapX,
+		Y:      headerRows,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+	if gapCmd != nil {
+		t.Fatalf("expected nil command on click in gap, got %v", gapCmd)
+	}
+	if m.worker != prevWorker {
+		t.Fatalf("expected worker unchanged on click in gap, got %q", m.worker)
+	}
+}
