@@ -39,3 +39,15 @@ func TestWebUIShortcutsModal(t *testing.T) {
 		}
 	}
 }
+func TestWebUISearchArrowDown(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="filter-search"`) {
+		t.Fatal("expected filter-search input in web/index.html")
+	}
+	if !strings.Contains(ui, "setupSearch") {
+		t.Fatal("expected setupSearch in web/index.html")
+	}
+	if !strings.Contains(ui, "ArrowDown") {
+		t.Fatal("expected ArrowDown handling in web/index.html")
+	}
+}

@@ -1003,6 +1003,7 @@
           <div class="shortcut-list">
             <div class="shortcut-row"><kbd>/</kbd> <span>Focus search filter</span></div>
             <div class="shortcut-row"><kbd>Esc</kbd> <span>Clear search filter and blur</span></div>
+            <div class="shortcut-row"><kbd>↓</kbd> <span>Select first task in filtered table (ArrowDown)</span></div>
           </div>
         </section>
         <section class="shortcuts-section">
@@ -3106,6 +3107,15 @@
         if (e.key === 'Escape') {
           clearSearch();
           el.blur();
+        } else if (e.key === 'ArrowDown') {
+          const tbody = document.getElementById('task-table-body');
+          if (!tbody) return;
+          const firstRow = tbody.querySelector('tr[data-task-id]');
+          if (firstRow) {
+            e.preventDefault();
+            selectTask(firstRow.dataset.taskId);
+            firstRow.focus();
+          }
         }
       });
     }
