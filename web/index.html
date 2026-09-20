@@ -21,6 +21,39 @@
     --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #ffffff;
+      --surface: #f6f8fa;
+      --border: #d0d7de;
+      --text: #1f2328;
+      --text-muted: #656d76;
+      --accent: #0969da;
+      --accent-hover: #218bff;
+      --pending: #9a6700;
+      --leased: #0969da;
+      --done: #1a7f37;
+      --danger: #cf222e;
+      --buried: #8250df;
+    }
+  }
+  dl.task-metadata {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .metadata-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  dt.field-label {
+    color: var(--text-muted);
+    font-size: 12px;
+  }
+  dd {
+    margin: 0;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     background: var(--bg);
@@ -67,7 +100,7 @@
     font-size: 18px;
     font-weight: 600;
     letter-spacing: 0.5px;
-    color: #f0f6fc;
+    color: var(--text);
   }
   .controls {
     display: flex;
@@ -673,7 +706,7 @@
       </div>
     </section>
 
-    <div class="stack">
+    <aside class="stack">
       <section class="panel" aria-labelledby="details-heading">
         <h2 class="panel-header" id="details-heading">Task Details</h2>
         <div class="sidebar-section stack stack-sm" id="task-details-content">
@@ -723,7 +756,7 @@
           </form>
         </div>
       </section>
-    </div>
+    </aside>
   </div>
   </main>
 
@@ -1675,20 +1708,34 @@
         return;
       }
       pane.innerHTML = `
-        <div class="field">
-          <span class="field-label">ID</span>
-          <div class="cluster">
-            <span class="mono">${escapeHTML(t.id || '')}</span>
-            <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
+        <dl class="task-metadata">
+          <div class="metadata-row">
+            <dt class="field-label">ID</dt>
+            <dd class="cluster">
+              <span class="mono">${escapeHTML(t.id || '')}</span>
+              <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
+            </dd>
           </div>
-        </div>
-        <div class="field"><span class="field-label">Project</span><span>${escapeHTML(t.project || '')}</span></div>
-        <div class="field"><span class="field-label">Status</span><span class="badge" data-status="${escapeHTML(t.status || '')}">${escapeHTML(t.status || '')}</span></div>
-        <div class="field"><span class="field-label">Priority</span><span>${escapeHTML(String(t.priority ?? ''))}</span></div>
-        <div class="field"><span class="field-label">Claim Count</span><span>${escapeHTML(String(t.claim_count ?? 0))}</span></div>
-        ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
-        ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
-        ${t.asset_path ? `<div class="field"><span class="field-label">Asset Path</span><span class="mono">${escapeHTML(t.asset_path)}</span></div>` : ''}
+          <div class="metadata-row">
+            <dt class="field-label">Project</dt>
+            <dd>${escapeHTML(t.project || '')}</dd>
+          </div>
+          <div class="metadata-row">
+            <dt class="field-label">Status</dt>
+            <dd><span class="badge" data-status="${escapeHTML(t.status || '')}">${escapeHTML(t.status || '')}</span></dd>
+          </div>
+          <div class="metadata-row">
+            <dt class="field-label">Priority</dt>
+            <dd>${escapeHTML(String(t.priority ?? ''))}</dd>
+          </div>
+          <div class="metadata-row">
+            <dt class="field-label">Claim Count</dt>
+            <dd>${escapeHTML(String(t.claim_count ?? 0))}</dd>
+          </div>
+          ${t.worker ? `<div class="metadata-row"><dt class="field-label">Worker</dt><dd class="mono">${escapeHTML(t.worker)}</dd></div>` : ''}
+          ${leaseExpStr ? `<div class="metadata-row"><dt class="field-label">Lease Expires</dt><dd>${escapeHTML(leaseExpStr)}</dd></div>` : ''}
+          ${t.asset_path ? `<div class="metadata-row"><dt class="field-label">Asset Path</dt><dd class="mono">${escapeHTML(t.asset_path)}</dd></div>` : ''}
+        </dl>
         <div class="field">
           <div class="field-header">
             <span class="field-label">Body</span>

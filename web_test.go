@@ -102,6 +102,19 @@ func TestWebUIInitialPlaceholdersAndNoscript(t *testing.T) {
 	if strings.Contains(ui, `<tbody id="task-table-body">`+"\n"+`            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>`) {
 		t.Error("table body should not claim No tasks in initial markup")
 	}
+
+	if !strings.Contains(ui, "<main") || !strings.Contains(ui, "</main>") {
+		t.Error("expected <main> landmark in web/index.html")
+	}
+	if !strings.Contains(ui, "<aside") || !strings.Contains(ui, "</aside>") {
+		t.Error("expected <aside> landmark in web/index.html")
+	}
+	if !strings.Contains(ui, `<dl class="task-metadata">`) {
+		t.Error("expected <dl class=\"task-metadata\"> definition list in web/index.html")
+	}
+	if !strings.Contains(ui, "@media (prefers-color-scheme: light)") {
+		t.Error("expected prefers-color-scheme light media query in web/index.html")
+	}
 }
 
 func TestWebUIExpiredLeaseActions(t *testing.T) {
