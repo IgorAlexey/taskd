@@ -1,0 +1,230 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+)
+
+func TestViewLayoutAndRendering(t *testing.T) {
+	fixedNow := time.Unix(1700000000, 0)
+	tasks := []task{
+		{
+			ID:       "task0011111",
+			Project:  "taskd",
+			Status:   "pending",
+			Priority: 1,
+			Body:     "taskd: first pending task",
+		},
+		{
+			ID:           "task0022222",
+			Project:      "taskd",
+			Status:       "leased",
+			Worker:       "host1:main",
+			LeaseExpires: fixedNow.Unix() + 1800,
+			Priority:     2,
+			Body:         "taskd: second leased task",
+		},
+		{
+			ID:       "task0033333",
+			Project:  "taskd",
+			Status:   "done",
+			Priority: 0,
+			Body:     "taskd: third done task",
+		},
+	}
+
+	m := model{
+		cfg: config{
+			url:     "http://localhost:8080",
+			refresh: 2 * time.Second,
+		},
+		theme:  newTheme(true),
+		glyph:  asciiGlyphs,
+		width:  100,
+		height: 30,
+		now:    fixedNow,
+		tasks:  tasks,
+		shown:  []int{0, 1, 2},
+		cursor: 1,
+		offset: 0,
+		stats: stats{
+			Pending:      1,
+			Leased:       1,
+			Done:         1,
+			Total:        3,
+			LeaseSeconds: 3600,
+		},
+		connected: true,
+	}
+
+	v := m.View()
+	stripped := ansi.Strip(v.Content)
+	lines := strings.Split(stripped, "\n")
+
+	// 1. line count == 30
+	if len(lines) != 30 {
+		t.Fatalf("expected 30 lines, got %d", len(lines))
+	}
+
+	// 2. every line has display width == 100 (no wrapping)
+	for i, line := range lines {
+		w := ansi.StringWidth(line)
+		if w != 100 {
+			t.Errorf("line %d has display width %d, want 100: %q", i, w, line)
+		}
+	}
+
+	// 3. header contains "taskd" and "connected"
+	headerLine := lines[0]
+	if !strings.Contains(headerLine, "taskd") {
+		t.Errorf("header line does not contain %q: %q", "taskd", headerLine)
+	}
+	if !strings.Contains(headerLine, "connected") {
+		t.Errorf("header line does not contain %q: %q", "connected", headerLine)
+	}
+
+	// 4. tabs contain "0 all" and "1 pending"
+	tabsLine := lines[1]
+	if !strings.Contains(tabsLine, "0 all") {
+		t.Errorf("tabs line does not contain %q: %q", "0 all", tabsLine)
+	}
+	if !strings.Contains(tabsLine, "1 pending") {
+		t.Errorf("tabs line does not contain %q: %q", "1 pending", tabsLine)
+	}
+
+	// 5. selected row starts with ">"
+	selectedRow := lines[4+m.cursor]
+	if !strings.HasPrefix(selectedRow, ">") {
+		t.Errorf("selected row does not start with '>', got: %q", selectedRow)
+	}
+
+	// 6. a leased task row shows "m" in left and "=" bar chars
+	if !strings.Contains(selectedRow, "m") {
+		t.Errorf("leased row does not contain 'm' in left: %q", selectedRow)
+	}
+	if !strings.Contains(selectedRow, "=") {
+		t.Errorf("leased row does not contain '=' bar chars: %q", selectedRow)
+	}
+
+	// 7. footer ends with "2/3"
+	footerLine := lines[len(lines)-1]
+	if !strings.HasSuffix(footerLine, "2/3") {
+		t.Errorf("footer line does not end with '2/3', got: %q", footerLine)
+	}
+
+	// 8. with len(shown) > tableRows the last column contains "#" (thumb)
+	mScroll := m
+	manyTasks := make([]task, 40)
+	manyShown := make([]int, 40)
+	for i := 0; i < 40; i++ {
+		manyTasks[i] = task{
+			ID:      fmt.Sprintf("task%03d", i),
+			Project: "taskd",
+			Status:  "pending",
+			Body:    fmt.Sprintf("taskd: task %d", i),
+		}
+		manyShown[i] = i
+	}
+	mScroll.tasks = manyTasks
+	mScroll.shown = manyShown
+	mScroll.cursor = 0
+	vScroll := mScroll.View()
+	scrollLines := strings.Split(ansi.Strip(vScroll.Content), "\n")
+	hasThumb := false
+	for i := 4; i < 4+mScroll.tableRows(); i++ {
+		if len(scrollLines[i]) > 0 && strings.HasSuffix(scrollLines[i], "#") {
+			hasThumb = true
+			break
+		}
+	}
+	if !hasThumb {
+		t.Errorf("expected table row to have '#' thumb in last column when len(shown) > tableRows")
+	}
+
+	// 9. zoom mode has no column header
+	mZoom := m
+	mZoom.mode = modeZoom
+	vZoom := mZoom.View()
+	zoomLines := strings.Split(ansi.Strip(vZoom.Content), "\n")
+	if len(zoomLines) != 30 {
+		t.Errorf("zoom mode line count %d, want 30", len(zoomLines))
+	}
+	for _, line := range zoomLines {
+		if strings.Contains(line, " p ") && strings.Contains(line, "scope") && strings.Contains(line, "title") {
+			t.Errorf("zoom mode should have no column header, found: %q", line)
+		}
+	}
+
+	// 10. an empty shown with a query shows the Esc hint
+	mEmpty := m
+	mEmpty.shown = nil
+	mEmpty.query = "findnothing"
+	vEmpty := mEmpty.View()
+	emptyStripped := ansi.Strip(vEmpty.Content)
+	if !strings.Contains(emptyStripped, "Esc") {
+		t.Errorf("empty shown with query should show Esc hint, got: %q", emptyStripped)
+	}
+
+	// 11. titles longer than the column are cut with "..."
+	mLong := m
+	mLong.tasks = []task{
+		{
+			ID:      "tasklong",
+			Project: "taskd",
+			Status:  "pending",
+			Body:    "taskd: This is an extraordinarily long title that will certainly exceed the width of the title column in the table",
+		},
+	}
+	mLong.shown = []int{0}
+	mLong.cursor = 0
+	vLong := mLong.View()
+	longStripped := ansi.Strip(vLong.Content)
+	if !strings.Contains(longStripped, "...") {
+		t.Errorf("titles longer than column should be cut with '...', got: %q", longStripped)
+	}
+}
+
+func TestHelpers(t *testing.T) {
+	th := newTheme(true)
+
+	// highlightCode
+	codeStr := "hello `code1` world `code2`"
+	highlighted := highlightCode(codeStr, th)
+	if !strings.Contains(highlighted, "code1") || !strings.Contains(highlighted, "code2") {
+		t.Errorf("highlightCode failed: %q", highlighted)
+	}
+
+	// trunc
+	if got := trunc("hello world", 8, "..."); got != "hello..." {
+		t.Errorf("trunc(\"hello world\", 8, \"...\") = %q, want %q", got, "hello...")
+	}
+	if got := trunc("short", 10, "..."); got != "short" {
+		t.Errorf("trunc(\"short\", 10, \"...\") = %q, want %q", got, "short")
+	}
+	if got := trunc("hello world", 0, "..."); got != "" {
+		t.Errorf("trunc(\"hello world\", 0, \"...\") = %q, want \"\"", got)
+	}
+
+	// leaseLeft
+	now := time.Unix(1700000000, 0)
+	taskNotLeased := task{Status: "pending"}
+	if got := leaseLeft(taskNotLeased, now); got != "" {
+		t.Errorf("leaseLeft pending = %q, want \"\"", got)
+	}
+	taskExpired := task{Status: "leased", LeaseExpires: now.Unix() - 10}
+	if got := leaseLeft(taskExpired, now); got != "expired" {
+		t.Errorf("leaseLeft expired = %q, want \"expired\"", got)
+	}
+	taskMinutes := task{Status: "leased", LeaseExpires: now.Unix() + 3345}
+	if got := leaseLeft(taskMinutes, now); got != "55m45s" {
+		t.Errorf("leaseLeft 55m45s = %q, want \"55m45s\"", got)
+	}
+	taskHours := task{Status: "leased", LeaseExpires: now.Unix() + 3665}
+	if got := leaseLeft(taskHours, now); got != "1h01m" {
+		t.Errorf("leaseLeft 1h01m = %q, want \"1h01m\"", got)
+	}
+}
