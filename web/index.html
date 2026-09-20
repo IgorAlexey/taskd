@@ -1441,7 +1441,7 @@
       const kickBtn = document.getElementById('kick-task-btn');
       if (kickBtn) kickBtn.onclick = () => kickTask(t.id);
       const delBtn = document.getElementById('delete-task-btn');
-      if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status);
+      if (delBtn) delBtn.onclick = () => deleteTask(t.id, t.status, t.primitives);
       const copyBtn = document.getElementById('copy-id-btn');
       if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
       const copyBodyBtn = document.getElementById('copy-body-btn');
@@ -1617,9 +1617,13 @@
       });
     }
 
-    async function deleteTask(id, status) {
+    async function deleteTask(id, status, primitives) {
       if (!id || status === 'leased') return;
-      if (typeof confirm === 'function' && !confirm('Are you sure you want to delete this task?')) return;
+      const hasResult = status === 'done' && primitives && (typeof primitives !== 'object' || Object.keys(primitives).length > 0);
+      const prompt = hasResult
+        ? 'Delete ' + id + ' and discard its recorded result? This cannot be undone.'
+        : 'Are you sure you want to delete this task?';
+      if (typeof confirm === 'function' && !confirm(prompt)) return;
       const url = '/tasks/' + encodeURIComponent(id) + (status === 'done' ? '?force=1' : '');
       await withButton('delete-task-btn', async () => {
         await fetchJSON(url, { method: 'DELETE' });
