@@ -193,6 +193,12 @@ func openDB(path string, maxClaims int) (s *store, err error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s = &store{rw: rw, ro: ro, cancel: cancel, maxClaims: maxClaims}
+	if _, err := s.sweep(); err != nil {
+		cancel()
+		rw.Close()
+		ro.Close()
+		return nil, err
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -1272,6 +1278,10 @@ WHERE id = (
   SELECT id FROM tasks
   WHERE status='pending'`
 		args := []any{req.Worker, lease}
+		if db.maxClaims > 0 {
+			query += " AND claim_count < ?"
+			args = append(args, db.maxClaims)
+		}
 		if req.Project != "*" {
 			query += " AND project = ?"
 			args = append(args, req.Project)
@@ -2294,8 +2304,9 @@ func sweepExpired(db *sql.DB, maxClaims int) (int64, error) {
 SET status = CASE WHEN ? > 0 AND claim_count >= ? THEN 'buried' ELSE 'pending' END,
     worker = NULL,
     lease_expires = NULL
-WHERE status = 'leased' AND lease_expires < unixepoch()`
-	res, err := db.Exec(query, maxClaims, maxClaims)
+WHERE (status = 'leased' AND lease_expires < unixepoch())
+   OR (? > 0 AND status = 'pending' AND claim_count >= ?)`
+	res, err := db.Exec(query, maxClaims, maxClaims, maxClaims, maxClaims)
 	if err != nil {
 		return 0, err
 	}
