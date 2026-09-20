@@ -83,13 +83,14 @@ func trunc(s string, w int, ellipsis string) string {
 }
 
 type tableCols struct {
-	scope  int
-	title  int
-	claims int
-	worker int
-	lease  int
-	left   int
-	id     int
+	priority int
+	scope    int
+	title    int
+	claims   int
+	worker   int
+	lease    int
+	left     int
+	id       int
 }
 
 // budgetColumns pays the title first. Worker, lease bar, remaining and id
@@ -97,18 +98,19 @@ type tableCols struct {
 // widest and most redundant first, until the title clears minTitle; the
 // scope degrades to its header before the id, the last identifier on the
 // row, is given up.
-func budgetColumns(w, maxScope, maxWorker, maxClaims int, hasScrollbar bool) tableCols {
+func budgetColumns(w, maxPri, maxScope, maxWorker, maxClaims int, hasScrollbar bool) tableCols {
 	const minTitle = 24
 	c := tableCols{
-		scope:  min(max(maxScope, 5), 12),
-		claims: maxClaims,
-		worker: min(maxWorker, 14),
-		lease:  8,
-		left:   7,
-		id:     7,
+		priority: max(maxPri, 1),
+		scope:    min(max(maxScope, 5), 12),
+		claims:   maxClaims,
+		worker:   min(maxWorker, 14),
+		lease:    8,
+		left:     7,
+		id:       7,
 	}
 
-	fixed := 5
+	fixed := 4 + c.priority
 	for _, cw := range []int{c.scope, c.claims, c.worker, c.lease, c.left, c.id} {
 		if cw > 0 {
 			fixed += 1 + cw
@@ -355,21 +357,27 @@ func (m model) View() tea.View {
 		hasScrollbar := sb.hasScrollbar
 		wScope, wClaims, wWorker := cols.scope, cols.claims, cols.worker
 		wLease, wLeft, wID, wTitle := cols.lease, cols.left, cols.id, cols.title
-
-		// 4. Column header (1 row, dim, lowercase)
-		var colH strings.Builder
+		priHead := "p"
 		ind := m.glyph.sort
 		if ind == "" {
 			ind = "▼"
 		}
-
-		if m.sortCol == sortStatus {
-			colH.WriteString(" " + ind + "p ")
-		} else if m.sortCol == sortPriority {
-			colH.WriteString("  p" + ind)
-		} else {
-			colH.WriteString("  p ")
+		if m.sortCol == sortPriority {
+			priHead += ind
 		}
+		wPri := max(cols.priority, ansi.StringWidth(priHead))
+
+		// 4. Column header (1 row, dim, lowercase)
+		var colH strings.Builder
+		colH.WriteString(" ")
+		if m.sortCol == sortStatus {
+			colH.WriteString(ind)
+		} else {
+			colH.WriteString(" ")
+		}
+		colH.WriteString(" ")
+		colH.WriteString(padRight(priHead, wPri))
+		colH.WriteString(" ")
 
 		if wScope > 0 {
 			scopeHead := "scope"
@@ -494,8 +502,8 @@ func (m model) View() tea.View {
 				}
 
 				priStr := strconv.Itoa(t.Priority)
-				if len(priStr) > 1 {
-					priStr = priStr[:1]
+				if len(priStr) < wPri {
+					priStr = strings.Repeat(" ", wPri-len(priStr)) + priStr
 				}
 				priStyled := m.theme.dim.Render(priStr)
 

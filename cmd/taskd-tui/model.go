@@ -1072,11 +1072,29 @@ func statusRank(s string) int {
 	}
 }
 
+func intDigits(n int) int {
+	if n <= 0 {
+		return 1
+	}
+	d := 0
+	for n > 0 {
+		d++
+		n /= 10
+	}
+	return d
+}
+
 func (m *model) updateCols() {
-	maxScope, maxWorker, maxClaims := 0, 0, 0
+	maxScope, maxWorker, maxClaims, maxPri := 0, 0, 0, 1
+	if m.sortCol == sortPriority {
+		maxPri = 2
+	}
 	for _, idx := range m.shown {
 		if idx >= 0 && idx < len(m.tasks) {
 			t := m.tasks[idx]
+			if d := intDigits(t.Priority); d > maxPri {
+				maxPri = d
+			}
 			sc, _ := m.displayScope(t)
 			if sc != "" {
 				if sw := ansi.StringWidth(sc); sw > maxScope {
@@ -1098,23 +1116,31 @@ func (m *model) updateCols() {
 	}
 	tRows, _ := m.layout()
 	sb := calcScrollbar(len(m.shown), m.offset, tRows)
-	m.cols = budgetColumns(m.width, maxScope, maxWorker, maxClaims, sb.hasScrollbar)
+	m.cols = budgetColumns(m.width, maxPri, maxScope, maxWorker, maxClaims, sb.hasScrollbar)
 }
 
 func (m *model) handleColHeadClick(x int) {
-	if x < 2 {
+	if x < 3 {
 		m.sortCol = sortStatus
 		m.rebuild()
 		return
 	}
-	if x < 4 {
+	priHead := "p"
+	if m.sortCol == sortPriority {
+		priHead += m.glyph.sort
+		if m.glyph.sort == "" {
+			priHead += "▼"
+		}
+	}
+	pw := max(m.cols.priority, ansi.StringWidth(priHead))
+	priEnd := 4 + pw
+	if x < priEnd {
 		m.sortCol = sortPriority
 		m.rebuild()
 		return
 	}
-
 	cols := m.cols
-	currX := 4
+	currX := priEnd
 	if cols.scope > 0 {
 		if x >= currX && x < currX+cols.scope {
 			m.sortCol = sortProject

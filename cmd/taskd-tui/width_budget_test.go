@@ -13,42 +13,42 @@ func TestBudgetColumnsShedsRedundancyBeforeTitle(t *testing.T) {
 		{
 			"110 pays for everything",
 			110,
-			tableCols{scope: 12, title: 46, claims: 4, worker: 14, lease: 8, left: 7, id: 7},
+			tableCols{priority: 1, scope: 12, title: 46, claims: 4, worker: 14, lease: 8, left: 7, id: 7},
 		},
 		{
 			"80 sheds the claim count and the worker",
 			80,
-			tableCols{scope: 12, title: 36, claims: 0, worker: 0, lease: 8, left: 7, id: 7},
+			tableCols{priority: 1, scope: 12, title: 36, claims: 0, worker: 0, lease: 8, left: 7, id: 7},
 		},
 		{
 			"70 still pays for the lease bar",
 			70,
-			tableCols{scope: 12, title: 26, claims: 0, worker: 0, lease: 8, left: 7, id: 7},
+			tableCols{priority: 1, scope: 12, title: 26, claims: 0, worker: 0, lease: 8, left: 7, id: 7},
 		},
 		{
 			"58 sheds the lease bar and the remaining time",
 			58,
-			tableCols{scope: 12, title: 31, claims: 0, worker: 0, lease: 0, left: 0, id: 7},
+			tableCols{priority: 1, scope: 12, title: 31, claims: 0, worker: 0, lease: 0, left: 0, id: 7},
 		},
 		{
 			"50 degrades the scope to its header",
 			50,
-			tableCols{scope: 5, title: 30, claims: 0, worker: 0, lease: 0, left: 0, id: 7},
+			tableCols{priority: 1, scope: 5, title: 30, claims: 0, worker: 0, lease: 0, left: 0, id: 7},
 		},
 		{
 			"42 gives up the id last",
 			42,
-			tableCols{scope: 5, title: 30, claims: 0, worker: 0, lease: 0, left: 0, id: 0},
+			tableCols{priority: 1, scope: 5, title: 30, claims: 0, worker: 0, lease: 0, left: 0, id: 0},
 		},
 		{
 			"32 has nothing left to shed",
 			32,
-			tableCols{scope: 5, title: 20, claims: 0, worker: 0, lease: 0, left: 0, id: 0},
+			tableCols{priority: 1, scope: 5, title: 20, claims: 0, worker: 0, lease: 0, left: 0, id: 0},
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := budgetColumns(c.w, 14, 25, 4, true)
+			got := budgetColumns(c.w, 1, 14, 25, 4, true)
 			if got != c.want {
 				t.Fatalf("budgetColumns(%d) = %+v, want %+v", c.w, got, c.want)
 			}
@@ -61,7 +61,7 @@ func TestBudgetColumnsShedsRedundancyBeforeTitle(t *testing.T) {
 // title keeps 24 columns and the row keeps one identifier.
 func TestBudgetColumnsKeepsTitleAndOneIdentifier(t *testing.T) {
 	for w := 44; w <= 60; w++ {
-		got := budgetColumns(w, 14, 25, 4, true)
+		got := budgetColumns(w, 1, 14, 25, 4, true)
 		if got.title < 24 {
 			t.Fatalf("%d cols: title %d, want at least 24 (%+v)", w, got.title, got)
 		}
@@ -73,9 +73,17 @@ func TestBudgetColumnsKeepsTitleAndOneIdentifier(t *testing.T) {
 
 // Nothing is shed while there is room, whatever the rows happen to hold.
 func TestBudgetColumnsKeepsEveryColumnWhenItFits(t *testing.T) {
-	got := budgetColumns(110, 5, 0, 0, false)
-	want := tableCols{scope: 5, title: 74, claims: 0, worker: 0, lease: 8, left: 7, id: 7}
+	got := budgetColumns(110, 1, 5, 0, 0, false)
+	want := tableCols{priority: 1, scope: 5, title: 74, claims: 0, worker: 0, lease: 8, left: 7, id: 7}
 	if got != want {
 		t.Fatalf("budgetColumns(110) = %+v, want %+v", got, want)
+	}
+}
+
+func TestBudgetColumnsPriorityWidth(t *testing.T) {
+	got := budgetColumns(110, 2, 5, 0, 0, false)
+	want := tableCols{priority: 2, scope: 5, title: 73, claims: 0, worker: 0, lease: 8, left: 7, id: 7}
+	if got != want {
+		t.Fatalf("budgetColumns(110, pri 2) = %+v, want %+v", got, want)
 	}
 }

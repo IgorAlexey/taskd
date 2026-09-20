@@ -69,7 +69,7 @@ func TestTUISortColumn(t *testing.T) {
 			m.tasks[m.shown[0]].ID, m.tasks[m.shown[1]].ID, m.tasks[m.shown[2]].ID)
 	}
 	view = ansi.Strip(m.View().Content)
-	if !strings.Contains(view, "*p") && !strings.Contains(view, "▼p") {
+	if !strings.Contains(view, "* p") && !strings.Contains(view, "▼ p") && !strings.Contains(view, "*p") && !strings.Contains(view, "▼p") {
 		t.Fatalf("expected status header indicator in view:\n%s", view)
 	}
 
