@@ -1041,9 +1041,14 @@
 
     async function loadStats() {
       const select = document.getElementById('filter-project');
+      const workerEl = document.getElementById('filter-worker');
       const proj = select ? select.value : '';
+      const worker = workerEl ? workerEl.value : '';
       let url = '/stats';
-      if (proj) url += '?project=' + encodeURIComponent(proj);
+      const params = [];
+      if (proj) params.push('project=' + encodeURIComponent(proj));
+      if (worker) params.push('worker=' + encodeURIComponent(worker));
+      if (params.length > 0) url += '?' + params.join('&');
       try {
         const stats = await fetchJSON(url);
         if (!stats) return;

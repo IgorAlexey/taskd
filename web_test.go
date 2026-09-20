@@ -143,3 +143,15 @@ func TestWebUIConfirmActions(t *testing.T) {
 		t.Error("expected closeTask to require confirmation before closing")
 	}
 }
+func TestWebUIWorkerStats(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `<select id="filter-worker" onchange="onFilterChange()">`) {
+		t.Fatal("expected filter-worker select to trigger onFilterChange")
+	}
+	if !strings.Contains(ui, "const workerEl = document.getElementById('filter-worker');") {
+		t.Fatal("expected loadStats to read filter-worker element")
+	}
+	if !strings.Contains(ui, "'worker=' + encodeURIComponent(worker)") {
+		t.Fatal("expected loadStats to pass encoded worker to /stats")
+	}
+}
