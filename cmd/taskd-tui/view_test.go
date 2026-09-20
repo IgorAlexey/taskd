@@ -324,7 +324,7 @@ func TestGlyphModesUseTheirOwnTextGlyphs(t *testing.T) {
 
 func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 	modes := []mode{modeTable, modeSearch, modeDetail, modeZoom, modeForm, modeConfirm, modeHelp}
-	for _, w := range []int{30, 50, 80, 100} {
+	for _, w := range []int{12, 20, 30, 50, 80, 100} {
 		for h := 1; h <= 40; h++ {
 			for _, md := range modes {
 				m := newModel(config{}, nil)
@@ -344,13 +344,21 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 				}
 				// Border, three fields, one body row, the error and the
 				// button need eight rows; from there both must be on screen.
-				if md == modeForm && h >= 8 {
+				if md == modeForm && w >= 30 && h >= 8 {
 					all := strings.Join(lines, "\n")
-					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "project cannot be blank") {
+					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "cannot be") {
 						t.Fatalf("%dx%d form hides the button or the error:\n%s", w, h, all)
 					}
 				}
-				if md == modeHelp && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "Press ?") {
+				for _, l := range lines {
+					if lw := ansi.StringWidth(l); lw > w {
+						t.Fatalf("%dx%d mode %d line is %d wide: %q", w, h, md, lw, l)
+					}
+				}
+				if md == modeConfirm && w >= 30 && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "[y]") {
+					t.Fatalf("%dx%d confirm hides its actions:\n%s", w, h, strings.Join(lines, "\n"))
+				}
+				if md == modeHelp && w >= 20 && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "Press ?") {
 					t.Fatalf("%dx%d help hides the closing hint", w, h)
 				}
 			}

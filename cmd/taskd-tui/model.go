@@ -68,7 +68,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		if m.mode == modeForm {
-			m.form.resize(msg.Width)
+			m.form.fit(msg.Width, msg.Height, m.theme)
 		}
 		vw := m.width - 2
 		if vw < 1 {
@@ -429,6 +429,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Text == "n":
 				m.form = newCreateForm(m.project, m.width)
+				m.form.fit(m.width, m.height, m.theme)
 				m.mode = modeForm
 				return m, nil
 			case msg.Text == "e":
@@ -445,6 +446,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 				m.form = newEditForm(t, m.width)
+				m.form.fit(m.width, m.height, m.theme)
 				m.mode = modeForm
 				return m, nil
 			case msg.Text == "+" || msg.Text == "=" || msg.Code == '+' || msg.Code == '=':

@@ -8,6 +8,7 @@ import (
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type formModel struct {
@@ -103,17 +104,17 @@ func newEditForm(t task, width int) formModel {
 	return f
 }
 
+// formBoxWidth is the form's outer width for a terminal width.
+func formBoxWidth(width int) int {
+	return min(max(20, min(width-4, 90)), max(3, width))
+}
+
 func (f *formModel) resize(width int) {
-	boxWidth := max(60, min(width-4, 90))
-	if width > 0 && boxWidth > width {
-		boxWidth = width
-	}
-	inner := max(20, boxWidth-4)
-	inputW := max(10, inner-11)
-	f.project.SetWidth(inputW)
-	f.priority.SetWidth(inputW)
-	f.asset.SetWidth(inputW)
-	f.body.SetWidth(inner)
+	inner := formBoxWidth(width) - 4
+	f.project.SetWidth(max(1, inner-11))
+	f.priority.SetWidth(max(1, inner-11))
+	f.asset.SetWidth(max(1, inner-11))
+	f.body.SetWidth(max(1, inner))
 }
 
 // lines is the form's rows at a given level of compaction: 0 keeps the
@@ -155,9 +156,30 @@ func (f formModel) lines(level int, th theme) (rows []string, slot int) {
 func wrapRows(rows []string, width int) []string {
 	var out []string
 	for _, r := range rows {
-		out = append(out, strings.Split(lipgloss.NewStyle().Width(width).Render(r), "\n")...)
+		soft := lipgloss.NewStyle().Width(width).Render(r)
+		for _, l := range strings.Split(ansi.Hardwrap(soft, width, true), "\n") {
+			out = append(out, strings.TrimRight(l, " "))
+		}
 	}
 	return out
+}
+
+// box draws an overlay. boxWidth is the outer width; lines are already
+// wrapped to boxWidth-4 (border and one cell of padding each side).
+// When they do not fit height, the last keep lines stay and the ones
+// before them are cut, so a hint or an action row is never the casualty.
+func box(lines []string, keep, boxWidth, height int, align lipgloss.Position, th theme) string {
+	if room := max(1, height-2); len(lines) > room {
+		tail := lines[len(lines)-keep:]
+		lines = append(lines[:max(0, room-keep)], tail...)
+	}
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(th.accent.GetForeground()).
+		Padding(0, 1).
+		Width(boxWidth).
+		Align(align).
+		Render(lipgloss.JoinVertical(align, lines...))
 }
 
 func (f *formModel) setFocus(target int) tea.Cmd {
@@ -356,19 +378,14 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 	return method, path, body, success, ""
 }
 
-func (f formModel) View(width, height int, th theme) string {
+// fit lays the form out for a terminal: rows are built, wrapped to the
+// box and counted; the textarea gets what is left, compacting rows when
+// even one is short. It sets the stored textarea size, so Update and
+// View agree on the layout.
+func (f *formModel) fit(width, height int, th theme) (lines []string, boxWidth, keep int) {
 	f.resize(width)
-
-	boxWidth := max(60, min(width-4, 90))
-	if width > 0 && boxWidth > width {
-		boxWidth = width
-	}
-
-	// Build the rows first, wrap them to the box, then give the textarea
-	// what the terminal has left after them and the border; compact when
-	// even one row is short.
-	inner := max(1, boxWidth-4)
-	var lines []string
+	boxWidth = formBoxWidth(width)
+	inner := boxWidth - 4
 	var slot, bodyH int
 	for level := 0; level <= 2; level++ {
 		rows, s := f.lines(level, th)
@@ -380,18 +397,27 @@ func (f formModel) View(width, height int, th theme) string {
 			break
 		}
 	}
-	f.body.SetHeight(max(1, min(12, bodyH)))
-	lines[slot] = f.body.View()
+	bodyH = max(1, min(12, bodyH))
+	f.body.SetHeight(bodyH)
+	// The textarea can render its placeholder taller than its height;
+	// hold it to the rows that were budgeted.
+	body := wrapRows([]string{f.body.View()}, inner)
+	if len(body) > bodyH {
+		body = body[:bodyH]
+	}
+	lines = append(lines[:slot], append(body, lines[slot+1:]...)...)
+	// keep counts the wrapped lines of the error and the button, which a
+	// short frame must never cut; the hint after them may go.
+	keep = len(wrapRows([]string{"[ save ]"}, inner))
+	if f.errText != "" {
+		keep += len(wrapRows([]string{f.errText}, inner))
+	}
+	return lines, boxWidth, keep
+}
 
-	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
-
-	boxStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(th.accent.GetForeground()).
-		Padding(0, 1).
-		Width(boxWidth)
-
-	return boxStyle.Render(content)
+func (f formModel) View(width, height int, th theme) string {
+	lines, boxWidth, keep := f.fit(width, height, th)
+	return box(lines, keep, boxWidth, height, lipgloss.Left, th)
 }
 
 type confirmModel struct {
@@ -404,23 +430,11 @@ func (c confirmModel) View(width, height int, th theme) string {
 	if btn == "" {
 		btn = "confirm"
 	}
-
 	actions := th.accent.Render("[y] "+btn) + "   " + th.dim.Render("[n] cancel")
-	content := lipgloss.JoinVertical(lipgloss.Center, c.text, "", actions)
-
-	boxWidth := max(30, min(width-4, 50))
-	if width > 0 && boxWidth > width {
-		boxWidth = width
-	}
-
-	boxStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(th.accent.GetForeground()).
-		Padding(1, 2).
-		Width(boxWidth).
-		Align(lipgloss.Center)
-
-	return boxStyle.Render(content)
+	boxWidth := min(max(20, min(width-4, 54)), max(3, width))
+	act := wrapRows([]string{actions}, boxWidth-4)
+	lines := append(wrapRows([]string{c.text, ""}, boxWidth-4), act...)
+	return box(lines, len(act), boxWidth, height, lipgloss.Center, th)
 }
 
 func padRightVisual(s string, w int) string {
@@ -475,21 +489,10 @@ func helpView(width, height int, th theme) string {
 	rows = append(rows, "", th.dim.Render("Press ? or Esc to close"))
 
 	// Wrap to the box first, then fit the lines to the terminal before
-	// drawing the border: lines go from the bottom, the closing hint
-	// last, so the box stays whole.
-	boxWidth := min(lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...))+4, max(10, width-4))
+	// drawing the border; the closing hint keeps all its lines.
+	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...)) + 4
+	boxWidth := min(natural, max(3, width))
 	hint := wrapRows(rows[len(rows)-1:], boxWidth-4)
-	lines := wrapRows(rows[:len(rows)-1], boxWidth-4)
-	if room := max(1, height-2); len(lines)+len(hint) > room {
-		lines = lines[:max(0, room-len(hint))]
-	}
-	content := lipgloss.JoinVertical(lipgloss.Left, append(lines, hint...)...)
-
-	boxStyle := lipgloss.NewStyle().
-		BorderStyle(lipgloss.RoundedBorder()).
-		BorderForeground(th.accent.GetForeground()).
-		Padding(0, 1).
-		Width(boxWidth)
-
-	return boxStyle.Render(content)
+	lines := append(wrapRows(rows[:len(rows)-1], boxWidth-4), hint...)
+	return box(lines, len(hint), boxWidth, height, lipgloss.Left, th)
 }
