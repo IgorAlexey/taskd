@@ -836,6 +836,10 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		m.sortCol = (m.sortCol + 1) % sortColCount
 		m.rebuild()
 		return m, nil, true
+	case "S":
+		m.sortCol = (m.sortCol - 1 + sortColCount) % sortColCount
+		m.rebuild()
+		return m, nil, true
 	case "n":
 		m, cmd := m.actionCreate()
 		return m, cmd, true

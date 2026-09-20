@@ -26,7 +26,7 @@ func TestShortcutDocsSync(t *testing.T) {
 
 	for _, want := range []string{
 		"a                   add note",
-		"s                   cycle sort",
+		"s, S                cycle sort column forward / backward",
 		"p, P                cycle project filter forward / backward",
 		"Esc                 reset filters / exit panes",
 		"Enter               activate detail pane",
@@ -36,7 +36,7 @@ func TestShortcutDocsSync(t *testing.T) {
 		}
 	}
 
-	const wantSort = "s                   cycle sort"
+	const wantSort = "s, S                cycle sort column forward / backward"
 	if !strings.Contains(usage, wantSort) {
 		t.Fatalf("printUsage missing sort shortcut; want substring %q", wantSort)
 	}
@@ -65,7 +65,7 @@ func TestShortcutDocsSync(t *testing.T) {
 	if !strings.Contains(helpContent, "[0-5]") || !strings.Contains(helpContent, "filter (status)") {
 		t.Errorf("help modal missing [0-5] filter (status); got:\n%s", helpContent)
 	}
-	for _, key := range []string{"[s]", "[Esc]", "[Enter]"} {
+	for _, key := range []string{"[s/S]", "[Esc]", "[Enter]"} {
 		if !strings.Contains(helpContent, key) {
 			t.Errorf("help modal missing %s; got:\n%s", key, helpContent)
 		}

@@ -273,3 +273,19 @@ func TestSortEnvVar(t *testing.T) {
 		t.Fatal("printUsage missing TASKD_SORT under Environment variables")
 	}
 }
+
+func TestSortReverse(t *testing.T) {
+	m := newModel(config{icons: false}, nil)
+	if m.sortCol != sortPriority {
+		t.Fatalf("expected initial sortPriority, got %v", m.sortCol)
+	}
+
+	expected := []sortColumn{sortLease, sortWorker, sortProject, sortStatus, sortPriority}
+	for _, want := range expected {
+		up, _ := m.Update(tea.KeyPressMsg{Text: "S"})
+		m = up.(model)
+		if m.sortCol != want {
+			t.Fatalf("expected sort column %v after 'S', got %v", want, m.sortCol)
+		}
+	}
+}
