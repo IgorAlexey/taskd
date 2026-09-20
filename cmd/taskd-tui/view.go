@@ -917,17 +917,18 @@ func (m model) emptyState() string {
 	return "No tasks match filter."
 }
 func (m model) footerItems() [][2]string {
-	if m.mode == modeDetail || m.mode == modeZoom {
-		return [][2]string{
-			{"j/k", "scroll"},
-			{"a", "note"},
-			{"Tab", "back"},
-			{"z", "zoom"},
-			{"y/Y", "copy"},
-		}
-	}
 	var items [][2]string
-	if t, ok := m.selected(); ok {
+	t, hasTask := m.selected()
+
+	if m.mode == modeDetail || m.mode == modeZoom {
+		items = append(items,
+			[2]string{"j/k", "scroll"},
+			[2]string{"Tab", "back"},
+			[2]string{"z", "zoom"},
+		)
+	}
+
+	if hasTask {
 		switch t.Status {
 		case "pending":
 			items = append(items, [2]string{"c", "claim"})
@@ -940,6 +941,19 @@ func (m model) footerItems() [][2]string {
 		case "buried":
 			items = append(items, [2]string{"K", "kick"})
 		}
+	}
+
+	if m.mode == modeDetail || m.mode == modeZoom {
+		if hasTask {
+			items = append(items,
+				[2]string{"e", "edit"},
+				[2]string{"a", "note"},
+				[2]string{"x", "complete"},
+				[2]string{"D", "delete"},
+			)
+		}
+		items = append(items, [2]string{"y/Y", "copy"})
+		return items
 	}
 	items = append(items, [2]string{"s", "sort"})
 	if len(m.projects) > 0 {
