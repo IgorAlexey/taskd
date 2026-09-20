@@ -77,7 +77,7 @@ function setupHarness(htmlPath, initialSearch = '') {
   const thead = makeElement('thead');
   thead.id = 'task-table-head';
 
-  const cols = ['id', 'project', 'status', 'priority', 'claim_count', 'worker'];
+  const cols = ['id', 'project', 'status', 'priority', 'claim_count', 'worker', 'created_at'];
   const headers = {};
   for (const col of cols) {
     const th = makeElement('th');

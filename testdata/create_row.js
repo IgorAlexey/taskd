@@ -58,8 +58,8 @@ const badge = cells[2].children[0];
 const prio = cells[3];
 const claim = cells[4];
 const worker = cells[5];
-const summary = cells[6];
-
+const createdAt = cells[6];
+const summary = cells[7];
 const out = {
   btnTitle: btn.title,
   btnText: btn.textContent,

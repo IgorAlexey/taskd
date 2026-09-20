@@ -814,11 +814,12 @@
               <th scope="col" class="sortable" tabindex="0" data-col="priority">Priority</th>
               <th scope="col" class="sortable" tabindex="0" data-col="claim_count">Claims</th>
               <th scope="col" class="sortable" tabindex="0" data-col="worker">Worker</th>
+              <th scope="col" class="sortable" tabindex="0" data-col="created_at">Created At</th>
               <th scope="col">Summary</th>
             </tr>
           </thead>
           <tbody id="task-table-body">
-            <tr><td colspan="7">Not connected</td></tr>
+            <tr><td colspan="8">Not connected</td></tr>
           </tbody>
         </table>
       </div>
@@ -924,19 +925,22 @@
     let currentTask = null;
     let isEditingTask = false;
     const PAGE_SIZE = 200;
-    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,asset_path,summary';
+    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,asset_path,summary,created_at';
     let claimWorker = '';
     let currentPage = 1;
     let totalTasks = 0;
     let lastRenderedTasksURL = '';
     let sortCol = '';
     let sortDir = 'asc';
-    const SORT_COLS = ['id', 'project', 'status', 'priority', 'claim_count', 'worker'];
+    const SORT_COLS = ['id', 'project', 'status', 'priority', 'claim_count', 'worker', 'created_at'];
     function cleanSortCol(val) {
       return (val && typeof val === 'string' && SORT_COLS.includes(val)) ? val : '';
     }
     function cleanSortDir(val) {
       return val === 'desc' ? 'desc' : (val === 'asc' ? 'asc' : '');
+    }
+    function formatTimestamp(sec) {
+      return sec ? new Date(sec * 1000).toLocaleString() : '';
     }
     function updateSortHeaders() {
       const ths = document.querySelectorAll('th.sortable');
@@ -1520,6 +1524,7 @@
         priority: String(t.priority ?? ''),
         claimCount: String(t.claim_count ?? 0),
         worker: t.worker || '',
+        createdAt: formatTimestamp(t.created_at),
         summary: t.summary || t.asset_path || ''
       };
     }
@@ -1564,6 +1569,7 @@
       tr.appendChild(createCell('priority', f.priority));
       tr.appendChild(createCell('claim_count', f.claimCount));
       tr.appendChild(createCell('worker', f.worker, 'mono'));
+      tr.appendChild(createCell('created_at', f.createdAt));
       tr.appendChild(createCell('summary', f.summary));
       return tr;
     }
@@ -1590,6 +1596,7 @@
       setText(tr.querySelector('[data-field="priority"]'), f.priority);
       setText(tr.querySelector('[data-field="claim_count"]'), f.claimCount);
       setText(tr.querySelector('[data-field="worker"]'), f.worker);
+      setText(tr.querySelector('[data-field="created_at"]'), f.createdAt);
       setText(tr.querySelector('[data-field="summary"]'), f.summary);
       const badge = tr.querySelector('[data-field="status"] .badge');
       if (badge) {
@@ -1668,7 +1675,7 @@
               emptyRow = document.createElement('tr');
               tbody.appendChild(emptyRow);
             }
-            emptyRow.innerHTML = '<td colspan="7">No tasks</td>';
+            emptyRow.innerHTML = '<td colspan="8">No tasks</td>';
             return;
           }
 
@@ -1983,14 +1990,8 @@
           primStr = JSON.stringify(t.primitives, null, 2);
         }
       }
-      let leaseExpStr = '';
-      if (t.status === 'leased' && t.lease_expires) {
-        try {
-          leaseExpStr = new Date(t.lease_expires * 1000).toLocaleString();
-        } catch (_) {
-          leaseExpStr = String(t.lease_expires);
-        }
-      }
+      let leaseExpStr = (t.status === 'leased' && t.lease_expires) ? formatTimestamp(t.lease_expires) : '';
+      let createdAtStr = formatTimestamp(t.created_at);
       const prevScrollTop = sameTask ? pane.scrollTop : 0;
       const existingAuthor = document.getElementById('note-author');
       if (existingAuthor && existingAuthor.value) {
@@ -2022,6 +2023,7 @@
           <div class="field"><span class="field-label">Claim Count</span><span id="edit-task-claim-count"></span></div>
           <div class="field" id="edit-task-worker-row" hidden><span class="field-label">Worker</span><span id="edit-task-worker" class="mono"></span></div>
           <div class="field" id="edit-task-lease-row" hidden><span class="field-label">Lease Expires</span><span id="edit-task-lease"></span></div>
+          <div class="field" id="edit-task-created-row" hidden><span class="field-label">Created At</span><span id="edit-task-created"></span></div>
           <div class="field">
             <label for="edit-task-asset-path" class="field-label">Asset Path</label>
             <input type="text" id="edit-task-asset-path">
@@ -2060,6 +2062,11 @@
         if (editLeaseRow && leaseExpStr) {
           editLeaseRow.hidden = false;
           setText(document.getElementById('edit-task-lease'), leaseExpStr);
+        }
+        const editCreatedRow = document.getElementById('edit-task-created-row');
+        if (editCreatedRow && createdAtStr) {
+          editCreatedRow.hidden = false;
+          setText(document.getElementById('edit-task-created'), createdAtStr);
         }
         const editPrimRow = document.getElementById('edit-task-prim-row');
         if (editPrimRow && primStr) {
@@ -2129,6 +2136,7 @@
           </div>
           <div class="metadata-row" id="detail-task-worker-row" hidden><dt class="field-label">Worker</dt><dd id="detail-task-worker" class="mono"></dd></div>
           <div class="metadata-row" id="detail-task-lease-row" hidden><dt class="field-label">Lease Expires</dt><dd id="detail-task-lease"></dd></div>
+          <div class="metadata-row" id="detail-task-created-row" hidden><dt class="field-label">Created At</dt><dd id="detail-task-created"></dd></div>
           <div class="metadata-row" id="detail-task-asset-row" hidden><dt class="field-label">Asset Path</dt><dd id="detail-task-asset" class="mono"></dd></div>
         </dl>
         <div class="field">
@@ -2206,6 +2214,11 @@
       if (leaseRow && leaseExpStr) {
         leaseRow.hidden = false;
         setText(document.getElementById('detail-task-lease'), leaseExpStr);
+      }
+      const createdRow = document.getElementById('detail-task-created-row');
+      if (createdRow && createdAtStr) {
+        createdRow.hidden = false;
+        setText(document.getElementById('detail-task-created'), createdAtStr);
       }
       const assetRow = document.getElementById('detail-task-asset-row');
       if (assetRow && t.asset_path) {
