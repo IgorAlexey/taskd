@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -71,7 +72,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7}
 
 const schemaVersion = len(migrations) + 1
 
@@ -125,14 +126,22 @@ const (
 	maxReaders                = 8
 	walJournalSizeLimit       = 67108864
 	defaultCheckpointInterval = 2 * time.Second
+	defaultSweepInterval      = 1 * time.Second
 )
 
 type store struct {
-	rw *sql.DB
-	ro *sql.DB
+	rw        *sql.DB
+	ro        *sql.DB
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	maxClaims int
 }
 
 func (s *store) Close() error {
+	if s.cancel != nil {
+		s.cancel()
+		s.wg.Wait()
+	}
 	var err error
 	if s.ro != s.rw {
 		err = s.ro.Close()
@@ -143,7 +152,11 @@ func (s *store) Close() error {
 	return err
 }
 
-func openDB(path string) (s *store, err error) {
+func (s *store) sweep() (int64, error) {
+	return sweepExpired(s.rw, s.maxClaims)
+}
+
+func openDB(path string, maxClaims int) (s *store, err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("cannot open database %s: %w", path, err)
@@ -153,23 +166,32 @@ func openDB(path string) (s *store, err error) {
 	if err != nil {
 		return nil, err
 	}
+	var ro *sql.DB
 	if _, memory := resolveDBPath(path); memory {
-		return &store{rw: rw, ro: rw}, nil
+		ro = rw
+	} else {
+		ro, err = openDBConn(path, true)
+		if err != nil {
+			rw.Close()
+			return nil, err
+		}
+		ro.SetMaxOpenConns(maxReaders)
+		ro.SetMaxIdleConns(maxReaders)
+		ro.SetConnMaxIdleTime(30 * time.Second)
+		if err := ro.Ping(); err != nil {
+			ro.Close()
+			rw.Close()
+			return nil, err
+		}
 	}
-	ro, err := openDBConn(path, true)
-	if err != nil {
-		rw.Close()
-		return nil, err
-	}
-	ro.SetMaxOpenConns(maxReaders)
-	ro.SetMaxIdleConns(maxReaders)
-	ro.SetConnMaxIdleTime(30 * time.Second)
-	if err := ro.Ping(); err != nil {
-		ro.Close()
-		rw.Close()
-		return nil, err
-	}
-	return &store{rw: rw, ro: ro}, nil
+	ctx, cancel := context.WithCancel(context.Background())
+	s = &store{rw: rw, ro: ro, cancel: cancel, maxClaims: maxClaims}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		runLeaseSweeper(ctx, s, defaultSweepInterval)
+	}()
+	return s, nil
 }
 
 func openRW(path string) (*sql.DB, error) {
@@ -189,8 +211,9 @@ func openRW(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("unsupported schema version %d (this binary supports %d)", version, schemaVersion)
 	}
 	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
-DROP INDEX IF EXISTS idx_tasks_claim;
-CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority ASC);
+CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, id ASC) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, id ASC) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);
 CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;`
 	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
@@ -440,6 +463,28 @@ func migrateV6(db *sql.DB) error {
 	stmts := []string{
 		"CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;",
 		"PRAGMA user_version = 6;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func migrateV7(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"DROP INDEX IF EXISTS idx_tasks_queue;",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, id ASC) WHERE status = 'pending';",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, id ASC) WHERE status = 'pending';",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';",
+		"PRAGMA user_version = 7;",
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.Exec(stmt); err != nil {
@@ -1033,17 +1078,16 @@ func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
 }
 
 func newHandler(db *store, lease int) http.Handler {
-	return newHandlerWithCORS(db, lease, 0, "")
+	return newHandlerWithCORS(db, lease, "")
 }
 
-func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http.Handler {
+func newHandlerWithCORS(db *store, lease int, corsOrigin string) http.Handler {
 	mux := http.NewServeMux()
 	dbName := mainDBName(db.ro)
 
 	sweepLapsedLeases := func(id string) error {
-		return sweepLapsed(db.rw, maxClaims, id)
+		return sweepLapsed(db.rw, db.maxClaims, id)
 	}
-
 	uiHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Write(uiHTML)
@@ -1179,22 +1223,17 @@ FROM tasks`
 			writeError(w, http.StatusBadRequest, "invalid project")
 			return
 		}
-		if err := sweepLapsedLeases(""); err != nil {
-			internalError(w, err)
-			return
-		}
 		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = (
   SELECT id FROM tasks
-  WHERE status='pending'
-  AND (? <= 0 OR claim_count < ?)`
-		args := []any{req.Worker, lease, maxClaims, maxClaims}
+  WHERE status='pending'`
+		args := []any{req.Worker, lease}
 		if req.Project != "*" {
 			query += " AND project = ?"
 			args = append(args, req.Project)
 		}
 		query += `
-  ORDER BY priority ASC, rowid ASC
+  ORDER BY priority ASC, id ASC
   LIMIT 1
 ) RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count`
 		var (
@@ -1243,7 +1282,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.rw.QueryRow(query, worker, lease, id, maxClaims, maxClaims).
+		err := db.rw.QueryRow(query, worker, lease, id, db.maxClaims, db.maxClaims).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db.ro, id, "", nil)
@@ -2128,6 +2167,34 @@ func checkpointWAL(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+func sweepExpired(db *sql.DB, maxClaims int) (int64, error) {
+	const query = `UPDATE tasks
+SET status = CASE WHEN ? > 0 AND claim_count >= ? THEN 'buried' ELSE 'pending' END,
+    worker = NULL,
+    lease_expires = NULL
+WHERE status = 'leased' AND lease_expires < unixepoch()`
+	res, err := db.Exec(query, maxClaims, maxClaims)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+func runLeaseSweeper(ctx context.Context, s *store, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if _, err := s.sweep(); err != nil && !errors.Is(err, context.Canceled) {
+				log.Printf("lease sweeper error: %v", err)
+			}
+		}
+	}
+}
+
 func runCheckpointer(ctx context.Context, db *sql.DB, interval time.Duration, onTick func()) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -2146,16 +2213,16 @@ func runCheckpointer(ctx context.Context, db *sql.DB, interval time.Duration, on
 	}
 }
 
-func runServer(ctx context.Context, l net.Listener, db *store, lease, maxClaims int, corsOrigin string) error {
+func runServer(ctx context.Context, l net.Listener, db *store, lease int, corsOrigin string) error {
 	srv := &http.Server{
-		Handler:           newHandlerWithCORS(db, lease, maxClaims, corsOrigin),
+		Handler:           newHandlerWithCORS(db, lease, corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	serverCtx, cancelServer := context.WithCancel(ctx)
 	defer cancelServer()
 	sweepFn := func() {
-		sweepLapsed(db.rw, maxClaims, "")
+		sweepLapsed(db.rw, db.maxClaims, "")
 	}
 	go runCheckpointer(serverCtx, db.rw, defaultCheckpointInterval, sweepFn)
 
@@ -2340,7 +2407,7 @@ func run(args []string) error {
 		return backupDB(db, cfg.backupPath, os.Stdout)
 	}
 
-	db, err := openDB(cfg.dbPath)
+	db, err := openDB(cfg.dbPath, cfg.maxClaims)
 	if err != nil {
 		return err
 	}
@@ -2353,7 +2420,7 @@ func run(args []string) error {
 		return err
 	}
 
-	return runServer(ctx, l, db, cfg.lease, cfg.maxClaims, cfg.corsOrigin)
+	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin)
 }
 
 func fatal(stderr io.Writer, err error) int {

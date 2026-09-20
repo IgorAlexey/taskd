@@ -3,23 +3,25 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
 func TestCORSHeaders(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
 	defer db.Close()
 
-	srv := httptest.NewServer(newHandlerWithCORS(db, 300, 0, "http://example.com"))
+	srv := httptest.NewServer(newHandlerWithCORS(db, 300, "http://example.com"))
 	defer srv.Close()
 
 	req, err := http.NewRequest(http.MethodGet, srv.URL+"/tasks", nil)
@@ -77,7 +79,7 @@ func TestCORSHeaders(t *testing.T) {
 func TestBackupDestinationDirectory(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.db")
-	db, err := openDB(dbPath)
+	db, err := openDB(dbPath, 0)
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
@@ -109,7 +111,7 @@ func TestBackupDestinationDirectory(t *testing.T) {
 }
 
 func TestStatsWorkerFilter(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
@@ -203,7 +205,7 @@ func TestStatsWorkerFilter(t *testing.T) {
 }
 
 func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {
 		t.Fatalf("openDB: %v", err)
 	}
@@ -337,6 +339,9 @@ func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
 		t.Fatalf("status=pending count (%d) != stats.Pending (%d)", len(pendingTasks), stats.Pending)
 	}
 
+	if _, err := db.sweep(); err != nil {
+		t.Fatalf("sweep: %v", err)
+	}
 	claim2Req, err := http.NewRequest(http.MethodPost, srv.URL+"/tasks/claim", strings.NewReader(`{"worker":"w2","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("claim 2 req: %v", err)
@@ -361,7 +366,7 @@ func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
 }
 
 func TestStatsPendingAgreesWithStatusPendingQuery(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {
 		t.Fatalf("openDB: %v", err)
 	}
@@ -473,13 +478,13 @@ func TestStatsPendingAgreesWithStatusPendingQuery(t *testing.T) {
 }
 
 func TestSweepLapsedBuriesExhaustedClaims(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 1)
 	if err != nil {
 		t.Fatalf("openDB: %v", err)
 	}
 	defer db.Close()
 
-	srv := httptest.NewServer(newHandlerWithCORS(db, 30, 1, ""))
+	srv := httptest.NewServer(newHandlerWithCORS(db, 30, ""))
 	defer srv.Close()
 
 	createReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/tasks", strings.NewReader(`{"body":"task-max","project":"p"}`))
@@ -512,7 +517,7 @@ func TestSweepLapsedBuriesExhaustedClaims(t *testing.T) {
 }
 
 func TestClaimProjectValidation(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
 	}
@@ -576,5 +581,194 @@ func TestClaimProjectValidation(t *testing.T) {
 	defer respValid.Body.Close()
 	if respValid.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK for valid project, got %d", respValid.StatusCode)
+	}
+}
+
+type testClient struct {
+	t   *testing.T
+	srv *httptest.Server
+}
+
+func (c *testClient) post(path, body string) (*http.Response, taskItem) {
+	c.t.Helper()
+	res, err := c.srv.Client().Post(c.srv.URL+path, "application/json", strings.NewReader(body))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	var item taskItem
+	if strings.Contains(res.Header.Get("Content-Type"), "application/json") {
+		json.NewDecoder(res.Body).Decode(&item)
+	}
+	res.Body.Close()
+	return res, item
+}
+
+func (c *testClient) get(path string) taskItem {
+	c.t.Helper()
+	res, err := c.srv.Client().Get(c.srv.URL + path)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var item taskItem
+	json.NewDecoder(res.Body).Decode(&item)
+	return item
+}
+
+func TestVoluntaryReleaseRefundsMaxClaims(t *testing.T) {
+	st, err := openDB(filepath.Join(t.TempDir(), "test.db"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(newHandlerWithCORS(st, 300, ""))
+	defer srv.Close()
+	c := testClient{t: t, srv: srv}
+
+	c.post("/tasks", `{"id":"healthy01","project":"mc","body":"healthy"}`)
+	_, itemA := c.post("/tasks/claim", `{"worker":"A","project":"mc"}`)
+	if itemA.ClaimCount != 1 {
+		t.Fatalf("worker A claim_count = %d, want 1", itemA.ClaimCount)
+	}
+	c.post("/tasks/healthy01/release", `{"worker":"A"}`)
+
+	_, itemB := c.post("/tasks/claim", `{"worker":"B","project":"mc"}`)
+	if itemB.ClaimCount != 1 {
+		t.Fatalf("worker B claim_count = %d, want 1", itemB.ClaimCount)
+	}
+	c.post("/tasks/healthy01/release", `{"worker":"B"}`)
+
+	task := c.get("/tasks/healthy01")
+	if task.Status != "pending" || task.ClaimCount != 0 {
+		t.Fatalf("task = %+v, want pending with claim_count 0", task)
+	}
+
+	resC, itemC := c.post("/tasks/claim", `{"worker":"C","project":"mc"}`)
+	if resC.StatusCode != http.StatusOK || itemC.ID != "healthy01" {
+		t.Fatalf("worker C claim status = %d, id = %q", resC.StatusCode, itemC.ID)
+	}
+}
+
+func TestLeaseExpirationExhaustsMaxClaims(t *testing.T) {
+	st, err := openDB(filepath.Join(t.TempDir(), "test.db"), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(newHandlerWithCORS(st, -1, ""))
+	defer srv.Close()
+	c := testClient{t: t, srv: srv}
+
+	c.post("/tasks", `{"id":"expired01","project":"mc","body":"failing"}`)
+	_, itemA := c.post("/tasks/claim", `{"worker":"A","project":"mc"}`)
+	if itemA.ClaimCount != 1 {
+		t.Fatalf("worker A claim_count = %d, want 1", itemA.ClaimCount)
+	}
+
+	if _, err := st.sweep(); err != nil {
+		t.Fatal(err)
+	}
+
+	_, itemB := c.post("/tasks/claim", `{"worker":"B","project":"mc"}`)
+	if itemB.ClaimCount != 2 {
+		t.Fatalf("worker B claim_count = %d, want 2", itemB.ClaimCount)
+	}
+
+	if _, err := st.sweep(); err != nil {
+		t.Fatal(err)
+	}
+
+	resC, _ := c.post("/tasks/claim", `{"worker":"C","project":"mc"}`)
+	if resC.StatusCode != http.StatusNoContent {
+		t.Fatalf("worker C status = %d, want 204 No Content", resC.StatusCode)
+	}
+
+	task := c.get("/tasks/expired01")
+	if task.Status != "buried" || task.ClaimCount != 2 {
+		t.Fatalf("task = %+v, want buried with claim_count 2", task)
+	}
+}
+
+func TestConcurrentClaimersExactlyOnce(t *testing.T) {
+	st, err := openDB(filepath.Join(t.TempDir(), "test.db"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	srv := httptest.NewServer(newHandler(st, 3600))
+	defer srv.Close()
+
+	const numTasks = 100
+	const numWorkers = 32
+
+	for i := range numTasks {
+		id := fmt.Sprintf("task-%04d", i)
+		body := fmt.Sprintf(`{"id":%q,"project":"bench","body":"work"}`, id)
+		res, err := srv.Client().Post(srv.URL+"/tasks", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatalf("failed to insert task %s: %v", id, err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusCreated {
+			t.Fatalf("unexpected status inserting task %s: %d", id, res.StatusCode)
+		}
+	}
+
+	var mu sync.Mutex
+	claimed := make(map[string]int)
+	var totalClaims int
+
+	var wg sync.WaitGroup
+	for w := range numWorkers {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			workerName := fmt.Sprintf("worker-%d", workerID)
+			payload := fmt.Sprintf(`{"worker":%q,"project":"bench"}`, workerName)
+			for {
+				res, err := srv.Client().Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(payload))
+				if err != nil {
+					t.Errorf("claim error for %s: %v", workerName, err)
+					return
+				}
+				if res.StatusCode == http.StatusNoContent {
+					res.Body.Close()
+					return
+				}
+				if res.StatusCode != http.StatusOK {
+					t.Errorf("unexpected status %d for %s", res.StatusCode, workerName)
+					res.Body.Close()
+					return
+				}
+				var item taskItem
+				if err := json.NewDecoder(res.Body).Decode(&item); err != nil {
+					t.Errorf("decode error for %s: %v", workerName, err)
+					res.Body.Close()
+					return
+				}
+				res.Body.Close()
+
+				mu.Lock()
+				totalClaims++
+				claimed[item.ID]++
+				mu.Unlock()
+			}
+		}(w)
+	}
+	wg.Wait()
+
+	if totalClaims != numTasks {
+		t.Fatalf("total claims = %d, want %d", totalClaims, numTasks)
+	}
+	if len(claimed) != numTasks {
+		t.Fatalf("distinct claimed tasks = %d, want %d", len(claimed), numTasks)
+	}
+	for id, count := range claimed {
+		if count != 1 {
+			t.Fatalf("task %s was claimed %d times, want 1", id, count)
+		}
 	}
 }
