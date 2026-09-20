@@ -97,6 +97,14 @@
   .btn-sm { padding: 2px 8px; font-size: 12px; }
   .input-sm { padding: 4px 8px; font-size: 12px; }
   .overflow-x-auto { overflow-x: auto; }
+  .empty-state {
+    padding: 1.5rem 1rem;
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .empty-state p {
+    margin: 0 0 0.5rem;
+  }
   header {
     display: flex;
     justify-content: space-between;
@@ -948,7 +956,9 @@
           <button type="button" id="task-details-close" class="modal-close-btn" onclick="clearSelectedTask()" aria-label="Close task details">&times;</button>
         </div>
         <div class="sidebar-section stack stack-sm" id="task-details-content">
-          <p class="text-muted italic">Select a task to view details</p>
+          <div class="empty-state">
+            <p class="text-muted italic">Select a task from the table to view details</p>
+          </div>
         </div>
       </section>
 
@@ -1862,6 +1872,8 @@
       }
     }
 
+    const EMPTY_DETAILS_HTML = '<div class="empty-state"><p class="text-muted italic">Select a task from the table to view details</p></div>';
+
     function resetTaskDetails() {
       shownTaskId = null;
       shownTaskRaw = '';
@@ -1869,8 +1881,13 @@
       isEditingTask = false;
       const pane = document.getElementById('task-details-content');
       if (pane) {
-        pane.innerHTML = '<p class="text-muted italic">Select a task to view details</p>';
+        pane.innerHTML = EMPTY_DETAILS_HTML;
       }
+    }
+
+    function focusTaskForm() {
+      const el = document.getElementById('form-project');
+      if (el) el.focus();
     }
 
     function rowFields(t) {
@@ -2039,7 +2056,11 @@
               emptyRow = document.createElement('tr');
               tbody.appendChild(emptyRow);
             }
-            emptyRow.innerHTML = '<td colspan="9">No tasks</td>';
+            if (hasActiveFilters()) {
+              emptyRow.innerHTML = '<td colspan="9"><div class="empty-state"><p>No tasks match active filters.</p><button type="button" class="btn-sm" onclick="resetFilters()">Reset Filters</button></div></td>';
+            } else {
+              emptyRow.innerHTML = '<td colspan="9"><div class="empty-state"><p>No tasks in queue.</p><a href="#submit-task-form" onclick="focusTaskForm()">Submit a task</a></div></td>';
+            }
             return;
           }
 
