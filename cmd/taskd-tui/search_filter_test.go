@@ -249,3 +249,42 @@ func TestMouseClickSelectDuringSearch(t *testing.T) {
 			m.detailID, m.detail.GetContent())
 	}
 }
+func TestFooterWithSearchFilter(t *testing.T) {
+	m := newModel(config{refresh: time.Hour, icons: true}, nil)
+	m.width = 120
+	m.height = 24
+	m.mode = modeTable
+	m.tasks = []task{
+		{ID: "task-1", Status: "pending", Body: "alpha task for testing search filter footer"},
+	}
+	m.query = "test"
+	m.rebuildShown()
+	m.cursor = 0
+
+	view := ansi.Strip(m.View().Content)
+	wantFilter := `filter "test" [Esc clear]`
+	if !strings.Contains(view, wantFilter) {
+		t.Fatalf("expected filter indicator %q in view:\n%s", wantFilter, view)
+	}
+
+	lines := strings.Split(strings.TrimRight(view, "\n"), "\n")
+	footer := lines[len(lines)-1]
+
+	for _, hint := range []string{"c claim", "e edit", "a note", "D delete"} {
+		if !strings.Contains(footer, hint) {
+			t.Fatalf("expected primary shortcut hint %q visible in footer alongside filter indicator:\n%s", hint, footer)
+		}
+	}
+
+	targets := m.footerTargets()
+	hasClear := false
+	for _, target := range targets {
+		if target.action == "clear_search" {
+			hasClear = true
+			break
+		}
+	}
+	if !hasClear {
+		t.Fatalf("expected clear_search target in footer targets")
+	}
+}

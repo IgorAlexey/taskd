@@ -935,9 +935,10 @@ func (m model) footerItems() [][2]string {
 		[2]string{"0-5", "filter"},
 		[2]string{"j/k", "move"},
 		[2]string{"e", "edit"},
+		[2]string{"a", "note"},
+		[2]string{"D", "delete"},
 		[2]string{"y/Y", "copy"},
 		[2]string{"+/-", "pri"},
-		[2]string{"D", "delete"},
 		[2]string{"x", "complete"},
 		[2]string{"z", "zoom"},
 	)
@@ -1030,22 +1031,39 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 	if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
 		return "", nil
 	}
+	availW := max(0, w-frw-1)
+	if availW <= 0 {
+		return "", nil
+	}
+
+	var sb strings.Builder
+	var targets []footerTarget
+	x := 0
+
 	if m.mode == modeTable && m.query != "" {
 		tag := m.theme.dim.Render("filter")
 		hint := m.theme.accent.Render("[Esc clear]")
-		q := trunc(m.query, max(0, w-frw-22), m.glyph.ellipsis)
-		footLeft := fmt.Sprintf("%s \"%s\" %s", tag, m.theme.bold.Render(q), hint)
-		start := 10 + ansi.StringWidth(q)
-		end := start + 11
-		return footLeft, []footerTarget{{action: "clear_search", start: start, end: end}}
+		hintW := ansi.StringWidth(hint)
+		overhead := ansi.StringWidth("filter \"\" ") + hintW
+		q := trunc(m.query, max(0, availW-overhead), m.glyph.ellipsis)
+		filterPill := fmt.Sprintf("%s \"%s\" %s", tag, m.theme.bold.Render(q), hint)
+		filterW := ansi.StringWidth(filterPill)
+		targets = append(targets, footerTarget{action: "clear_search", start: filterW - hintW, end: filterW})
+
+		sb.WriteString(filterPill)
+		x = filterW + 2
+		availW -= (filterW + 2)
 	}
 
-	availW := max(0, w-frw-1)
+	if availW <= 0 {
+		return sb.String(), targets
+	}
+
 	items := m.footerItems()
 	pinned := m.footerPinned()
 	allCount := len(items) + len(pinned)
-	if allCount == 0 || availW <= 0 {
-		return "", nil
+	if allCount == 0 {
+		return sb.String(), targets
 	}
 
 	itemWidth := func(it [2]string) int {
@@ -1073,10 +1091,6 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 		totalW += 2
 	}
 	totalW += tailW
-
-	var sb strings.Builder
-	var targets []footerTarget
-	x := 0
 
 	emitItem := func(it [2]string) {
 		if sb.Len() > 0 {
@@ -1128,9 +1142,8 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 			for _, it := range pinned {
 				emitItem(it)
 			}
-			return sb.String(), targets
 		}
-		return "", nil
+		return sb.String(), targets
 	}
 
 	for _, it := range items[:frontCount] {
