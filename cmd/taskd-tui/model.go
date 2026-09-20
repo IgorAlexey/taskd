@@ -33,10 +33,7 @@ func newModel(cfg config, c *client) model {
 	if vw < 1 {
 		vw = 1
 	}
-	vh := m.detailRows() - 4
-	if vh < 1 {
-		vh = 1
-	}
+	vh := m.detailViewportHeight()
 	m.detail.SetWidth(vw)
 	m.detail.SetHeight(vh)
 	return m
@@ -114,10 +111,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if vw < 1 {
 			vw = 1
 		}
-		vh := m.detailRows() - 4
-		if vh < 1 {
-			vh = 1
-		}
+		vh := m.detailViewportHeight()
 		m.detail.SetWidth(vw)
 		m.detail.SetHeight(vh)
 		m.clamp()
@@ -358,11 +352,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch {
 			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEscape:
 				m.mode = modeTable
-				vh := m.detailRows() - 4
-				if vh < 1 {
-					vh = 1
-				}
-				m.detail.SetHeight(vh)
 				return m, nil
 			case msg.Text == "z":
 				if m.mode == modeZoom {
@@ -370,11 +359,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					m.mode = modeZoom
 				}
-				vh := m.detailRows() - 4
-				if vh < 1 {
-					vh = 1
-				}
-				m.detail.SetHeight(vh)
+				m.clamp()
+				m.detail.SetHeight(m.detailViewportHeight())
 				return m, nil
 			case msg.Text == "q":
 				return m, tea.Quit
@@ -511,11 +497,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Text == "z":
 				m.mode = modeZoom
-				vh := m.detailRows() - 4
-				if vh < 1 {
-					vh = 1
-				}
-				m.detail.SetHeight(vh)
+				m.clamp()
+				m.detail.SetHeight(m.detailViewportHeight())
 				return m, nil
 			case msg.Text == "n":
 				var cmd tea.Cmd
@@ -807,6 +790,7 @@ func workerParts(w string) (host, checkout string) {
 }
 
 func (m *model) syncDetail() {
+	m.detail.SetHeight(m.detailViewportHeight())
 	t, ok := m.selected()
 	if !ok {
 		m.detailID = ""
@@ -867,4 +851,11 @@ func deleteWord(s string) string {
 		return s[:idx+1]
 	}
 	return ""
+}
+func (m model) detailViewportHeight() int {
+	vh := m.detailRows() - 3
+	if vh < 1 {
+		return 1
+	}
+	return vh
 }

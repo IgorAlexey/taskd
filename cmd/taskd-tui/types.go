@@ -161,6 +161,6 @@ const (
 	colHeadRows = 1 // table column header
 	footerRows  = 1 // key legend and position
 	gapRows     = 2 // blank line above the table and above the detail rule
-	minDetail   = 6 // detail pane never shrinks below this
-	minTable    = 3 // table never shrinks below this
+	minDetail   = 8
+	minTable    = 3
 )

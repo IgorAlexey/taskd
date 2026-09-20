@@ -28,20 +28,32 @@ func (m model) layout() (tableRows, detailRows int) {
 	}
 	fixed := headerRows + tabRows + gapRows + colHeadRows + footerRows
 	avail := h - fixed
-	d := h * 3 / 10
-	if d < minDetail {
-		d = minDetail
+	if avail < 0 {
+		return 0, 0
 	}
-	if avail-d < minTable {
-		d = avail - minTable
+
+	neededTable := len(m.shown)
+	if neededTable < 1 {
+		neededTable = 1
 	}
-	if d < 0 {
-		d = 0
+
+	maxTable := avail - minDetail
+	if maxTable < minTable {
+		maxTable = minTable
 	}
-	t := avail - d
-	if t < 0 {
-		t = 0
+	half := avail / 2
+	if neededTable > half && maxTable > half {
+		maxTable = half
 	}
+	if maxTable > avail {
+		maxTable = avail
+	}
+
+	t := neededTable
+	if t > maxTable {
+		t = maxTable
+	}
+	d := avail - t
 	return t, d
 }
 
@@ -623,7 +635,13 @@ func (m model) View() tea.View {
 			detailLines = append(detailLines, strings.Repeat(" ", w))
 		}
 	} else {
-		// Rule row
+		vpMax := dRows - 3
+		if vpMax < 0 {
+			vpMax = 0
+		}
+		totalLines := m.detail.TotalLineCount()
+		hasDetailScroll := totalLines > vpMax
+
 		id7 := curTask.ID
 		idRest := ""
 		if len(curTask.ID) > 7 {
@@ -657,6 +675,11 @@ func (m model) View() tea.View {
 		} else {
 			rightContent = "[" + stText + "]"
 		}
+		if hasDetailScroll && vpMax > 0 {
+			curLine := m.detail.YOffset() + 1
+			pct := int(math.Round(m.detail.ScrollPercent() * 100))
+			rightContent += fmt.Sprintf(" [line %d/%d %d%%]", curLine, totalLines, pct)
+		}
 		rightPart := m.theme.rule.Render(" ") + m.theme.dim.Render(rightContent) + m.theme.rule.Render(" "+ruleChar+ruleChar)
 
 		lpw := lipgloss.Width(leftPart)
@@ -670,53 +693,83 @@ func (m model) View() tea.View {
 		}
 		detailLines = append(detailLines, padLine(ruleLine, w))
 
-		// Scope + title line
-		scope, title := titleOf(curTask)
-		var l1 strings.Builder
-		if scope != "" {
-			l1.WriteString(m.theme.scope.Render(scope) + " ")
-		}
-		l1.WriteString(m.theme.bold.Render(title))
-		detailLines = append(detailLines, padLine(l1.String(), w))
-
-		// Chips line
-		var chips []string
-		if curTask.Project != "" {
-			chips = append(chips, m.glyph.folder+" "+curTask.Project)
-		}
-		chips = append(chips, "p "+strconv.Itoa(curTask.Priority))
-		h, co := workerParts(curTask.Worker)
-		if h != "" {
-			chips = append(chips, m.glyph.host+" "+h)
-		}
-		if co != "" {
-			chips = append(chips, m.glyph.branch+" "+co)
-		}
-		if curTask.ClaimCount > 0 {
-			cw := "claim"
-			if curTask.ClaimCount != 1 {
-				cw = "claims"
+		if dRows >= 2 {
+			scope, title := titleOf(curTask)
+			var l1 strings.Builder
+			if scope != "" {
+				l1.WriteString(m.theme.scope.Render(scope) + " ")
 			}
-			chips = append(chips, m.glyph.refresh+" "+strconv.Itoa(curTask.ClaimCount)+" "+cw)
+			l1.WriteString(m.theme.bold.Render(title))
+			detailLines = append(detailLines, padLine(l1.String(), w))
 		}
-		chipsLine := m.theme.dim.Render(strings.Join(chips, "  "))
-		detailLines = append(detailLines, padLine(chipsLine, w))
 
-		// Blank line
-		detailLines = append(detailLines, strings.Repeat(" ", w))
+		if dRows >= 3 {
+			var chips []string
+			if curTask.Project != "" {
+				chips = append(chips, m.glyph.folder+" "+curTask.Project)
+			}
+			chips = append(chips, "p "+strconv.Itoa(curTask.Priority))
+			h, co := workerParts(curTask.Worker)
+			if h != "" {
+				chips = append(chips, m.glyph.host+" "+h)
+			}
+			if co != "" {
+				chips = append(chips, m.glyph.branch+" "+co)
+			}
+			if curTask.ClaimCount > 0 {
+				cw := "claim"
+				if curTask.ClaimCount != 1 {
+					cw = "claims"
+				}
+				chips = append(chips, m.glyph.refresh+" "+strconv.Itoa(curTask.ClaimCount)+" "+cw)
+			}
+			if curTask.AssetPath != "" {
+				chips = append(chips, curTask.AssetPath)
+			}
+			chipsLine := m.theme.dim.Render(strings.Join(chips, "  "))
+			detailLines = append(detailLines, padLine(chipsLine, w))
+		}
 
-		// Viewport content
 		vpContent := m.detail.View()
 		var vpLines []string
 		if vpContent != "" {
 			vpLines = strings.Split(vpContent, "\n")
 		}
-		vpMax := dRows - 4
-		for r := 0; r < vpMax; r++ {
+
+		var thumbSize, thumbStart int
+		maxOffset := totalLines - vpMax
+		if hasDetailScroll && vpMax > 0 && maxOffset > 0 {
+			thumbSize = vpMax * vpMax / totalLines
+			if thumbSize < 1 {
+				thumbSize = 1
+			}
+			if thumbSize >= vpMax {
+				thumbSize = vpMax - 1
+			}
+			thumbStart = m.detail.YOffset() * (vpMax - thumbSize) / maxOffset
+			if thumbStart+thumbSize > vpMax {
+				thumbStart = vpMax - thumbSize
+			}
+			if thumbStart < 0 {
+				thumbStart = 0
+			}
+		}
+
+		for r := range vpMax {
+			var line string
 			if r < len(vpLines) {
-				detailLines = append(detailLines, padLine(vpLines[r], w))
+				line = vpLines[r]
+			}
+			if hasDetailScroll {
+				var scrollCell string
+				if r >= thumbStart && r < thumbStart+thumbSize {
+					scrollCell = m.theme.accent.Render(m.glyph.thumb)
+				} else {
+					scrollCell = m.theme.dim.Render(m.glyph.track)
+				}
+				detailLines = append(detailLines, padLine(line, w-1)+scrollCell)
 			} else {
-				detailLines = append(detailLines, strings.Repeat(" ", w))
+				detailLines = append(detailLines, padLine(line, w))
 			}
 		}
 	}
