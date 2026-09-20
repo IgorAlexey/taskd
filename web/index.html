@@ -2214,28 +2214,21 @@
         if (prioInput) prioInput.value = t.priority ?? '';
         if (assetInput) assetInput.value = t.asset_path || '';
         if (bodyInput) bodyInput.value = t.body || '';
-        const onInputKeyDown = function(e) {
+        const handleEditKeyDown = function(e) {
           if (e.key === 'Escape') {
             cancelTaskEdit();
-          } else if (e.key === 'Enter') {
+          } else if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+            e.preventDefault();
+            saveTaskEdit();
+          } else if (e.key === 'Enter' && (e.target !== bodyInput || e.ctrlKey || e.metaKey)) {
             e.preventDefault();
             saveTaskEdit();
           }
         };
-        for (const el of [projInput, prioInput, assetInput]) {
-          if (el) el.addEventListener('keydown', onInputKeyDown);
+        for (const el of [projInput, prioInput, assetInput, bodyInput]) {
+          if (el) el.addEventListener('keydown', handleEditKeyDown);
         }
-        if (bodyInput) {
-          bodyInput.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') {
-              cancelTaskEdit();
-            } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault();
-              saveTaskEdit();
-            }
-          });
-          bodyInput.focus();
-        }
+        if (bodyInput) bodyInput.focus();
         const copyBtn = document.getElementById('copy-id-btn');
         if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
         const copyPrimBtn = document.getElementById('copy-primitives-btn');

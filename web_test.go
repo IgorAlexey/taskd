@@ -967,3 +967,43 @@ func TestWebSubmitTaskSelectsNewTask(t *testing.T) {
 		t.Errorf("expected exactly 1 details fetch without duplication, got %d", got.DetailsFetchCount)
 	}
 }
+
+func TestWebUITaskEditCtrlS(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/task_edit_ctrl_s.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	var results map[string]struct {
+		CtrlS        bool `json:"ctrlS"`
+		CmdS         bool `json:"cmdS"`
+		ShiftIgnored bool `json:"shiftIgnored"`
+		AltIgnored   bool `json:"altIgnored"`
+	}
+	if err := json.Unmarshal(out, &results); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	for field, res := range results {
+		if !res.CtrlS {
+			t.Errorf("field %s: expected Ctrl+S to save task edit", field)
+		}
+		if !res.CmdS {
+			t.Errorf("field %s: expected Cmd+S to save task edit", field)
+		}
+		if !res.ShiftIgnored {
+			t.Errorf("field %s: expected Ctrl+Shift+S not to trigger saveTaskEdit", field)
+		}
+		if !res.AltIgnored {
+			t.Errorf("field %s: expected AltGr/Alt+S not to trigger saveTaskEdit", field)
+		}
+	}
+}
