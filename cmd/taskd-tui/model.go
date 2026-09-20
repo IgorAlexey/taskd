@@ -1631,6 +1631,9 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 			case "clear_search":
 				m.query = ""
 				return m, m.commitQuery()
+			case "search":
+				m.mode = modeSearch
+				return m, nil
 			case "create":
 				return m.actionCreate()
 			case "edit":

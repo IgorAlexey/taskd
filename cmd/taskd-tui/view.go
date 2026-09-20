@@ -956,6 +956,7 @@ func (m model) footerItems() [][2]string {
 		[2]string{"a", "note"},
 		[2]string{"D", "delete"},
 		[2]string{"y/Y", "copy"},
+		[2]string{"/", "search"},
 		[2]string{"+/-", "pri"},
 		[2]string{"x", "complete"},
 		[2]string{"z", "zoom"},
@@ -987,6 +988,8 @@ func (m model) footRight() string {
 
 func appendFooterTarget(targets []footerTarget, key string, start, width int) []footerTarget {
 	switch key {
+	case "/":
+		return append(targets, footerTarget{action: "search", start: start, end: start + width})
 	case "c":
 		return append(targets, footerTarget{action: "claim", start: start, end: start + width})
 	case "t":

@@ -236,3 +236,37 @@ func TestFooterLifecycleClicks(t *testing.T) {
 		t.Fatalf("expected POST /tasks/test-task-1/release, got %s %s", lastMethod, lastPath)
 	}
 }
+func TestFooterSearch(t *testing.T) {
+	m := createTestModelWithTask("pending", 120, 24)
+	items := m.footerItems()
+	found := false
+	for _, it := range items {
+		if it[0] == "/" && it[1] == "search" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected '/ search' in footer items, got %+v", items)
+	}
+
+	targets := m.footerTargets()
+	var searchTarget *footerTarget
+	for i := range targets {
+		if targets[i].action == "search" {
+			searchTarget = &targets[i]
+			break
+		}
+	}
+	if searchTarget == nil {
+		t.Fatal("expected search target in footer targets")
+	}
+
+	res, cmd := m.handleFooterClick(searchTarget.start)
+	if cmd != nil {
+		t.Fatalf("expected nil command from clicking search target, got %v", cmd)
+	}
+	if res.(model).mode != modeSearch {
+		t.Fatalf("expected modeSearch after clicking search footer target, got %v", res.(model).mode)
+	}
+}
