@@ -68,7 +68,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6}
 
 const schemaVersion = len(migrations) + 1
 
@@ -139,7 +139,8 @@ func openDB(path string) (*sql.DB, error) {
 	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
 DROP INDEX IF EXISTS idx_tasks_claim;
 CREATE INDEX IF NOT EXISTS idx_tasks_queue ON tasks (status, priority ASC);
-CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);`
+CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);
+CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;`
 	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
 	if err != nil {
 		db.Close()
@@ -376,6 +377,25 @@ const taskColumns = `
   priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
   project TEXT NOT NULL DEFAULT '',
   claim_count INTEGER NOT NULL DEFAULT 0`
+
+func migrateV6(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;",
+		"PRAGMA user_version = 6;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
 
 const defaultPriority = 3
 
@@ -782,6 +802,11 @@ func escapeLike(s string) string {
 	}
 	return b.String()
 }
+
+const buryExhaustedSQL = `UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL
+WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+  AND claim_count > 0 AND claim_count >= ?`
+
 func newHandler(db *sql.DB, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, 0, "")
 }
@@ -793,9 +818,7 @@ func newHandlerWithCORS(db *sql.DB, lease, maxClaims int, corsOrigin string) htt
 		if maxClaims <= 0 {
 			return nil
 		}
-		query := `UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL
-WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
-  AND claim_count >= ?`
+		query := buryExhaustedSQL
 		args := []any{maxClaims}
 		if id != "" {
 			query += " AND id = ?"

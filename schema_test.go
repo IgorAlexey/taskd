@@ -215,3 +215,59 @@ func TestOpenDBAdoptsLegacyUnversioned(t *testing.T) {
 		t.Fatalf("legacy db migrated to %d, want %d", version, schemaVersion)
 	}
 }
+
+func TestClaimIndexUsedBySweep(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*sql.DB) error
+	}{
+		{"fresh", func(*sql.DB) error { return nil }},
+		{"migrated", func(raw *sql.DB) error {
+			_, err := raw.Exec("CREATE TABLE tasks (id TEXT PRIMARY KEY, asset_path TEXT NOT NULL DEFAULT '', status TEXT DEFAULT 'pending', worker TEXT, lease_expires INTEGER, primitives JSON);")
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "t.db")
+			raw, err := sql.Open("sqlite", dbPath)
+			if err != nil {
+				t.Fatalf("setup open: %v", err)
+			}
+			if err := tc.setup(raw); err != nil {
+				raw.Close()
+				t.Fatalf("setup: %v", err)
+			}
+			raw.Close()
+
+			db, err := openDB(dbPath)
+			if err != nil {
+				t.Fatalf("openDB failed: %v", err)
+			}
+			defer db.Close()
+
+			rows, err := db.Query("EXPLAIN QUERY PLAN "+buryExhaustedSQL+" RETURNING id", 2)
+			if err != nil {
+				t.Fatalf("query plan: %v", err)
+			}
+			defer rows.Close()
+			var plan []string
+			for rows.Next() {
+				var detail string
+				if err := rows.Scan(new(int), new(int), new(int), &detail); err != nil {
+					t.Fatalf("scan plan: %v", err)
+				}
+				plan = append(plan, detail)
+			}
+			if err := rows.Err(); err != nil {
+				t.Fatalf("plan rows: %v", err)
+			}
+			joined := strings.Join(plan, " | ")
+			if !strings.Contains(joined, "idx_tasks_claim_count") {
+				t.Fatalf("sweep does not use idx_tasks_claim_count: %s", joined)
+			}
+			if strings.Contains(joined, "SCAN tasks") {
+				t.Fatalf("sweep scans the table: %s", joined)
+			}
+		})
+	}
+}
