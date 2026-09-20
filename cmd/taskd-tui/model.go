@@ -162,6 +162,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selID = sel.ID
 			}
 			m.tasks = msg.tasks
+			now := m.now.Unix()
+			for i := range m.tasks {
+				m.tasks[i].normalize(now)
+			}
 			m.rebuildShown()
 			if selID != "" {
 				found := false
@@ -654,7 +658,7 @@ func (m model) setFilter(f string) (model, tea.Cmd) {
 }
 
 func (m *model) rebuildShown() {
-	shown := make([]int, 0, len(m.tasks))
+	var leased, pending, buried, done []int
 	for i, t := range m.tasks {
 		if m.project != "" && t.Project != m.project {
 			continue
@@ -662,13 +666,49 @@ func (m *model) rebuildShown() {
 		if m.filter != "" && t.Status != m.filter {
 			continue
 		}
-		shown = append(shown, i)
+		switch t.Status {
+		case "leased":
+			leased = append(leased, i)
+		case "pending":
+			pending = append(pending, i)
+		case "buried":
+			buried = append(buried, i)
+		case "done":
+			done = append(done, i)
+		default:
+			pending = append(pending, i)
+		}
 	}
+	shown := make([]int, 0, len(leased)+len(pending)+len(buried)+len(done))
+	shown = append(shown, leased...)
+	shown = append(shown, pending...)
+	shown = append(shown, buried...)
+	shown = append(shown, done...)
 	m.shown = shown
 }
 
 func (m *model) rebuild() {
+	selID := ""
+	curRow := m.cursor
+	if sel, ok := m.selected(); ok {
+		selID = sel.ID
+	}
 	m.rebuildShown()
+	if selID != "" {
+		found := false
+		for i, idx := range m.shown {
+			if m.tasks[idx].ID == selID {
+				m.cursor = i
+				m.lastRow = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.lastRow = curRow
+			m.cursor = -1
+		}
+	}
 	m.clamp()
 	m.syncDetail()
 }
