@@ -1886,18 +1886,31 @@ func (m model) actionKick() (model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) copyToClipboard(text, msg string) (model, tea.Cmd) {
+	cmd := m.setMsg(msg)
+	return m, tea.Batch(tea.SetClipboard(text), cmd)
+}
+
 func (m model) actionCopyID() (model, tea.Cmd) {
 	if t, ok := m.selected(); ok {
-		return m, copyToClipboard(t.ID)
+		return m.copyToClipboard(t.ID, "copied to clipboard")
 	}
 	return m, nil
 }
 
 func (m model) actionCopyBody() (model, tea.Cmd) {
-	if t, ok := m.selected(); ok {
-		return m, copyToClipboard(t.Body)
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
 	}
-	return m, nil
+	if t.Body != "" {
+		return m.copyToClipboard(t.Body, "copied body to clipboard")
+	}
+	if t.AssetPath != "" {
+		return m.copyToClipboard(t.AssetPath, "copied asset path to clipboard")
+	}
+	cmd := m.setMsg("nothing to copy")
+	return m, cmd
 }
 
 func (m model) actionToggleZoom() (model, tea.Cmd) {

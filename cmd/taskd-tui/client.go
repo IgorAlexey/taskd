@@ -396,12 +396,3 @@ func formActCmd(c *client, seq uint64, method, path string, body any, success st
 		return formActMsg{seq: seq, msg: success}
 	}
 }
-
-func copyToClipboard(text string) tea.Cmd {
-	return tea.Batch(
-		tea.SetClipboard(text),
-		func() tea.Msg {
-			return actMsg{msg: "copied to clipboard"}
-		},
-	)
-}
