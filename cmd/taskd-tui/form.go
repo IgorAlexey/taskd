@@ -1245,7 +1245,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[u]", "release"},
 		{"[t]", "touch lease"},
 		{"[b]", "bury"},
-		{"[K]", "kick"},
+		{"[K]", "kick (B: all)"},
 		{"[D]", "delete"},
 		{"[x]", "complete"},
 		{"[y/Y]", "copy id/body"},

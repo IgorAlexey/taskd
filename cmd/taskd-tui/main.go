@@ -340,6 +340,7 @@ Keyboard shortcuts:
   D                   delete selected task
   x                   complete selected task
   X                   purge completed tasks
+  B/ctrl-k            bulk unbury buried tasks
   y/Y                 copy task ID / body to clipboard
   ctrl-y              copy primitives result to clipboard
   ctrl-s              submit form

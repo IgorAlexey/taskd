@@ -869,6 +869,10 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		m, cmd := m.actionCopyPrimitives()
 		return m, cmd, true
 	}
+	if msg.Text == "B" || (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'k') {
+		m, cmd := m.actionBulkUnbury()
+		return m, cmd, true
+	}
 	key := msg.Text
 	if key == "" {
 		switch msg.Code {
@@ -1909,6 +1913,23 @@ func (m model) actionPurge() (model, tea.Cmd) {
 		method:  "POST",
 		path:    path,
 		success: success,
+	}
+	m.mode = modeConfirm
+	return m, nil
+}
+func (m model) actionBulkUnbury() (model, tea.Cmd) {
+	text := "Unbury all buried tasks?"
+	path := "/tasks/kick"
+	if m.project != "" {
+		text = fmt.Sprintf("Unbury buried tasks in project %q?", m.project)
+		path = "/tasks/kick?project=" + url.QueryEscape(m.project)
+	}
+	m.confirm = confirmModel{
+		text:    text,
+		button:  "unbury",
+		method:  "POST",
+		path:    path,
+		success: "unburied tasks",
 	}
 	m.mode = modeConfirm
 	return m, nil
