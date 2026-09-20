@@ -1083,11 +1083,7 @@ func (m *model) syncDetail() {
 }
 
 func (m model) renderBody(t task) string {
-	body := t.Body
-	var rest string
-	if idx := strings.IndexByte(body, '\n'); idx >= 0 {
-		rest = strings.TrimLeft(body[idx+1:], "\n")
-	}
+	rest := strings.TrimSpace(t.Body)
 	prim := strings.TrimSpace(string(t.Primitives))
 	if prim != "" && prim != "null" {
 		var buf bytes.Buffer
