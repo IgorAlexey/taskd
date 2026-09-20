@@ -2874,6 +2874,7 @@ HTTP Endpoints:
          ?limit=             1..1000, default 100
          ?offset=            integer >= 0
          ?after=             opaque cursor token from X-Next-Cursor
+         ?sort=              id | project | status | priority | claim_count | worker | created_at
          ?order=             asc | desc, default asc
          ?asset_path=        exact match
          ?q=                 substring of id, body, project, worker, or asset_path
@@ -2899,6 +2900,7 @@ HTTP Endpoints:
   POST   /tasks/kick         bulk-unbury tasks (optional project, limit)
   GET    /projects           list active projects
   GET    /workers            list active workers
+         ?project=           exact match; project=* matches all projects
   GET    /stats              task queue statistics
          ?project=           exact match; project=* matches all projects
          ?worker=            exact match; empty value selects unassigned
