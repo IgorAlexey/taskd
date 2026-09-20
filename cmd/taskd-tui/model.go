@@ -1623,8 +1623,7 @@ func (m model) actionComplete() (model, tea.Cmd) {
 		return m, cmd
 	}
 	if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-		if m.cfg.worker == "" {
-			cmd := m.setMsg("worker not configured")
+		if cmd, ok := m.requireWorker(); !ok {
 			return m, cmd
 		}
 		if t.Worker != m.cfg.worker {
@@ -1662,6 +1661,9 @@ func (m model) actionRelease() (model, tea.Cmd) {
 	}
 	if t.Status != "leased" {
 		cmd := m.setMsg("task is not leased")
+		return m, cmd
+	}
+	if cmd, ok := m.requireWorker(); !ok {
 		return m, cmd
 	}
 	if t.Worker != m.cfg.worker {
@@ -1709,6 +1711,9 @@ func (m model) actionBury() (model, tea.Cmd) {
 	}
 	if t.Status != "leased" {
 		cmd := m.setMsg("task is not leased")
+		return m, cmd
+	}
+	if cmd, ok := m.requireWorker(); !ok {
 		return m, cmd
 	}
 	if t.Worker != m.cfg.worker {

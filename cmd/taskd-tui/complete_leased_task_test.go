@@ -68,8 +68,8 @@ func TestCompleteLeasedTask(t *testing.T) {
 	if mNoWorker.mode == modeConfirm {
 		t.Fatal("expected x with unset cfg.worker not to open confirmation")
 	}
-	if mNoWorker.msg != "worker not configured" {
-		t.Fatalf("msg = %q, want %q", mNoWorker.msg, "worker not configured")
+	if mNoWorker.msg != "worker required; set via -worker flag or TASKD_WORKER" {
+		t.Fatalf("msg = %q, want %q", mNoWorker.msg, "worker required; set via -worker flag or TASKD_WORKER")
 	}
 
 	m.cursor = 0
