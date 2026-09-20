@@ -117,6 +117,9 @@ func TestWebUIInitialPlaceholdersAndNoscript(t *testing.T) {
 	if !strings.Contains(ui, "@media (prefers-color-scheme: light)") {
 		t.Error("expected prefers-color-scheme light media query in web/index.html")
 	}
+	if !strings.Contains(ui, "@media (prefers-reduced-motion: reduce)") {
+		t.Error("expected prefers-reduced-motion media query in web/index.html")
+	}
 }
 
 func TestWebUIExpiredLeaseActions(t *testing.T) {

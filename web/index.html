@@ -37,6 +37,12 @@
       --buried: #8250df;
     }
   }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
   dl.task-metadata {
     display: flex;
     flex-direction: column;
