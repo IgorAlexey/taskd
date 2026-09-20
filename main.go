@@ -1057,7 +1057,8 @@ func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http
 		http.MethodGet: {handler: uiHandler, anyParams: true},
 	})
 	statsHandler := func(w http.ResponseWriter, r *http.Request) {
-		project := requestQuery(r).Get("project")
+		q := requestQuery(r)
+		project := q.Get("project")
 		now := time.Now().Unix()
 		query := `SELECT
   COUNT(CASE WHEN status = 'pending' OR (status = 'leased' AND lease_expires < ?) THEN 1 END),
@@ -1068,9 +1069,22 @@ func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http
 FROM tasks`
 		var args []any
 		args = append(args, now, now)
+		var where []string
 		if project != "" && project != "*" {
-			query += " WHERE project = ?"
+			where = append(where, "project = ?")
 			args = append(args, project)
+		}
+		if q.Has("worker") {
+			worker := strings.TrimSpace(q.Get("worker"))
+			if worker != "" {
+				where = append(where, "worker = ?")
+				args = append(args, worker)
+			} else {
+				where = append(where, "(worker IS NULL OR worker = '')")
+			}
+		}
+		if len(where) > 0 {
+			query += " WHERE " + strings.Join(where, " AND ")
 		}
 		var pending, leased, done, buried, total int
 		if err := db.ro.QueryRow(query, args...).Scan(&pending, &leased, &done, &buried, &total); err != nil {
@@ -1863,7 +1877,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 	}
 
 	handleMethods(mux, "/stats", map[string]route{
-		http.MethodGet: {handler: statsHandler, params: []string{"project"}},
+		http.MethodGet: {handler: statsHandler, params: []string{"project", "worker"}},
 	})
 	handleMethods(mux, "/tasks", map[string]route{
 		http.MethodGet: {handler: listTasksHandler, params: []string{
@@ -1997,6 +2011,7 @@ HTTP Endpoints:
   GET    /workers            list active workers
   GET    /stats              task queue statistics
          ?project=           exact match; project=* matches all projects
+         ?worker=            exact match; empty value selects unassigned
   GET    /ui                 web interface
 
 Examples:
