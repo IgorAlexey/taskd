@@ -58,15 +58,22 @@ func usagef(format string, a ...any) *usageError {
 
 const maxProjectLen = 64
 
-func validateProject(p string) error {
-	if len(p) > maxProjectLen {
-		return fmt.Errorf("invalid project name %q: must not exceed 64 characters", p)
-	}
+func validProjectChars(p string) bool {
 	for i := 0; i < len(p); i++ {
 		c := p[i]
 		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
-			return fmt.Errorf("invalid project name %q: must contain only [A-Za-z0-9._-]", p)
+			return false
 		}
+	}
+	return true
+}
+
+func validateProject(p string) error {
+	if len(p) > maxProjectLen {
+		return fmt.Errorf("invalid project name %q: must not exceed %d characters", p, maxProjectLen)
+	}
+	if !validProjectChars(p) {
+		return fmt.Errorf("invalid project name %q: must contain only [A-Za-z0-9._-]", p)
 	}
 	return nil
 }

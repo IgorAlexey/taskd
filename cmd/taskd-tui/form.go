@@ -1,15 +1,17 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
+
 	"charm.land/bubbles/v2/textarea"
 	"charm.land/bubbles/v2/textinput"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
-	"os"
-	"strconv"
-	"strings"
 )
 
 type formModel struct {
@@ -280,11 +282,11 @@ func (f formModel) validate() string {
 		return "project cannot be blank"
 	}
 	if proj != "" {
-		for i := 0; i < len(proj); i++ {
-			c := proj[i]
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-') {
-				return "project may only contain [A-Za-z0-9._-]"
-			}
+		if len(proj) > maxProjectLen {
+			return fmt.Sprintf("project must not exceed %d characters", maxProjectLen)
+		}
+		if !validProjectChars(proj) {
+			return "project may only contain [A-Za-z0-9._-]"
 		}
 	}
 
