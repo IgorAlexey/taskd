@@ -614,17 +614,146 @@ type confirmModel struct {
 	body                                any
 }
 
-func (c confirmModel) View(width, height int, th theme) string {
+const (
+	modalBorderW = 1
+	modalPadding = 1
+	modalFrameW  = modalBorderW + modalPadding
+	buttonGap    = 3
+)
+
+type confirmLayout struct {
+	boxWidth int
+	inner    int
+	head     []string
+	keep     []string
+	yToken   string
+	nToken   string
+	targets  []confirmTarget
+}
+
+func (c confirmModel) layout(width, height int) confirmLayout {
+	if width < 5 || height < 3 {
+		return confirmLayout{}
+	}
 	btn := c.button
 	if btn == "" {
 		btn = "confirm"
 	}
-	actions := th.accent.Render("[y] "+btn) + "   " + th.dim.Render("[n] cancel")
+	yToken := "[y] " + btn
+	nToken := "[n] cancel"
+	gapStr := strings.Repeat(" ", buttonGap)
+
 	boxWidth, inner := boxSize(width, 20, 54)
 	head := wrapRows([]string{c.text, ""}, inner)
-	return box(head, wrapRows([]string{actions}, inner), boxWidth, height, lipgloss.Center, th)
+
+	yW := ansi.StringWidth(yToken)
+	nW := ansi.StringWidth(nToken)
+	singleLineW := yW + buttonGap + nW
+
+	var keep []string
+	if singleLineW <= inner {
+		keep = []string{yToken + gapStr + nToken}
+	} else {
+		keep = []string{yToken, nToken}
+	}
+
+	room := max(1, height-2*modalBorderW)
+	if len(head)+len(keep) > room {
+		head = head[:max(0, room-len(keep))]
+	}
+	if len(head)+len(keep) > room {
+		keep = keep[:max(0, room-len(head))]
+	}
+	if len(keep) == 0 {
+		return confirmLayout{boxWidth: boxWidth, inner: inner, head: head}
+	}
+
+	boxHeight := len(head) + len(keep) + 2*modalBorderW
+	boxX := (width - boxWidth) / 2
+	boxY := (height - boxHeight) / 2
+
+	var targets []confirmTarget
+	if len(keep) == 1 {
+		actY := boxY + modalBorderW + len(head)
+		pad := max(0, (inner-singleLineW)/2)
+		startX := boxX + modalFrameW + pad
+		targets = []confirmTarget{
+			{action: confirmActionYes, y: actY, start: startX, end: startX + yW},
+			{action: confirmActionNo, y: actY, start: startX + yW + buttonGap, end: startX + yW + buttonGap + nW},
+		}
+	} else if len(keep) >= 1 {
+		actY := boxY + modalBorderW + len(head)
+		padY := max(0, (inner-yW)/2)
+		startX := boxX + modalFrameW + padY
+		targets = append(targets, confirmTarget{
+			action: confirmActionYes,
+			y:      actY,
+			start:  startX,
+			end:    startX + yW,
+		})
+		if len(keep) >= 2 {
+			padN := max(0, (inner-nW)/2)
+			startN := boxX + modalFrameW + padN
+			targets = append(targets, confirmTarget{
+				action: confirmActionNo,
+				y:      actY + 1,
+				start:  startN,
+				end:    startN + nW,
+			})
+		}
+	}
+
+	return confirmLayout{
+		boxWidth: boxWidth,
+		inner:    inner,
+		head:     head,
+		keep:     keep,
+		yToken:   yToken,
+		nToken:   nToken,
+		targets:  targets,
+	}
 }
 
+func padCenter(line string, width int) string {
+	w := ansi.StringWidth(line)
+	left := max(0, (width-w)/2)
+	right := max(0, width-w-left)
+	return strings.Repeat(" ", left) + line + strings.Repeat(" ", right)
+}
+
+func (c confirmModel) View(width, height int, th theme) string {
+	l := c.layout(width, height)
+	if l.boxWidth < 5 {
+		return ""
+	}
+	gapStr := strings.Repeat(" ", buttonGap)
+
+	var styledKeep []string
+	if len(l.keep) == 1 {
+		styledKeep = []string{th.accent.Render(l.yToken) + gapStr + th.dim.Render(l.nToken)}
+	} else if len(l.keep) >= 2 {
+		styledKeep = []string{th.accent.Render(l.yToken), th.dim.Render(l.nToken)}
+	}
+
+	var centeredLines []string
+	for _, h := range l.head {
+		centeredLines = append(centeredLines, padCenter(h, l.inner))
+	}
+	for _, k := range styledKeep {
+		centeredLines = append(centeredLines, padCenter(k, l.inner))
+	}
+
+	return lipgloss.NewStyle().
+		BorderStyle(lipgloss.RoundedBorder()).
+		BorderForeground(th.accent.GetForeground()).
+		Padding(0, modalPadding).
+		Width(l.boxWidth).
+		Render(lipgloss.JoinVertical(lipgloss.Left, centeredLines...))
+}
+
+func (c confirmModel) buttonBounds(width, height int) []confirmTarget {
+	return c.layout(width, height).targets
+}
 func padRightVisual(s string, w int) string {
 	sw := lipgloss.Width(s)
 	if sw < w {

@@ -176,6 +176,20 @@ type footerTarget struct {
 	start  int
 	end    int
 }
+type confirmAction int
+
+const (
+	confirmActionNone confirmAction = iota
+	confirmActionYes
+	confirmActionNo
+)
+
+type confirmTarget struct {
+	action confirmAction
+	y      int
+	start  int
+	end    int
+}
 type paneLayout struct {
 	tableTop   int
 	tableRows  int

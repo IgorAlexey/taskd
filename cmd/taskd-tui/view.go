@@ -970,3 +970,18 @@ func (m model) footerTargets() []footerTarget {
 	}
 	return targets
 }
+
+func (m model) confirmTargets() []confirmTarget {
+	if m.mode != modeConfirm {
+		return nil
+	}
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	h := m.height
+	if h <= 0 {
+		h = 24
+	}
+	return m.confirm.buttonBounds(w, h)
+}

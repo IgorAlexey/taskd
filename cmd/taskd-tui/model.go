@@ -147,6 +147,10 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeTable
 				return m, nil
 			}
+		case tea.MouseClickMsg:
+			if msg.Button == tea.MouseLeft {
+				return m.handleConfirmClick(msg.X, msg.Y)
+			}
 		}
 		return m, nil
 
@@ -1382,4 +1386,20 @@ func (m model) handleFormResult(cmd tea.Cmd) (model, tea.Cmd) {
 		return m, fcmd
 	}
 	return m, cmd
+}
+
+func (m model) handleConfirmClick(x, y int) (tea.Model, tea.Cmd) {
+	for _, target := range m.confirmTargets() {
+		if y == target.y && x >= target.start && x < target.end {
+			switch target.action {
+			case confirmActionYes:
+				m.mode = modeTable
+				return m, actCmd(m.client, m.confirm.method, m.confirm.path, m.confirm.body, m.confirm.success)
+			case confirmActionNo:
+				m.mode = modeTable
+				return m, nil
+			}
+		}
+	}
+	return m, nil
 }
