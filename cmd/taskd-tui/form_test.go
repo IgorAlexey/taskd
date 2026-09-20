@@ -340,3 +340,30 @@ func TestShrinkingMovesFocusOffAHiddenField(t *testing.T) {
 		t.Fatalf("typed into a hidden field: %q", m.form.asset.Value())
 	}
 }
+
+func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
+	m := newModel(config{}, nil)
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 5})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
+	if m.form.level != 3 {
+		t.Fatalf("expected level 3 at five rows, got %d", m.form.level)
+	}
+	var seen []int
+	for i := 0; i < 5; i++ {
+		seen = append(seen, m.form.focus)
+		m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	want := []int{0, 1, 3, 4, 0} // asset is out of the ring from level 2
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Fatalf("Tab ring = %v, want %v", seen, want)
+		}
+	}
+	// The loop left focus on priority; two Shift-Tabs walk back past
+	// project onto the button.
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.form.focus != 4 {
+		t.Fatalf("Shift-Tab from project must reach the button, got %d", m.form.focus)
+	}
+}

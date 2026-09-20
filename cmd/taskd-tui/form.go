@@ -30,6 +30,8 @@ type formModel struct {
 	origAsset       string
 	origBody        string
 	level           int // compaction fit chose; see lines
+	width, height   int // terminal fit laid out for; zero before the first fit
+	th              theme
 }
 
 func newCreateForm(project string) (formModel, tea.Cmd) {
@@ -112,19 +114,22 @@ func (f *formModel) resize(inner int) {
 	f.body.SetWidth(inner)
 }
 
-// visible reports whether a field (0 project, 1 priority, 2 asset,
-// 3 body) is drawn at a compaction level: 0 and 1 draw every field, 2
-// drops the asset field, 3 draws only the focused one. The button
-// (focus 4) is always drawn and, at level 3, shows the body with it.
-func (f formModel) visible(level, field int) bool {
-	switch {
-	case level < 2:
-		return true
-	case level == 2:
-		return field != 2
-	default:
-		return f.focus == field || (field == 3 && f.focus == 4)
+// inRing reports whether a field (0 project, 1 priority, 2 asset,
+// 3 body) can take focus at a compaction level: from level 2 the asset
+// field is neither drawn nor focusable. The button (4) always is.
+func inRing(level, field int) bool {
+	return field != 2 || level < 2
+}
+
+// drawn reports whether a field has a row at a level: 0 and 1 draw
+// every field, 2 drops the asset field, 3 draws only the focused one
+// (the body when the button has focus). Level 3 never hides the focused
+// field, so it cannot veto a focus move; that is inRing's job.
+func (f formModel) drawn(level, field int) bool {
+	if !inRing(level, field) {
+		return false
 	}
+	return level < 3 || f.focus == field || (field == 3 && f.focus == 4)
 }
 
 // lines is the form's rows at a given level of compaction: 0 keeps the
@@ -140,20 +145,20 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 	if level == 0 {
 		rows = append(rows, "")
 	}
-	if f.visible(level, 0) {
+	if f.drawn(level, 0) {
 		rows = append(rows, th.dim.Render("project:  ")+f.project.View())
 	}
-	if f.visible(level, 1) {
+	if f.drawn(level, 1) {
 		rows = append(rows, th.dim.Render("priority: ")+f.priority.View())
 	}
-	if f.visible(level, 2) {
+	if f.drawn(level, 2) {
 		rows = append(rows, th.dim.Render("asset:    ")+f.asset.View())
 	}
 	if level < 2 {
 		rows = append(rows, th.dim.Render("body:"))
 	}
 	slot = -1
-	if f.visible(level, 3) {
+	if f.drawn(level, 3) {
 		slot = len(rows)
 		rows = append(rows, "")
 	}
@@ -241,9 +246,9 @@ func (f *formModel) setFocus(target int) tea.Cmd {
 	if target < f.focus {
 		step = -1
 	}
-	// Fields that are not drawn at this level are skipped in the
-	// direction of travel; the button is always drawn.
-	for target%5 != 4 && !f.visible(f.level, (target%5+5)%5) {
+	// Fields outside the ring at this level are skipped in the
+	// direction of travel.
+	for !inRing(f.level, (target%5+5)%5) {
 		target += step
 	}
 	f.focus = (target%5 + 5) % 5
@@ -309,7 +314,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		if msg.Code == 's' && msg.Mod&tea.ModCtrl != 0 {
 			if err := f.validate(); err != "" {
 				f.errText = err
-				return f, nil
+				return f.refit(), nil
 			}
 			f.errText = ""
 			f.done = true
@@ -319,21 +324,21 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		if msg.Code == tea.KeyTab {
 			if msg.Mod&tea.ModShift != 0 {
 				cmd := f.setFocus(f.focus - 1)
-				return f, cmd
+				return f.refit(), cmd
 			}
 			cmd := f.setFocus(f.focus + 1)
-			return f, cmd
+			return f.refit(), cmd
 		}
 
 		if msg.Code == tea.KeyEnter {
 			if f.focus >= 0 && f.focus <= 2 {
 				cmd := f.setFocus(f.focus + 1)
-				return f, cmd
+				return f.refit(), cmd
 			}
 			if f.focus == 4 {
 				if err := f.validate(); err != "" {
 					f.errText = err
-					return f, nil
+					return f.refit(), nil
 				}
 				f.errText = ""
 				f.done = true
@@ -353,7 +358,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			f.body, cmd = f.body.Update(msg)
 		case 4:
 		}
-		return f, cmd
+		return f.refit(), cmd
 
 	default:
 		var cmds []tea.Cmd
@@ -446,6 +451,7 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // even one is short. It sets the stored textarea size, so Update and
 // View agree on the layout.
 func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, tail []string, boxWidth int) {
+	f.width, f.height, f.th = width, height, th
 	boxWidth, inner := boxSize(width, 20, 90)
 	f.resize(max(1, inner))
 	var rows []string
@@ -460,9 +466,9 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 			break
 		}
 	}
-	if f.focus < 4 && !f.visible(f.level, f.focus) {
-		// The chosen level does not draw the focused field: typing
-		// must not land in a row nobody can see.
+	if !inRing(f.level, f.focus) {
+		// The chosen level dropped the focused field from the ring:
+		// typing must not land in a row nobody can see.
 		f.setFocus(f.focus + 1)
 		rows, slot, keepAt, keepN = f.lines(f.level, th)
 	}
@@ -490,6 +496,17 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 		keep = append(keep, wrapRows([]string{r}, inner))
 	}
 	return head, keep, wrapRows(rows[keepAt+keepN:], inner), boxWidth
+}
+
+// refit lays the form out again for the terminal it was last fitted
+// to, so a keypress that changes the rows (an error, a focus move at
+// level 3) leaves the stored layout current. Before any fit it is a
+// no-op.
+func (f formModel) refit() formModel {
+	if f.width > 0 {
+		f.fit(f.width, f.height, f.th)
+	}
+	return f
 }
 
 func (f formModel) View(width, height int, th theme) string {

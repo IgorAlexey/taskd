@@ -347,9 +347,11 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 				if md == modeForm && w >= 20 && h >= 4 && !strings.Contains(strings.Join(lines, "\n"), "first line") {
 					t.Fatalf("%dx%d form hides the focused body field:\n%s", w, h, strings.Join(lines, "\n"))
 				}
-				// From six rows the focused field, the error (two lines at
-				// 20 columns) and the button all fit inside the border.
-				if md == modeForm && w >= 20 && h >= 6 {
+				// The focused field, the error and the button fit inside
+				// the border from four rows plus the wrapped error height.
+				_, inner := boxSize(w, 20, 90)
+				errH := len(wrapRows([]string{"project cannot be blank"}, inner))
+				if md == modeForm && w >= 20 && h >= 4+errH {
 					all := strings.Join(lines, "\n")
 					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "cannot") {
 						t.Fatalf("%dx%d form hides the button or the error:\n%s", w, h, all)

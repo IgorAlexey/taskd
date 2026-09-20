@@ -202,7 +202,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, tea.Batch(cmd, actCmd(m.client, method, path, body, success))
 				}
 			}
-			m.form.fit(m.width, m.height, m.theme) // an error line changes the rows
 			return m, cmd
 
 		case modeConfirm:
