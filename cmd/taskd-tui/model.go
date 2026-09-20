@@ -254,15 +254,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft && m.mode == modeTable {
+		if msg.Button == tea.MouseLeft && (m.mode == modeTable || m.mode == modeDetail) {
 			bandTop := headerRows + tabRows + 1 + colHeadRows
-			tr := m.tableRows()
+			tr, dr := m.layout()
 			if msg.Y >= bandTop && msg.Y < bandTop+tr {
 				idx := m.offset + (msg.Y - bandTop)
 				if idx >= 0 && idx < len(m.shown) {
 					m.cursor = idx
 					m.clamp()
 					m.syncDetail()
+				}
+				if m.mode == modeDetail {
+					m.mode = modeTable
+				}
+			} else {
+				detailTop := bandTop + tr + 1
+				if msg.Y >= detailTop && msg.Y < detailTop+dr {
+					if m.mode == modeTable {
+						m.mode = modeDetail
+					}
 				}
 			}
 		}
@@ -498,7 +508,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.commitQuery()
 				}
 				return m, nil
-			case msg.Code == tea.KeyTab:
+			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEnter:
 				m.mode = modeDetail
 				return m, nil
 			case msg.Text == "z":
