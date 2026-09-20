@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -265,7 +264,7 @@ func TestKickResetsClaimCount(t *testing.T) {
 }
 
 func TestParseFlagsMaxClaims(t *testing.T) {
-	cfg, err := parseFlags([]string{"-max-claims", "3"}, io.Discard, io.Discard)
+	cfg, err := parseFlags([]string{"-max-claims", "3"})
 	if err != nil {
 		t.Fatalf("parseFlags failed: %v", err)
 	}
@@ -273,7 +272,7 @@ func TestParseFlagsMaxClaims(t *testing.T) {
 		t.Fatalf("got maxClaims %d, want 3", cfg.maxClaims)
 	}
 
-	cfg, err = parseFlags(nil, io.Discard, io.Discard)
+	cfg, err = parseFlags(nil)
 	if err != nil {
 		t.Fatalf("parseFlags failed: %v", err)
 	}
@@ -281,7 +280,7 @@ func TestParseFlagsMaxClaims(t *testing.T) {
 		t.Fatalf("got default maxClaims %d, want 0", cfg.maxClaims)
 	}
 
-	if _, err := parseFlags([]string{"-max-claims", "-1"}, io.Discard, io.Discard); err == nil {
+	if _, err := parseFlags([]string{"-max-claims", "-1"}); err == nil {
 		t.Fatal("expected error for negative max claims")
 	}
 }

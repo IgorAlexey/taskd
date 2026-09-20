@@ -1865,13 +1865,13 @@ type config struct {
 	corsOrigin string
 }
 
-func printUsage(fs *flag.FlagSet, w io.Writer) {
+func printUsage(w io.Writer) {
+	var cfg config
+	fs := newFlagSet(&cfg)
 	fmt.Fprintf(w, "Usage of %s:\n\n", fs.Name())
 	fmt.Fprintf(w, "taskd is a lightweight task queue daemon backed by SQLite.\n\nOptions:\n")
-	oldOut := fs.Output()
 	fs.SetOutput(w)
 	fs.PrintDefaults()
-	fs.SetOutput(oldOut)
 	fmt.Fprintf(w, `
 HTTP Endpoints:
   GET    /tasks              list tasks
@@ -1901,10 +1901,36 @@ Examples:
 `)
 }
 
-func parseFlags(args []string, stdout, stderr io.Writer) (config, error) {
-	var cfg config
+type usageError struct {
+	err error
+}
+
+func (e *usageError) Error() string { return e.err.Error() }
+
+func (e *usageError) Unwrap() error { return e.err }
+
+func usagef(format string, a ...any) *usageError {
+	return &usageError{err: fmt.Errorf(format, a...)}
+}
+
+const undefinedFlagPrefix = "flag provided but not defined: -"
+
+func typedFlag(args []string, name string) string {
+	for _, arg := range args {
+		if arg == "--" {
+			break
+		}
+		token, _, _ := strings.Cut(arg, "=")
+		if len(token) > 1 && token[0] == '-' && strings.TrimLeft(token, "-") == name {
+			return token
+		}
+	}
+	return "-" + name
+}
+
+func newFlagSet(cfg *config) *flag.FlagSet {
 	fs := flag.NewFlagSet("taskd", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs.SetOutput(io.Discard)
 	fs.Usage = func() {}
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
@@ -1912,31 +1938,37 @@ func parseFlags(args []string, stdout, stderr io.Writer) (config, error) {
 	fs.IntVar(&cfg.maxClaims, "max-claims", 0, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
+	return fs
+}
+
+func parseFlags(args []string) (config, error) {
+	var cfg config
+	fs := newFlagSet(&cfg)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			printUsage(fs, stdout)
-		} else {
-			printUsage(fs, stderr)
+			return cfg, err
 		}
-		return cfg, err
+		if name, ok := strings.CutPrefix(err.Error(), undefinedFlagPrefix); ok {
+			return cfg, usagef("unrecognized flag %s", typedFlag(args, name))
+		}
+		return cfg, usagef("%w", err)
 	}
 	if len(fs.Args()) > 0 {
-		printUsage(fs, stderr)
-		return cfg, fmt.Errorf("unexpected argument: %s", fs.Args()[0])
+		return cfg, usagef("unexpected argument: %s", fs.Args()[0])
 	}
 	cfg.dbPath = strings.TrimSpace(cfg.dbPath)
 	if cfg.dbPath == "" {
-		return cfg, errors.New("database path cannot be empty")
+		return cfg, usagef("database path cannot be empty")
 	}
 	cfg.addr = strings.TrimSpace(cfg.addr)
 	if cfg.addr == "" {
-		return cfg, errors.New("listen address cannot be empty")
+		return cfg, usagef("listen address cannot be empty")
 	}
 	if cfg.lease <= 0 {
-		return cfg, fmt.Errorf("lease duration must be greater than 0: got %d", cfg.lease)
+		return cfg, usagef("lease duration must be greater than 0: got %d", cfg.lease)
 	}
 	if cfg.maxClaims < 0 {
-		return cfg, fmt.Errorf("max claims cannot be negative: got %d", cfg.maxClaims)
+		return cfg, usagef("max claims cannot be negative: got %d", cfg.maxClaims)
 	}
 	return cfg, nil
 }
@@ -2070,9 +2102,10 @@ func reportBackup(fsPath string, out io.Writer) error {
 }
 
 func run(args []string) error {
-	cfg, err := parseFlags(args, os.Stdout, os.Stderr)
+	cfg, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			printUsage(os.Stdout)
 			return nil
 		}
 		return err
@@ -2109,8 +2142,18 @@ func run(args []string) error {
 	return runServer(ctx, l, db, cfg.lease, cfg.maxClaims, cfg.corsOrigin)
 }
 
+func fatal(stderr io.Writer, err error) int {
+	var ue *usageError
+	if errors.As(err, &ue) {
+		fmt.Fprintf(stderr, "taskd: %v\ntry 'taskd -h' for usage\n", err)
+		return 2
+	}
+	log.New(stderr, "", log.LstdFlags).Print(err)
+	return 1
+}
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
-		log.Fatal(err)
+		os.Exit(fatal(os.Stderr, err))
 	}
 }
