@@ -1993,7 +1993,11 @@ func (m model) handleFormResult(cmd tea.Cmd) (model, tea.Cmd) {
 		}
 		if m.form.editing && len(body) == 0 {
 			m.mode = modeTable
-			return m, cmd
+			msgCmd := m.setMsg("no changes")
+			if cmd != nil {
+				return m, tea.Batch(cmd, msgCmd)
+			}
+			return m, msgCmd
 		}
 		m.formSeq++
 		fcmd := formActCmd(m.client, m.formSeq, method, path, body, success)

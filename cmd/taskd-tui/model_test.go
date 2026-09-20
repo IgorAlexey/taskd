@@ -106,3 +106,80 @@ func TestAssetOnlyTaskTitleAndDetailAndConfirm(t *testing.T) {
 		t.Fatalf("expected confirm.text to contain asset path, got %q", m.confirm.text)
 	}
 }
+
+func TestEditFormNoChanges(t *testing.T) {
+	var requests int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&requests, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	tOriginal := task{
+		ID:        "task-edit-clean",
+		Project:   "proj-clean",
+		Priority:  1,
+		Body:      "clean body",
+		AssetPath: "clean/path",
+	}
+
+	t.Run("CtrlSWithoutChanges", func(t *testing.T) {
+		m := newModel(config{project: "proj-clean", worker: "w1"}, newClient(ts.URL))
+		m.tasks = []task{tOriginal}
+		m.rebuildShown()
+		m.cursor = 0
+
+		up, _ := m.Update(tea.KeyPressMsg{Text: "e"})
+		m = up.(model)
+		if m.mode != modeForm {
+			t.Fatalf("mode after pressing e = %v, want modeForm", m.mode)
+		}
+
+		before := atomic.LoadInt32(&requests)
+		up, _ = m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
+		m = up.(model)
+		if m.mode != modeTable {
+			t.Fatalf("mode after ctrl+s without changes = %v, want modeTable", m.mode)
+		}
+		if m.msg != "no changes" {
+			t.Fatalf("msg = %q, want %q", m.msg, "no changes")
+		}
+		if m.formSeq != 0 {
+			t.Fatalf("formSeq = %d, want 0", m.formSeq)
+		}
+		if after := atomic.LoadInt32(&requests); after != before {
+			t.Fatalf("expected no HTTP requests, got %d", after-before)
+		}
+	})
+
+	t.Run("SaveButtonWithoutChanges", func(t *testing.T) {
+		m := newModel(config{project: "proj-clean", worker: "w1"}, newClient(ts.URL))
+		m.tasks = []task{tOriginal}
+		m.rebuildShown()
+		m.cursor = 0
+
+		up, _ := m.Update(tea.KeyPressMsg{Text: "e"})
+		m = up.(model)
+		if m.mode != modeForm {
+			t.Fatalf("mode after pressing e = %v, want modeForm", m.mode)
+		}
+
+		m.form.setFocus(fieldSave)
+
+		before := atomic.LoadInt32(&requests)
+		up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+		m = up.(model)
+		if m.mode != modeTable {
+			t.Fatalf("mode after enter on save without changes = %v, want modeTable", m.mode)
+		}
+		if m.msg != "no changes" {
+			t.Fatalf("msg = %q, want %q", m.msg, "no changes")
+		}
+		if m.formSeq != 0 {
+			t.Fatalf("formSeq = %d, want 0", m.formSeq)
+		}
+		if after := atomic.LoadInt32(&requests); after != before {
+			t.Fatalf("expected no HTTP requests, got %d", after-before)
+		}
+	})
+}
