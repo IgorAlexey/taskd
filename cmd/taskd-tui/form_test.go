@@ -303,16 +303,16 @@ func TestBlinkMessagesRoundTripThroughTheForm(t *testing.T) {
 	}
 }
 
-func TestEmptyAssetRowGoesBeforeFieldsAndComesBackWithFocus(t *testing.T) {
+func TestEmptyAssetRowGoesBeforeTheTitleAndComesBackWithFocus(t *testing.T) {
 	th := newTheme(true)
 	f, _ := newCreateForm("p")
-	f.fit(40, 7, th) // one row short: the title goes, the asset row stays
-	if v := ansi.Strip(f.View()); strings.Contains(v, "New Task") || !strings.Contains(v, "asset:") {
-		t.Fatalf("at 40x7 the title goes before the empty asset row:\n%s", v)
+	f.fit(40, 7, th) // one row short: the empty asset row goes, the title stays
+	if v := ansi.Strip(f.View()); !strings.Contains(v, "New Task") || strings.Contains(v, "asset:") {
+		t.Fatalf("at 40x7 the empty asset row goes before the title:\n%s", v)
 	}
-	f.fit(40, 6, th) // another row short: now the empty asset row goes
-	if v := ansi.Strip(f.View()); strings.Contains(v, "asset:") || !strings.Contains(v, "project:") {
-		t.Fatalf("at 40x6 the empty asset row goes and the fields stay:\n%s", v)
+	f.fit(40, 6, th) // another row short: now the title goes
+	if v := ansi.Strip(f.View()); strings.Contains(v, "New Task") || !strings.Contains(v, "project:") {
+		t.Fatalf("at 40x6 the title goes and the fields stay:\n%s", v)
 	}
 	f.setFocus(2)
 	f.fit(40, 6, th)
@@ -394,5 +394,18 @@ func TestTabbingOntoTheAssetFieldCostsOneRow(t *testing.T) {
 	after := ansi.Strip(m.View().Content)
 	if m.form.focus != 2 || !strings.Contains(after, "asset:") || !strings.Contains(after, "project:") || !strings.Contains(after, "priority:") {
 		t.Fatalf("focusing asset hid the other fields (focus %d):\n%s", m.form.focus, after)
+	}
+}
+
+func TestFocusedButtonIsNeverDropped(t *testing.T) {
+	th := newTheme(true)
+	f, _ := newCreateForm("p")
+	f.errText = "body cannot be blank"
+	f.setFocus(4)
+	for h := 3; h <= 8; h++ {
+		f.fit(60, h, th)
+		if v := ansi.Strip(f.View()); !strings.Contains(v, "[ save ]") {
+			t.Fatalf("at 60x%d the focused button is off screen:\n%s", h, v)
+		}
 	}
 }

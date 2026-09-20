@@ -126,20 +126,21 @@ type formRow struct {
 
 // Drop ranks, lowest goes first. A field row with text in it adds
 // rankFilled, so filled fields (at most rankProject+rankFilled) outlive
-// empty ones and still go before the button; the button goes before
-// the error because a button without its error invites a silent failure.
+// empty ones and the title, and still go before the button; the button
+// goes before the error because a button without its error invites a
+// silent failure. The focused row, field or button, is rank 0.
 const (
 	rankHint      = 1
 	rankSeparator = 2
 	rankBodyLabel = 3
-	rankTitle     = 4
-	rankAsset     = 5
+	rankAsset     = 4 // empty and unfocused: below the title
+	rankTitle     = 5
 	rankBody      = 6
 	rankPriority  = 7
 	rankProject   = 8
-	rankFilled    = 4
-	rankButton    = 13
-	rankError     = 14
+	rankFilled    = 5 // a filled asset outranks the title and an empty body
+	rankButton    = 14
+	rankError     = 15
 )
 
 // rows is the whole form in reading order. Field rows take their rank
@@ -148,16 +149,16 @@ const (
 func (f formModel) rows(th theme) []formRow {
 	field := func(n, rank int, value, text string) formRow {
 		switch {
-		case f.focus == n || (n == 3 && f.focus == 4):
+		case f.focus == n:
 			rank = 0
 		case value != "":
 			rank += rankFilled
 		}
 		return formRow{text: text, rank: rank, field: n}
 	}
-	save := th.dim.Render("[ save ]")
+	save, saveRank := th.dim.Render("[ save ]"), rankButton
 	if f.focus == 4 {
-		save = th.accentPill.Render("[ save ]")
+		save, saveRank = th.accentPill.Render("[ save ]"), 0
 	}
 	rows := []formRow{
 		{text: th.accent.Render(f.title), rank: rankTitle, field: -1},
@@ -173,7 +174,7 @@ func (f formModel) rows(th theme) []formRow {
 		rows = append(rows, formRow{text: th.err.Render(f.errText), rank: rankError, field: -1})
 	}
 	rows = append(rows,
-		formRow{text: save, rank: rankButton, field: -1},
+		formRow{text: save, rank: saveRank, field: -1},
 		formRow{rank: rankHint, field: -1},
 		formRow{text: th.dim.Render("Tab next  ctrl-s save  Esc cancel"), rank: rankHint, field: -1},
 	)
@@ -196,13 +197,12 @@ func wrapRows(rows []string, width int) []string {
 	return out
 }
 
-// box draws an overlay. head and tail are lines that may be cut; keep
-// are rows, each already wrapped to boxWidth-4, drawn between them in
-// reading order and meant to survive, most important first. When the
-// frame is short, tail goes first, then head, then keep rows from the
-// last backwards; the first keep row is trimmed to its opening lines
-// rather than removed.
-func box(head []string, keep [][]string, tail []string, boxWidth, height int, align lipgloss.Position, th theme) string {
+// box draws an overlay. head are lines that may be cut; keep are rows,
+// each already wrapped to boxWidth-4, drawn after them and meant to
+// survive, most important first. When the frame is short, head goes
+// first, then keep rows from the last backwards; the first keep row is
+// trimmed to its opening lines rather than removed.
+func box(head []string, keep [][]string, boxWidth, height int, align lipgloss.Position, th theme) string {
 	if boxWidth < 5 {
 		return ""
 	}
@@ -211,8 +211,7 @@ func box(head []string, keep [][]string, tail []string, boxWidth, height int, al
 	for _, r := range keep {
 		need += len(r)
 	}
-	if len(head)+need+len(tail) > room {
-		tail = tail[:max(0, room-len(head)-need)]
+	if len(head)+need > room {
 		head = head[:max(0, room-need)]
 		for need > room && len(keep) > 1 {
 			need -= len(keep[len(keep)-1])
@@ -223,7 +222,6 @@ func box(head []string, keep [][]string, tail []string, boxWidth, height int, al
 	for _, r := range keep {
 		lines = append(lines, r...)
 	}
-	lines = append(lines, tail...)
 	if len(lines) > room {
 		lines = lines[:room]
 	}
@@ -436,7 +434,7 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // box and counted, then dropped one at a time by rank until they fit;
 // the textarea, when drawn, takes what is left. It sets the stored
 // textarea size, so Update and View agree on the layout.
-func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, tail []string, boxWidth int) {
+func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, boxWidth int) {
 	if width <= 0 {
 		width = 80
 	}
@@ -469,8 +467,8 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 			break
 		}
 		total -= len(wrapped[drop])
-		rows = append(rows[:drop:drop], rows[drop+1:]...)
-		wrapped = append(wrapped[:drop:drop], wrapped[drop+1:]...)
+		rows = append(rows[:drop], rows[drop+1:]...)
+		wrapped = append(wrapped[:drop], wrapped[drop+1:]...)
 	}
 
 	body := -1
@@ -491,15 +489,12 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 		wrapped[body] = lines
 	}
 
-	if total <= height {
-		for _, w := range wrapped {
-			head = append(head, w...)
-		}
-		return head, nil, nil, boxWidth
+	// Only the rank-0 row can be left over height: box trims it to its
+	// opening lines.
+	for _, w := range wrapped {
+		head = append(head, w...)
 	}
-	// Only the pinned field, the error and the button are left and they
-	// still do not fit: box cuts from the button backwards.
-	return nil, wrapped, nil, boxWidth
+	return head, nil, boxWidth
 }
 
 // refit lays the form out again for the terminal it was last fitted
@@ -516,8 +511,8 @@ func (f formModel) refit() formModel {
 // View renders the form for the terminal it was last fitted to; the
 // copy is refitted so the drawing and the stored layout are the same.
 func (f formModel) View() string {
-	head, keep, tail, boxWidth := f.fit(f.width, f.height, f.th)
-	return box(head, keep, tail, boxWidth, f.height, lipgloss.Left, f.th)
+	head, keep, boxWidth := f.fit(f.width, f.height, f.th)
+	return box(head, keep, boxWidth, f.height, lipgloss.Left, f.th)
 }
 
 type confirmModel struct {
@@ -533,7 +528,7 @@ func (c confirmModel) View(width, height int, th theme) string {
 	actions := th.accent.Render("[y] "+btn) + "   " + th.dim.Render("[n] cancel")
 	boxWidth, inner := boxSize(width, 20, 54)
 	head := wrapRows([]string{c.text, ""}, inner)
-	return box(head, [][]string{wrapRows([]string{actions}, inner)}, nil, boxWidth, height, lipgloss.Center, th)
+	return box(head, [][]string{wrapRows([]string{actions}, inner)}, boxWidth, height, lipgloss.Center, th)
 }
 
 func padRightVisual(s string, w int) string {
@@ -592,5 +587,5 @@ func helpView(width, height int, th theme) string {
 	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...)) + 4
 	boxWidth, inner := boxSize(width, 20, natural)
 	head := wrapRows(rows[:len(rows)-1], inner)
-	return box(head, [][]string{wrapRows(rows[len(rows)-1:], inner)}, nil, boxWidth, height, lipgloss.Left, th)
+	return box(head, [][]string{wrapRows(rows[len(rows)-1:], inner)}, boxWidth, height, lipgloss.Left, th)
 }
