@@ -47,12 +47,15 @@ function response(status, data) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    statusText: status === 502 ? 'Bad Gateway' : (status === 409 ? 'Conflict' : (status === 200 ? 'OK' : '')),
     headers: { get: () => 'application/json' },
     text: async () => (typeof data === 'string' ? data : JSON.stringify(data)),
     json: async () => (typeof data === 'string' ? JSON.parse(data) : data),
   };
 }
 
+let failPatchStatus = null;
+let failPatchData = null;
 const calls = [];
 const tasks = [
   { id: 't-pending', project: 'orig-proj', status: 'pending', priority: 2, body: 'orig body', asset_path: 'orig/asset.glb' },
@@ -125,6 +128,7 @@ const fetchStub = async (url, opts = {}) => {
     const t = tasks.find(x => x.id === id);
     if (!t) return response(404, 'task not found');
     if (method === 'PATCH') {
+      if (failPatchStatus) return response(failPatchStatus, failPatchData);
       const patch = JSON.parse(opts.body);
       if (patch.project !== undefined) t.project = patch.project;
       if (patch.asset_path !== undefined) t.asset_path = patch.asset_path;
@@ -181,6 +185,25 @@ const api = new Function(
   if (assetEl) assetEl.value = 'models/updated.glb';
   if (els['edit-task-priority']) els['edit-task-priority'].value = '5';
   if (els['edit-task-body']) els['edit-task-body'].value = 'updated body';
+
+  failPatchStatus = 409;
+  failPatchData = { error: 'task is leased' };
+  els['error-banner'].textContent = '';
+  await api.saveTaskEdit();
+  results.editJSONErrorBanner = bannerText.textContent === 'task is leased' &&
+    !bannerText.textContent.includes('{"error"');
+  results.editJSONErrorNoSyntax = !bannerText.textContent.includes('{') &&
+    !bannerText.textContent.includes('}');
+
+  failPatchStatus = 502;
+  failPatchData = '<!DOCTYPE html><html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.24.0</center></body></html>';
+  els['error-banner'].textContent = '';
+  await api.saveTaskEdit();
+  results.editProxyErrorBanner = bannerText.textContent.includes('502') &&
+    !bannerText.textContent.includes('<') &&
+    !bannerText.textContent.includes('DOCTYPE');
+  failPatchStatus = null;
+  failPatchData = null;
 
   await api.saveTaskEdit();
   await new Promise(r => setTimeout(r, 10));

@@ -540,6 +540,8 @@ func TestWebUITaskActions(t *testing.T) {
 		DoneDeleteCall                       *struct{ URL, Method string }
 		DoneDeletedPaneReset                 bool
 		CompleteExpiredBanner                bool
+		CompleteExpiredBannerClean           bool
+		ActionProxyErrorBanner               bool
 		CompleteExpiredBannerSurvivesPoll    bool
 		ReleaseWrongWorkerBanner             bool
 		ReleaseWrongWorkerBannerSurvivesPoll bool
@@ -728,6 +730,12 @@ func TestWebUITaskActions(t *testing.T) {
 
 	if !got.CompleteExpiredBanner || !got.CompleteExpiredBannerSurvivesPoll {
 		t.Errorf("complete expired lease error banner mismatch: banner=%v survives=%v", got.CompleteExpiredBanner, got.CompleteExpiredBannerSurvivesPoll)
+	}
+	if !got.CompleteExpiredBannerClean {
+		t.Errorf("complete expired lease error banner must display clean message without JSON syntax")
+	}
+	if !got.ActionProxyErrorBanner {
+		t.Errorf("action proxy error must name status and contain neither < nor DOCTYPE")
 	}
 	if !got.ReleaseWrongWorkerBanner || !got.ReleaseWrongWorkerBannerSurvivesPoll {
 		t.Errorf("release wrong worker error banner mismatch: banner=%v survives=%v", got.ReleaseWrongWorkerBanner, got.ReleaseWrongWorkerBannerSurvivesPoll)
@@ -1346,6 +1354,9 @@ func TestWebUIEditTaskFields(t *testing.T) {
 		DetailsHasUpdatedAsset   bool
 		TaskUpdated              bool
 		ProjectsReloaded         bool
+		EditJSONErrorBanner      bool
+		EditJSONErrorNoSyntax    bool
+		EditProxyErrorBanner     bool
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("bad harness output: %v\n%s", err, out)
@@ -1402,6 +1413,13 @@ func TestWebUIEditTaskFields(t *testing.T) {
 	}
 	if !got.ProjectsReloaded {
 		t.Error("expected projects list to be reloaded after saving task edit")
+	}
+	if !got.EditJSONErrorBanner || !got.EditJSONErrorNoSyntax {
+		t.Errorf("edit error banner must display clean message without JSON syntax: banner=%v noSyntax=%v",
+			got.EditJSONErrorBanner, got.EditJSONErrorNoSyntax)
+	}
+	if !got.EditProxyErrorBanner {
+		t.Errorf("edit proxy error must name status and contain neither < nor DOCTYPE")
 	}
 }
 

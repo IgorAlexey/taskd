@@ -53,6 +53,7 @@ function response(status, data) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    statusText: status === 502 ? 'Bad Gateway' : (status === 409 ? 'Conflict' : (status === 200 ? 'OK' : '')),
     headers: { get: () => 'application/json' },
     text: async () => (typeof data === 'string' ? data : JSON.stringify(data)),
     json: async () => (typeof data === 'string' ? JSON.parse(data) : data),
@@ -92,6 +93,7 @@ global.prompt = (_msg, dflt) => {
 let claimStatus = 200;
 let failDoneStatus = null;
 let failDoneMessage = null;
+let failDoneRaw = null;
 let failReleaseStatus = null;
 let failReleaseMessage = null;
 let failDeleteStatus = null;
@@ -164,7 +166,7 @@ const fetchStub = async (url, opts = {}) => {
     return response(200, { pending: 1, leased: 1, done: 1, total: 3 });
   }
   if (url.endsWith('/done')) {
-    if (failDoneStatus) return response(failDoneStatus, { error: failDoneMessage });
+    if (failDoneStatus) return response(failDoneStatus, failDoneRaw !== null ? failDoneRaw : { error: failDoneMessage });
     const raw = url.slice('/tasks/'.length);
     const id = decodeURIComponent(raw.split('/done')[0]);
     const t = tasks.find(x => x.id === id);
@@ -491,9 +493,23 @@ const api = new Function(
   await api.selectTask('t-leased');
   await els['complete-task-btn'].onclick();
   results.completeExpiredBanner = els['error-banner'].textContent.includes('lease has expired');
+  results.completeExpiredBannerClean = els['error-banner'].textContent === 'lease has expired' &&
+    !els['error-banner'].textContent.includes('{"error"');
   await api.loadTasks();
   results.completeExpiredBannerSurvivesPoll = els['error-banner'].textContent.includes('lease has expired');
   failDoneStatus = null;
+
+  resetLeased();
+  failDoneStatus = 502;
+  failDoneRaw = '<!DOCTYPE html><html><head><title>502 Bad Gateway</title></head><body><center><h1>502 Bad Gateway</h1></center><hr><center>nginx/1.24.0</center></body></html>';
+  els['error-banner'].textContent = '';
+  await api.selectTask('t-leased');
+  await els['complete-task-btn'].onclick();
+  results.actionProxyErrorBanner = els['error-banner'].textContent.includes('502') &&
+    !els['error-banner'].textContent.includes('<') &&
+    !els['error-banner'].textContent.includes('DOCTYPE');
+  failDoneStatus = null;
+  failDoneRaw = null;
 
   resetLeased();
   failReleaseStatus = 409;
