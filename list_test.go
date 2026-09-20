@@ -180,7 +180,7 @@ func TestListTotalCountExposedToBrowsers(t *testing.T) {
 	}
 	defer db.Close()
 
-	srv := httptest.NewServer(newHandlerWithCORS(db, 300, "*"))
+	srv := httptest.NewServer(newHandlerWithCORS(db, 300, 0, "*"))
 	defer srv.Close()
 
 	resp, err := http.Get(srv.URL + "/tasks")

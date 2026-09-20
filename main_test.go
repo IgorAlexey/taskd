@@ -2839,7 +2839,7 @@ func TestRunServerGracefulShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runServer(ctx, l, db, 300, "")
+		errCh <- runServer(ctx, l, db, 300, 0, "")
 	}()
 
 	addr := l.Addr().String()
@@ -2890,7 +2890,7 @@ func TestSignalNotifyShutdown(t *testing.T) {
 
 			errCh := make(chan error, 1)
 			go func() {
-				errCh <- runServer(ctx, l, db, 300, "")
+				errCh <- runServer(ctx, l, db, 300, 0, "")
 			}()
 
 			addr := l.Addr().String()
@@ -4039,7 +4039,7 @@ func TestCORS(t *testing.T) {
 		t.Fatalf("get expected empty Access-Control-Allow-Origin, got %q", got)
 	}
 
-	srvNamed := httptest.NewServer(newHandlerWithCORS(db, 300, "https://app.example"))
+	srvNamed := httptest.NewServer(newHandlerWithCORS(db, 300, 0, "https://app.example"))
 	defer srvNamed.Close()
 
 	req, err = http.NewRequest(http.MethodOptions, srvNamed.URL+"/tasks", nil)
@@ -4113,7 +4113,7 @@ func TestCORS(t *testing.T) {
 		t.Fatalf("options evil expected empty Access-Control-Allow-Methods, got %q", got)
 	}
 
-	srvWildcard := httptest.NewServer(newHandlerWithCORS(db, 300, "*"))
+	srvWildcard := httptest.NewServer(newHandlerWithCORS(db, 300, 0, "*"))
 	defer srvWildcard.Close()
 
 	req, err = http.NewRequest(http.MethodOptions, srvWildcard.URL+"/tasks", nil)
@@ -5532,7 +5532,7 @@ func TestTrailingSlash(t *testing.T) {
 		t.Fatalf("unexpected protocol-relative redirect to %q", loc)
 	}
 
-	corsSrv := httptest.NewServer(newHandlerWithCORS(db, 300, "http://example.com"))
+	corsSrv := httptest.NewServer(newHandlerWithCORS(db, 300, 0, "http://example.com"))
 	defer corsSrv.Close()
 
 	req, err = http.NewRequest(http.MethodGet, corsSrv.URL+"/tasks/", nil)

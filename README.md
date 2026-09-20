@@ -86,6 +86,20 @@ Request` with `missing worker`, a longer one with `worker too long`; a
 non-ASCII hostname reaches the bound sooner than its character count
 suggests.
 
+## Claim limits
+
+By default a task is handed out again every time its lease expires, so a
+task that kills its worker is retried forever. Start the daemon with
+`-max-claims N` to cap that: once a task has been claimed `N` times,
+whatever the outcome of those claims, the next claim buries it instead
+of handing it out, logs its id, and keeps serving the rest of the queue.
+A worker that releases work cleanly spends the budget too. The sweep is
+daemon-wide, so a claim scoped to one project also buries exhausted
+tasks of another. A buried task is out of the pool until
+`POST /tasks/{id}/kick`, which returns it to pending with its claim
+count reset to zero. The default `0` means no limit and keeps the old
+behaviour.
+
 ## Backup
 
 A plain cp of the .db is not a backup: WAL mode leaves data in the wal file.

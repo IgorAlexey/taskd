@@ -783,11 +783,45 @@ func escapeLike(s string) string {
 	return b.String()
 }
 func newHandler(db *sql.DB, lease int) http.Handler {
-	return newHandlerWithCORS(db, lease, "")
+	return newHandlerWithCORS(db, lease, 0, "")
 }
 
-func newHandlerWithCORS(db *sql.DB, lease int, corsOrigin string) http.Handler {
+func newHandlerWithCORS(db *sql.DB, lease, maxClaims int, corsOrigin string) http.Handler {
 	mux := http.NewServeMux()
+
+	buryExhausted := func(id string) error {
+		if maxClaims <= 0 {
+			return nil
+		}
+		query := `UPDATE tasks SET status='buried', worker=NULL, lease_expires=NULL
+WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+  AND claim_count >= ?`
+		args := []any{maxClaims}
+		if id != "" {
+			query += " AND id = ?"
+			args = append(args, id)
+		}
+		rows, err := db.Query(query+" RETURNING id", args...)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		var buried []string
+		for rows.Next() {
+			var task string
+			if err := rows.Scan(&task); err != nil {
+				return err
+			}
+			buried = append(buried, task)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if len(buried) > 0 {
+			log.Printf("buried at the %d claim limit: %s", maxClaims, strings.Join(buried, " "))
+		}
+		return nil
+	}
 
 	uiHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -910,11 +944,16 @@ FROM tasks`
 		if req.Project == "" {
 			req.Project = "*"
 		}
+		if err := buryExhausted(""); err != nil {
+			internalError(w, err)
+			return
+		}
 		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = (
   SELECT id FROM tasks
-  WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))`
-		args := []any{req.Worker, lease}
+  WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+  AND (? <= 0 OR claim_count < ?)`
+		args := []any{req.Worker, lease, maxClaims, maxClaims}
 		if req.Project != "*" {
 			query += " AND project = ?"
 			args = append(args, req.Project)
@@ -954,9 +993,14 @@ WHERE id = (
 		if !ok {
 			return
 		}
+		if err := buryExhausted(id); err != nil {
+			internalError(w, err)
+			return
+		}
 		query := `UPDATE tasks
 SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = ? AND (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+  AND (? <= 0 OR claim_count < ?)
 RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count`
 		var (
 			item         taskItem
@@ -964,7 +1008,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.QueryRow(query, worker, lease, id).
+		err := db.QueryRow(query, worker, lease, id, maxClaims, maxClaims).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db, id, "")
@@ -1100,7 +1144,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE id=? AND status='buried'", id)
+		res, err := db.Exec("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=0 WHERE id=? AND status='buried'", id)
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1647,6 +1691,7 @@ type config struct {
 	dbPath     string
 	addr       string
 	lease      int
+	maxClaims  int
 	backupPath string
 	corsOrigin string
 }
@@ -1682,6 +1727,7 @@ Examples:
   taskd                                      run daemon on :8080 with taskd.db
   taskd -addr :9090 -db custom.db            run on custom port and database
   taskd -lease 600                           use 10 minute task lease duration
+  taskd -max-claims 3                        bury a task after 3 claims
   taskd -backup backup.db                    backup database to file and exit
 `)
 }
@@ -1694,6 +1740,7 @@ func parseFlags(args []string, stdout, stderr io.Writer) (config, error) {
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
 	fs.IntVar(&cfg.lease, "lease", 300, "lease duration in seconds")
+	fs.IntVar(&cfg.maxClaims, "max-claims", 0, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
 	if err := fs.Parse(args); err != nil {
@@ -1719,12 +1766,15 @@ func parseFlags(args []string, stdout, stderr io.Writer) (config, error) {
 	if cfg.lease <= 0 {
 		return cfg, fmt.Errorf("lease duration must be greater than 0: got %d", cfg.lease)
 	}
+	if cfg.maxClaims < 0 {
+		return cfg, fmt.Errorf("max claims cannot be negative: got %d", cfg.maxClaims)
+	}
 	return cfg, nil
 }
 
-func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease int, corsOrigin string) error {
+func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease, maxClaims int, corsOrigin string) error {
 	srv := &http.Server{
-		Handler:           newHandlerWithCORS(db, lease, corsOrigin),
+		Handler:           newHandlerWithCORS(db, lease, maxClaims, corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -1835,7 +1885,7 @@ func run(args []string) error {
 	}
 	log.Printf("listening on %s", l.Addr())
 
-	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin)
+	return runServer(ctx, l, db, cfg.lease, cfg.maxClaims, cfg.corsOrigin)
 }
 
 func main() {
