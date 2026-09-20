@@ -1043,6 +1043,9 @@
     const PAGE_SIZE = 200;
     const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,asset_path,summary,created_at';
     let claimWorker = '';
+    try {
+      claimWorker = localStorage.getItem('taskd-claim-worker') || '';
+    } catch (_) {}
     let currentPage = 1;
     let totalTasks = 0;
     let lastRenderedTasksURL = '';
@@ -2689,6 +2692,9 @@
           body: JSON.stringify({ worker: worker })
         });
         claimWorker = worker;
+        try {
+          localStorage.setItem('taskd-claim-worker', worker);
+        } catch (_) {}
         if (t && t.id) {
           currentTask = t;
           renderTaskDetails(t, true);
