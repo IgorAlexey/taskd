@@ -334,6 +334,7 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 				m.mode = md
 				m.form, _ = newCreateForm("p")
 				m.form.errText = "project cannot be blank"
+				m.form.fit(w, h, m.theme)
 				m.confirm = confirmModel{text: "Delete?", button: "delete"}
 				lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 				if len(lines) != h {
@@ -347,14 +348,16 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 				if md == modeForm && w >= 20 && h >= 4 && !strings.Contains(strings.Join(lines, "\n"), "first line") {
 					t.Fatalf("%dx%d form hides the focused body field:\n%s", w, h, strings.Join(lines, "\n"))
 				}
-				// The focused field, the error and the button fit inside
-				// the border from four rows plus the wrapped error height.
-				_, inner := boxSize(w, 20, 90)
-				errH := len(wrapRows([]string{"project cannot be blank"}, inner))
-				if md == modeForm && w >= 20 && h >= 4+errH {
+				// A button without its error would invite a save that
+				// silently fails: wherever the button shows, so does the
+				// error, and from eight rows both do.
+				if md == modeForm {
 					all := strings.Join(lines, "\n")
-					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "cannot") {
-						t.Fatalf("%dx%d form hides the button or the error:\n%s", w, h, all)
+					if strings.Contains(all, "[ save ]") && !strings.Contains(all, "cannot") {
+						t.Fatalf("%dx%d form shows the button without the error:\n%s", w, h, all)
+					}
+					if w >= 30 && h >= 8 && !strings.Contains(all, "[ save ]") {
+						t.Fatalf("%dx%d form hides the button:\n%s", w, h, all)
 					}
 				}
 				for _, l := range lines {

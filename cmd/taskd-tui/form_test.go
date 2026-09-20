@@ -214,7 +214,7 @@ func TestViewFormattingAndWidthLimits(t *testing.T) {
 	widths := []int{60, 70, 80, 90, 100}
 	for _, width := range widths {
 		f, _ := newCreateForm("myproj")
-		view := f.View(width, 24, th)
+		view := f.fitted(width, 24, th).View()
 		stripped := ansi.Strip(view)
 
 		if !strings.Contains(stripped, f.title) {
@@ -320,24 +320,37 @@ func TestHiddenAssetFieldLeavesTheFocusRing(t *testing.T) {
 	}
 }
 
-func TestShrinkingMovesFocusOffAHiddenField(t *testing.T) {
+func TestAssetFieldKeepsItsRowWhileFocusedOrFilled(t *testing.T) {
 	m := newModel(config{}, nil)
 	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 24})
 	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // project -> priority
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> asset
-	if m.form.focus != 2 {
-		t.Fatalf("focus = %d, want asset", m.form.focus)
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 8})
+	view := ansi.Strip(m.View().Content)
+	if m.form.level < 2 || m.form.focus != 2 || !strings.Contains(view, "asset:") {
+		t.Fatalf("a focused asset field keeps its row: level=%d focus=%d\n%s", m.form.level, m.form.focus, view)
 	}
-	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 8}) // asset row is gone
-	if m.form.level != 2 || m.form.focus == 2 {
-		t.Fatalf("after shrink level=%d focus=%d; focus must leave the hidden field", m.form.level, m.form.focus)
-	}
-	for _, r := range "secret" {
+	for _, r := range "a.gltf" {
 		m, _ = send(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
 	}
-	if m.form.asset.Value() != "" {
-		t.Fatalf("typed into a hidden field: %q", m.form.asset.Value())
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> body
+	view = ansi.Strip(m.View().Content)
+	if !strings.Contains(view, "a.gltf") {
+		t.Fatalf("a filled asset field keeps its row after focus leaves:\n%s", view)
+	}
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}) // back onto asset
+	for range "a.gltf" {
+		m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	}
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> body; asset now empty
+	view = ansi.Strip(m.View().Content)
+	if m.form.focus != 3 || strings.Contains(view, "asset:") {
+		t.Fatalf("an empty asset field leaves the ring and the screen at level 2: focus=%d\n%s", m.form.focus, view)
+	}
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
+	if m.form.focus != 1 {
+		t.Fatalf("Shift-Tab from body must skip the empty asset field, got %d", m.form.focus)
 	}
 }
 
@@ -366,4 +379,11 @@ func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
 	if m.form.focus != 4 {
 		t.Fatalf("Shift-Tab from project must reach the button, got %d", m.form.focus)
 	}
+}
+
+// fitted lays the form out for a size and returns it, for tests that
+// render outside the model.
+func (f formModel) fitted(width, height int, th theme) formModel {
+	f.fit(width, height, th)
+	return f
 }

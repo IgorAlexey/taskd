@@ -115,10 +115,12 @@ func (f *formModel) resize(inner int) {
 }
 
 // inRing reports whether a field (0 project, 1 priority, 2 asset,
-// 3 body) can take focus at a compaction level: from level 2 the asset
-// field is neither drawn nor focusable. The button (4) always is.
-func inRing(level, field int) bool {
-	return field != 2 || level < 2
+// 3 body) can take focus at a compaction level. From level 2 the asset
+// field leaves the ring, and is not drawn, unless it holds a value or
+// the cursor: a value the user cannot see is never sent. The button (4)
+// is always in the ring.
+func (f formModel) inRing(level, field int) bool {
+	return field != 2 || level < 2 || f.asset.Value() != "" || f.focus == 2
 }
 
 // drawn reports whether a field has a row at a level: 0 and 1 draw
@@ -126,7 +128,7 @@ func inRing(level, field int) bool {
 // (the body when the button has focus). Level 3 never hides the focused
 // field, so it cannot veto a focus move; that is inRing's job.
 func (f formModel) drawn(level, field int) bool {
-	if !inRing(level, field) {
+	if !f.inRing(level, field) {
 		return false
 	}
 	return level < 3 || f.focus == field || (field == 3 && f.focus == 4)
@@ -134,9 +136,9 @@ func (f formModel) drawn(level, field int) bool {
 
 // lines is the form's rows at a given level of compaction: 0 keeps the
 // separators and hint, 1 drops them, 2 also drops the asset field and
-// body label, 3 shows only the focused field, the error and the button.
+// body label, 3 shows only the focused field, the button and the error.
 // slot is the index the textarea goes at (-1 when it is not drawn);
-// rows[keepAt:] up to keepN are the error and the button, which a short
+// rows[keepAt:] up to keepN are the button and the error, which a short
 // frame must never cut; anything after them is the hint.
 func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keepN int) {
 	if level < 3 {
@@ -166,13 +168,13 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 		rows = append(rows, "")
 	}
 	keepAt = len(rows)
-	if f.errText != "" {
-		rows = append(rows, th.err.Render(f.errText))
-	}
 	if f.focus == 4 {
 		rows = append(rows, th.accentPill.Render("[ save ]"))
 	} else {
 		rows = append(rows, th.dim.Render("[ save ]"))
+	}
+	if f.errText != "" {
+		rows = append(rows, th.err.Render(f.errText))
 	}
 	keepN = len(rows) - keepAt
 	if level == 0 {
@@ -200,9 +202,10 @@ func wrapRows(rows []string, width int) []string {
 // box draws an overlay. head and tail are lines that may be cut; keep
 // are rows, each already wrapped to boxWidth-4, drawn between them and
 // meant to survive: when the frame is short, tail goes first, then head,
-// then the middle keep rows from the front, then the first keep row, and
-// a last row that still does not fit shows its first lines, so an action
-// row or a hint is never reduced to its tail.
+// then the middle keep rows from the front, then the last keep row, and
+// a first row that still does not fit shows its first lines. The form
+// hands over field, button, error in that order, so the field being
+// typed into outlives the error, which outlives the button.
 func box(head []string, keep [][]string, tail []string, boxWidth, height int, align lipgloss.Position, th theme) string {
 	if boxWidth < 5 {
 		return ""
@@ -220,8 +223,7 @@ func box(head []string, keep [][]string, tail []string, boxWidth, height int, al
 			keep = append(keep[:1:1], keep[2:]...)
 		}
 		if need > room && len(keep) > 1 {
-			need -= len(keep[0])
-			keep = keep[1:]
+			keep = keep[:1]
 		}
 	}
 	lines := append([]string{}, head...)
@@ -248,7 +250,7 @@ func (f *formModel) setFocus(target int) tea.Cmd {
 	}
 	// Fields outside the ring at this level are skipped in the
 	// direction of travel.
-	for !inRing(f.level, (target%5+5)%5) {
+	for !f.inRing(f.level, (target%5+5)%5) {
 		target += step
 	}
 	f.focus = (target%5 + 5) % 5
@@ -466,12 +468,6 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 			break
 		}
 	}
-	if !inRing(f.level, f.focus) {
-		// The chosen level dropped the focused field from the ring:
-		// typing must not land in a row nobody can see.
-		f.setFocus(f.focus + 1)
-		rows, slot, keepAt, keepN = f.lines(f.level, th)
-	}
 	if f.level == 3 {
 		bodyH = 1 // the box must not jump as focus moves between fields
 	}
@@ -488,7 +484,7 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 		head = append(append(wrapRows(rows[:slot], inner), body...), wrapRows(rows[slot+1:keepAt], inner)...)
 	}
 	if f.level == 3 {
-		// Only the focused field is drawn; it outranks the error.
+		// Only the focused field is drawn; it outranks button and error.
 		keep = append(keep, head)
 		head = nil
 	}
@@ -509,9 +505,11 @@ func (f formModel) refit() formModel {
 	return f
 }
 
-func (f formModel) View(width, height int, th theme) string {
-	head, keep, tail, boxWidth := f.fit(width, height, th)
-	return box(head, keep, tail, boxWidth, height, lipgloss.Left, th)
+// View renders the form for the terminal it was last fitted to; the
+// copy is refitted so the drawing and the stored layout are the same.
+func (f formModel) View() string {
+	head, keep, tail, boxWidth := f.fit(f.width, f.height, f.th)
+	return box(head, keep, tail, boxWidth, f.height, lipgloss.Left, f.th)
 }
 
 type confirmModel struct {

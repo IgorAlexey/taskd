@@ -148,7 +148,7 @@ func (m model) View() tea.View {
 	}
 	switch m.mode {
 	case modeForm:
-		return center(m.form.View(w, h, m.theme))
+		return center(m.form.View())
 	case modeConfirm:
 		return center(m.confirm.View(w, h, m.theme))
 	case modeHelp:
