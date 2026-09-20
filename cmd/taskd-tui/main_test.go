@@ -422,7 +422,7 @@ func TestRenderAndKeys(t *testing.T) {
 	if len(u.shown) != 1 || u.shown[0].Status != "done" {
 		t.Fatalf("filter done: %+v", u.shown)
 	}
-	if !strings.Contains(u.body.GetText(true), `result: {"commit":"x"}`) {
+	if !strings.Contains(u.body.GetText(true), "result: {\n  \"commit\": \"x\"\n}") {
 		t.Fatalf("body = %q", u.body.GetText(true))
 	}
 	u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
@@ -2708,7 +2708,7 @@ func TestShowBodyMetadata(t *testing.T) {
 
 	u.table.Select(3, 0)
 	text = u.body.GetText(true)
-	if !strings.Contains(text, `result: {"commit":"x"}`) {
+	if !strings.Contains(text, "result: {\n  \"commit\": \"x\"\n}") {
 		t.Fatalf("done task missing result: %q", text)
 	}
 	if !strings.Contains(text, "ID:        ccccccc3") {
@@ -3219,5 +3219,44 @@ func TestDefaultViewHidesDone(t *testing.T) {
 	}
 	if got := u.emptyState(); !strings.Contains(got, "No live tasks. Press '0' to show all.") {
 		t.Fatalf("empty state = %q, want 'No live tasks. Press '0' to show all.'", got)
+	}
+}
+
+func TestPrettyPrintPrimitives(t *testing.T) {
+	u, _, _ := stub(t)
+	u.filter = ""
+	raw := `{"key":"val","count":1}`
+	u.render([]task{{
+		ID:         "p1",
+		Status:     "done",
+		Primitives: json.RawMessage(raw),
+	}})
+	text := u.body.GetText(true)
+	want := "result: {\n  \"key\": \"val\",\n  \"count\": 1\n}"
+	if !strings.Contains(text, want) {
+		t.Fatalf("expected indented result %q in %q", want, text)
+	}
+	if strings.Contains(text, "result: "+raw) {
+		t.Fatalf("expected multi-line indentation rather than raw single line")
+	}
+
+	u.render([]task{{
+		ID:         "p2",
+		Status:     "done",
+		Primitives: json.RawMessage("invalid-json"),
+	}})
+	text = u.body.GetText(true)
+	if !strings.Contains(text, "result: invalid-json") {
+		t.Fatalf("expected raw text fallback on invalid JSON: %q", text)
+	}
+
+	u.render([]task{{
+		ID:         "p3",
+		Status:     "done",
+		Primitives: json.RawMessage("null"),
+	}})
+	text = u.body.GetText(true)
+	if strings.Contains(text, "result:") {
+		t.Fatalf("null primitives should not display result: %q", text)
 	}
 }

@@ -622,7 +622,12 @@ func (u *ui) showBody() {
 	if t, ok := u.selected(); ok {
 		text = t.Body
 		if len(t.Primitives) > 0 && string(t.Primitives) != "null" {
-			text += "\n\nresult: " + string(t.Primitives)
+			var buf bytes.Buffer
+			if err := json.Indent(&buf, t.Primitives, "", "  "); err == nil {
+				text += "\n\nresult: " + buf.String()
+			} else {
+				text += "\n\nresult: " + string(t.Primitives)
+			}
 		}
 		if text != "" {
 			text = strings.Repeat("-", 60) + "\n" + text
