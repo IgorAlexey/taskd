@@ -1,3685 +1,583 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark light">
-<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#14161b">
-<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f8fafc">
-<title>taskd queue</title>
+<meta name="color-scheme" content="light dark">
+<title>taskd</title>
+<!--
+  Two regions and one rule between them. Left: every task, in the order you need them.
+  Right: the task you picked, or, when you have picked nothing, a blank task to write.
+  The page never scrolls; each side scrolls on its own.
+  Colour: Radix Colors, neutral gray plus blue for links and red for things about to go wrong.
+-->
 <style>
-  :root {
-    --bg: #14161b;             /* canvas / background (1.11:1 on surface, 1.00:1 on bg) */
-    --surface: #1c2027;        /* surface: panels, cards (1.00:1 on surface, 1.11:1 on bg) */
-    --surface-raised: #252b35; /* raised surface: modals, popovers (1.15:1 on surface, 1.27:1 on bg) */
-    --border: #4a5568;         /* visible rule / border (2.17:1 on surface, 2.40:1 on bg) */
-    --text: #e8ecf1;           /* body text (13.77:1 on surface, 15.25:1 on bg) */
-    --text-muted: #8b949e;     /* quiet text (5.31:1 on surface, 5.88:1 on bg) */
-    --accent: #e5a54b;         /* accent: brand warm amber (7.64:1 on surface, 8.46:1 on bg) */
-    --accent-hover: #f0b869;   /* accent hover (9.15:1 on surface, 10.14:1 on bg) */
-    --pending: #f0a638;        /* status: pending (7.95:1 on surface, 8.80:1 on bg) */
-    --leased: #60a5fa;         /* status: leased (6.43:1 on surface, 7.12:1 on bg) */
-    --done: #3fb950;           /* status: done (6.43:1 on surface, 7.12:1 on bg) */
-    --danger: #f87171;         /* status: danger / failed (5.91:1 on surface, 6.54:1 on bg) */
-    --buried: #a78bfa;         /* status: buried (6.00:1 on surface, 6.65:1 on bg) */
-    --font: system-ui, sans-serif;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: light) {
-    :root {
-      --bg: #f8fafc;             /* canvas / background (1.05:1 on surface, 1.00:1 on bg) */
-      --surface: #ffffff;        /* surface: panels, cards (1.00:1 on surface, 1.05:1 on bg) */
-      --surface-raised: #f1f5f9; /* raised surface: modals, popovers (1.10:1 on surface, 1.05:1 on bg) */
-      --border: #94a3b8;         /* visible rule / border (2.56:1 on surface, 2.45:1 on bg) */
-      --text: #0f172a;           /* body text (17.85:1 on surface, 17.06:1 on bg) */
-      --text-muted: #475569;     /* quiet text (7.58:1 on surface, 7.24:1 on bg) */
-      --accent: #b45309;         /* accent: warm amber-700 (5.02:1 on surface, 4.80:1 on bg) */
-      --accent-hover: #92400e;   /* accent hover (7.09:1 on surface, 6.78:1 on bg) */
-      --pending: #b45309;        /* status: pending (5.02:1 on surface, 4.80:1 on bg) */
-      --leased: #1d4ed8;         /* status: leased (6.70:1 on surface, 6.41:1 on bg) */
-      --done: #15803d;           /* status: done (5.02:1 on surface, 4.79:1 on bg) */
-      --danger: #b91c1c;         /* status: danger / failed (6.47:1 on surface, 6.18:1 on bg) */
-      --buried: #6d28d9;         /* status: buried (7.10:1 on surface, 6.79:1 on bg) */
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after {
-      animation: none !important;
-      transition: none !important;
-    }
-  }
-  dl.task-metadata {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .metadata-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  dt.field-label {
-    color: var(--text-muted);
-    font-size: 12px;
-  }
-  dd {
-    margin: 0;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font);
-    font-size: 14px;
-    line-height: 1.5;
-    padding: 16px;
-    max-inline-size: 80rem;
-    margin-inline: auto;
-  }
-  /* Composition Primitives */
-  .stack {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space, 16px);
-  }
-  .stack-sm {
-    gap: 10px;
-  }
-  .cluster {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--cluster-gap, 8px);
-    align-items: center;
-  }
+:root {
+  color-scheme: light dark;
+  /* Radix Colors 3.0 (gray, blue, red), each step used for the job Radix documents for it:
+     1 page background, 3 control background, 4 hovered, 5 pressed, 6 separators,
+     7 control borders, 8 hovered borders and focus, 11 coloured text, 12 text. */
+  --bg:      light-dark(#fcfcfc, #111111);   /* gray 1 */
+  --control: light-dark(#f0f0f0, #222222);   /* gray 3 */
+  --hover:   light-dark(#e8e8e8, #2a2a2a);   /* gray 4 */
+  --press:   light-dark(#e0e0e0, #313131);   /* gray 5 */
+  --rule:    light-dark(#d9d9d9, #3a3a3a);   /* gray 6 */
+  --edge:    light-dark(#cecece, #484848);   /* gray 7 */
+  --edge-hi: light-dark(#bbbbbb, #606060);   /* gray 8 */
+  --quiet:   light-dark(#646464, #b4b4b4);   /* gray 11 */
+  --fg:      light-dark(#202020, #eeeeee);   /* gray 12 */
+  --link:    light-dark(#0d74ce, #70b8ff);   /* blue 11 */
+  --focus:   light-dark(#5eb1ef, #2870bd);   /* blue 8 */
+  --tint:    light-dark(#e6f4fe, #0d2847);   /* blue 3, the selected row */
+  --warn:    light-dark(#ce2c31, #ff9592);   /* red 11 */
 
-  /* Utility Classes */
-  .text-muted { color: var(--text-muted); }
-  .text-sm { font-size: 12px; }
-  .italic { font-style: italic; }
-  .w-full { width: 100%; }
-  .btn-sm { padding: 2px 8px; font-size: 12px; }
-  .input-sm { padding: 4px 8px; font-size: 12px; }
-  .overflow-x-auto { overflow-x: auto; }
-  .empty-state {
-    padding: 1.5rem 1rem;
-    text-align: center;
-    color: var(--text-muted);
-  }
-  .empty-state p {
-    margin: 0 0 0.5rem;
-  }
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  h1 {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .controls {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-  }
-  button, input, select, textarea {
-    font-family: inherit;
-    font-size: 13px;
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 10px;
-  }
-  #refresh-btn,
-  #submit-task-btn,
-  #add-note-btn,
-  .field input,
-  .field select,
-  .field textarea,
-  .task-actions button {
-    min-block-size: 44px;
-  }
-  .controls label,
-  .filter-bar fieldset label {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    min-block-size: 44px;
-    padding: 0 6px;
-    cursor: pointer;
-  }
-  :focus-visible {
-    outline: 3px solid var(--accent);
-    outline-offset: 2px;
-  }
-  .skip-link {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    z-index: 10;
-    clip-path: inset(50%);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 12px;
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 500;
-    text-decoration: none;
-  }
-  .skip-link:focus {
-    clip-path: none;
-  }
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-  button {
-    cursor: pointer;
-    background: var(--surface-raised);
-    font-weight: 500;
-    transition: background 0.15s ease;
-  }
-  button:hover { background: var(--border); }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button[data-variant="primary"] {
-    background: var(--done);
-    border-color: rgba(255,255,255,0.1);
-    color: var(--bg);
-  }
-  button[data-variant="primary"]:hover { filter: brightness(1.1); }
-  button[data-variant="secondary"] {
-    background: transparent;
-    border-color: var(--border);
-    color: var(--text-muted);
-  }
-  button[data-variant="secondary"]:hover {
-    background: var(--surface);
-    color: var(--text);
-  }
-  button[data-variant="warning"] {
-    color: var(--danger);
-    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-  }
-  button[data-variant="warning"]:hover {
-    background: color-mix(in srgb, var(--danger) 15%, transparent);
-  }
-  .copy-btn {
-    padding: 2px 8px;
-    font-size: 11px;
-    line-height: 1.4;
-  }
-  .task-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 16px;
-    flex-wrap: wrap;
-  }
-  .grid-stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-    gap: 12px;
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  .card {
-    display: flex;
-  }
-  .card-btn {
-    width: 100%;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 12px;
-    cursor: pointer;
-    text-align: left;
-    font: inherit;
-    color: inherit;
-    transition: border-color 0.15s ease, background 0.15s ease;
-  }
-  .card-btn:hover {
-    border-color: var(--accent);
-    background: var(--surface-raised);
-  }
-  .stat-val {
-    font-size: 22px;
-    font-weight: 700;
-    color: var(--text);
-    margin-top: 4px;
-    font-variant-numeric: tabular-nums;
-  }
-  .stat-label {
-    font-size: 12px;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    font-weight: 600;
-  }
-  .layout {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: flex-start;
-  }
-  .layout > :first-child {
-    flex: 1 1 32rem;
-    min-inline-size: min(100%, 32rem);
-  }
-  .layout > :last-child {
-    flex: 1 1 20rem;
-    min-inline-size: 0;
-  }
-  .panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  .panel-header {
-    margin: 0;
-    padding: 10px 14px;
-    background: var(--surface-raised);
-    border-bottom: 1px solid var(--border);
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-weight: 600;
-    font-size: 13px;
-  }
-  .panel-header h2 {
-    margin: 0;
-    font-size: inherit;
-    font-weight: inherit;
-  }
-  .filter-bar {
-    display: flex;
-    gap: 8px;
-    padding: 10px 14px;
-    border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    align-items: center;
-    flex-wrap: wrap;
-  }
-  #filter-priority {
-    width: 60px;
-  }
-  .filter-bar fieldset {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 2px 8px;
-    margin: 0 0 0 8px;
-  }
-  .filter-bar fieldset legend {
-    color: var(--text-muted);
-    font-size: 12px;
-    padding: 0 4px;
-  }
-  .filter-bar fieldset label {
-    color: var(--text-muted);
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .filter-bar fieldset input[type="radio"] {
-    cursor: pointer;
-    margin: 0;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  th, td {
-    padding: 8px 12px;
-    text-align: left;
-    border-bottom: 1px solid var(--border);
-  }
-  td {
-    font-variant-numeric: tabular-nums;
-  }
-  th {
-    color: var(--text-muted);
-    font-weight: 600;
-    font-size: 12px;
-  }
-  th.sortable {
-    cursor: pointer;
-    user-select: none;
-    position: relative;
-    padding-right: 20px;
-  }
-  th.sortable:hover {
-    color: var(--text);
-  }
-  th.sortable:focus-visible {
-    outline: 2px solid var(--accent);
-    outline-offset: -2px;
-  }
-  th[aria-sort="ascending"]::after,
-  th[aria-sort="descending"]::after {
-    position: absolute;
-    right: 6px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.75em;
-    line-height: 1;
-  }
-  th[aria-sort="ascending"]::after {
-    content: "▲";
-  }
-  th[aria-sort="descending"]::after {
-    content: "▼";
-  }
-  tbody tr:hover td {
-    background: rgba(255,255,255,0.03);
-  }
-  tbody tr[data-state="selected"] td,
-  tbody tr[data-state="selected"] th,
-  tbody tr[aria-selected="true"] td,
-  tbody tr[aria-selected="true"] th {
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
-  }
-  tbody tr:focus-within td,
-  tbody tr:focus-within th {
-    background: color-mix(in srgb, var(--accent) 20%, transparent);
-  }
-  tbody tr:not([data-task-id]) td {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 20px;
-  }
-  tbody tr[data-task-id] { cursor: pointer; }
-  tbody th {
-    color: var(--text);
-    font-weight: 400;
-  }
-  .row-select {
-    background: none;
-    border: 0;
-    border-radius: 3px;
-    padding: 0;
-    font: inherit;
-    color: var(--accent);
-    text-align: left;
-  }
-  .row-select:hover {
-    background: none;
-    text-decoration: underline;
-  }
-  .badge {
-    display: inline-block;
-    padding: 2px 6px;
-    border-radius: 12px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  .badge[data-status="pending"] { background: color-mix(in srgb, var(--pending) 15%, transparent); color: var(--pending); border: 1px solid var(--pending); }
-  .badge[data-status="leased"] { background: color-mix(in srgb, var(--leased) 15%, transparent); color: var(--leased); border: 1px solid var(--leased); }
-  .badge[data-status="done"] { background: color-mix(in srgb, var(--done) 15%, transparent); color: var(--done); border: 1px solid var(--done); }
-  .badge[data-status="buried"] { background: color-mix(in srgb, var(--buried) 15%, transparent); color: var(--buried); border: 1px solid var(--buried); }
-  .mono { font-family: var(--mono); font-size: 12px; }
-  .sidebar-section {
-    padding: 14px;
-    border-bottom: 1px solid var(--border);
-  }
-  .sidebar-section:last-child { border-bottom: none; }
-  .field-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 4px;
-  }
-  .field-header .field-label {
-    margin-bottom: 0;
-  }
-  .field label, .field .field-label {
-    display: block;
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-bottom: 4px;
-    font-weight: 500;
-  }
-  .field input, .field textarea, .field select {
-    width: 100%;
-  }
-  .field textarea {
-    resize: vertical;
-    min-height: 5rem;
-  }
-  .notes-section {
-    margin-top: 16px;
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-  }
-  .notes-section .field {
-    margin-bottom: 6px;
-  }
-  #note-author {
-    font-size: 12px;
-    padding: 4px 8px;
-  }
-  #note-text {
-    font-size: 12px;
-    padding: 6px 8px;
-    min-height: 3.5rem;
-  }
-  #add-note-btn {
-    font-size: 12px;
-    padding: 4px 10px;
-  }
-  .no-notes {
-    color: var(--text-muted);
-    font-style: italic;
-    font-size: 12px;
-    margin-bottom: 8px;
-  }
-  .notes-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .note-item {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px 10px;
-  }
-  .note-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 4px;
-    font-size: 11px;
-    color: var(--text-muted);
-  }
-  .note-author {
-    font-weight: 600;
-    color: var(--text);
-  }
-  .note-timestamp {
-    color: var(--text-muted);
-    font-size: 11px;
-    font-variant-numeric: tabular-nums;
-  }
-  .note-text {
-    font-size: 13px;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  pre {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 4px;
-    padding: 8px;
-    font-family: var(--mono);
-    font-size: 12px;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-  }
-  #kick-modal, #purge-modal, #shortcuts-modal, #confirm-modal, #claim-modal {
-    border: none;
-    background: transparent;
-    padding: 16px;
-    max-width: 520px;
-    width: 100%;
-  }
-  #kick-modal::backdrop, #purge-modal::backdrop, #shortcuts-modal::backdrop, #confirm-modal::backdrop, #claim-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
-  kbd {
-    background: var(--surface-raised);
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 1px 5px;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--text);
-  }
-  footer.app-footer {
-    margin-top: 24px;
-    padding-top: 12px;
-    border-top: 1px solid var(--border);
-    font-size: 12px;
-    color: var(--text-muted);
-  }
-  .shortcut-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: center;
-  }
-  .shortcut-legend .shortcut-btn {
-    background: none;
-    border: none;
-    color: inherit;
-    font: inherit;
-    cursor: pointer;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-  }
-  .shortcut-legend .shortcut-btn:hover {
-    color: var(--text);
-  }
-  .shortcuts-section h3 {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text);
-    margin-bottom: 6px;
-  }
-  .shortcut-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    margin-bottom: 12px;
-  }
-  .shortcut-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-  }
-  .shortcut-row span {
-    color: var(--text-muted);
-  }
-  .modal-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px;
-    color: var(--text);
-  }
-  .modal-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .modal-header h2 {
-    font-size: 15px;
-    margin: 0;
-  }
-  .modal-close-btn {
-    background: none;
-    border: none;
-    color: var(--text-muted);
-    font-size: 18px;
-    cursor: pointer;
-    padding: 0 4px;
-    line-height: 1;
-  }
-  .modal-close-btn:hover {
-    color: var(--text);
-  }
-  .modal-body {
-    font-size: 13px;
-    color: var(--text-muted);
-    margin-bottom: 16px;
-  }
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-  }
-  #body-overlay {
-    width: 100%;
-    max-width: 100%;
-    max-height: 100%;
-    border: none;
-    background: transparent;
-    padding: 16px;
-  }
-  #body-overlay::backdrop { background: rgba(0, 0, 0, 0.7); }
-  .body-overlay-panel {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 16px;
-    color: var(--text);
-  }
-  .body-overlay-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
-  .body-overlay-header h2 {
-    font-size: 14px;
-    margin: 0;
-  }
-  #body-overlay-pre {
-    font-size: 13px;
-    overflow-wrap: anywhere;
-    word-break: normal;
-  }
-  .field-actions {
-    display: flex;
-    gap: 8px;
-  }
-  #task-details-content {
-    max-height: 70vh;
-    overflow-y: auto;
-  }
-  [hidden] {
-    display: none !important;
-  }
-  #error-banner {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: color-mix(in srgb, var(--danger) 15%, transparent);
-    border: 1px solid var(--danger);
-    color: var(--danger);
-    padding: 8px 12px;
-    border-radius: 6px;
-    margin-bottom: 16px;
-    font-size: 13px;
-  }
-  .noscript-banner {
-    display: block;
-    background: color-mix(in srgb, var(--danger) 15%, transparent);
-    border: 1px solid var(--danger);
-    color: var(--danger);
-    padding: 8px 12px;
-    border-radius: 6px;
-    margin-bottom: 16px;
-    font-size: 13px;
-    text-align: center;
-  }
-  .error-banner-dismiss {
-    background: none;
-    border: none;
-    color: var(--danger);
-    font-size: 16px;
-    line-height: 1;
-    cursor: pointer;
-    padding: 0 4px;
-    margin-left: 8px;
-  }
-  .error-banner-dismiss:hover {
-    color: var(--text);
-  }
-  #connection-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    background: color-mix(in srgb, var(--danger) 15%, transparent);
-    border: 1px solid var(--danger);
-    color: var(--danger);
-    padding: 2px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-    white-space: nowrap;
-  }
-  #connection-status::before {
-    content: '';
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--danger);
-  }
-  .error-summary {
-    display: block;
-    background: color-mix(in srgb, var(--danger) 10%, transparent);
-    border: 2px solid var(--danger);
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 14px;
-  }
-  .error-summary:focus {
-    outline: 2px solid var(--accent);
-    outline-offset: 1px;
-  }
-  .error-summary-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--danger);
-    margin-bottom: 6px;
-  }
-  .error-summary-list {
-    list-style: disc inside;
-    margin: 0;
-    padding: 0;
-  }
-  .error-summary-list li {
-    font-size: 12px;
-    line-height: 1.4;
-    margin-bottom: 2px;
-  }
-  .error-summary-list a {
-    color: var(--danger);
-    text-decoration: underline;
-    font-weight: 500;
-  }
-  .error-summary-list a:hover {
-    color: var(--text);
-  }
-  .success-summary {
-    display: block;
-    background: color-mix(in srgb, var(--done) 12%, transparent);
-    border: 2px solid var(--done);
-    border-radius: 6px;
-    padding: 12px;
-    margin-bottom: 14px;
-  }
-  .success-summary-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--done);
-    margin-bottom: 4px;
-  }
-  .success-summary-body {
-    font-size: 12px;
-    color: var(--text);
-    overflow-wrap: anywhere;
-  }
-  .field-error {
-    display: block;
-    color: var(--danger);
-    font-size: 12px;
-    font-weight: 500;
-    margin-bottom: 4px;
-  }
-  .field input[aria-invalid="true"],
-  .field textarea[aria-invalid="true"] {
-    border-color: var(--danger);
-    background: color-mix(in srgb, var(--danger) 6%, transparent);
-  }
-  .hint {
-    display: block;
-    color: var(--text-muted);
-    font-size: 11px;
-    line-height: 1.4;
-    margin-bottom: 4px;
-  }
-  #form-body-count {
-    margin-top: 4px;
-    margin-bottom: 0;
-  }
+  /* Two voices. The document speaks in a sturdy reading serif: Carter's Charter, then his Sitka on
+     Windows. Tables and controls are working matter and use the platform's own UI face, the one the
+     native buttons were drawn for. Sans runs smaller so its x-height matches the serif beside it. */
+  --read: Charter, "Bitstream Charter", "Charis SIL", "Sitka Text", Cambria, Georgia, serif;
+  --work: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --work-size: 0.89rem;
+}
+html { background: var(--bg); color: var(--fg); }
+html { font: 18px/1.5 var(--read); font-variant-numeric: lining-nums; }
+html, body { height: 100%; }
+body { margin: 0 auto; max-width: 88rem; padding: 1.25rem 2rem 0; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; overflow: hidden; box-sizing: border-box; }
+table { font-family: var(--work); font-size: var(--work-size); }
+
+/* One control. Buttons, menus and fields share a height, a border, a radius and a face;
+   the only difference is that things you type into are lighter than things you press. */
+button, select, input, textarea {
+  font: var(--work-size)/1.2 var(--work); color: var(--fg); box-sizing: border-box; margin: 0;
+  border: 1px solid var(--edge); border-radius: 3px;
+}
+button, select, input { height: 2rem; padding: 0 0.7rem; }
+textarea { padding: 0.5rem 0.7rem; line-height: 1.45; }
+input, textarea { background: var(--bg); }
+::placeholder { color: var(--quiet); opacity: 1; }
+button, select { background: var(--control); cursor: pointer; }
+button:hover, select:hover { background: var(--hover); border-color: var(--edge-hi); }
+input:hover, textarea:hover { border-color: var(--edge-hi); }
+button:active { background: var(--press); }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+a, a:visited { color: var(--link); text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
+strong, .warn { color: var(--warn); }
+header, #pane, table, th, .actions, form.reply { border-color: var(--rule) !important; }
+code { font: 0.88em ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+p { margin: 0 0 1rem; }
+
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid; }
+h1 { font-size: 1.45rem; font-weight: normal; line-height: 1.1; margin: 0; }
+header p { margin: 0; flex: 1 1 24rem; }
+header form { display: flex; align-items: center; gap: 0.6rem; }
+header input { width: 14rem; }
+
+main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); min-height: 0; }
+#list, #pane { overflow-y: auto; min-height: 0; padding-bottom: 4rem; }
+#list { padding-right: 2.5rem; }
+#pane { border-left: 1px solid; padding: 1.1rem 0.25rem 4rem 2.5rem; }
+
+/* the list */
+section { margin-bottom: 2.25rem; }
+h2 { font-size: 1.45rem; font-weight: normal; font-style: italic; line-height: 1.2; margin: 0; }
+#list h2 { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 1.1rem 0 0.5rem; }
+table { width: 100%; border-collapse: collapse; border-bottom: 1px solid; }
+th { font-weight: normal; text-align: left; border-bottom: 1px solid; }
+th, td { padding: 0.28rem 1.25rem 0.28rem 0; vertical-align: baseline; white-space: nowrap; }
+th:first-child, td:first-child { padding-left: 0.4rem; }
+th:last-child, td:last-child { padding-right: 0.4rem; }
+.n { text-align: right; font-variant-numeric: lining-nums tabular-nums; }
+td.task { width: 100%; white-space: normal; }
+td.task a { text-decoration: none; }
+td.task a:hover, tr[aria-current] td.task a { text-decoration: underline; }
+td.task .why { display: block; font: italic 1rem/1.45 var(--read); margin-top: 0.1rem; }
+tbody tr { cursor: pointer; }
+tbody tr[aria-current] td { background: var(--tint); }
+
+/* the pane */
+#pane h2 { margin-bottom: 0.75rem; }
+#pane h3 { font-size: 1rem; font-weight: normal; font-style: italic; margin: 1.5rem 0 0.25rem; }
+#pane > * { max-width: 36rem; }
+.body { white-space: pre-wrap; }
+#pane ol { margin: 0 0 1rem; padding-left: 1.3rem; }
+.actions { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
+.actions p { flex: 1 1 100%; margin: 0.4rem 0 0; }
+form.add textarea, form.reply textarea, form.edit textarea { display: block; width: 100%; min-height: 7rem; resize: vertical; margin-bottom: 0.9rem; }
+form.add textarea { height: 42dvh; }
+form.reply { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
+form.reply .row, .actions { align-items: end; }
+form.reply .row { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; }
+form.reply .row button { margin-left: auto; }
+/* every labelled control in the pane: label above, control below, one row that wraps */
+#pane label { display: block; }
+#pane label > input, #pane label > select { display: block; margin-top: 0.15rem; }
+#pane label.wait { flex: 1 1 8rem; min-width: 0; }             /* sits beside the other fields and takes the slack */
+#pane form .row::after { content: ""; flex-basis: 100%; height: 0; order: 8; }   /* fields on one line, the action on the next */
+#pane form .row button { order: 9; margin-left: auto; }
+#pane label.wait select { width: 100%; min-width: 0; text-overflow: ellipsis; }
+form.add .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5rem; }
+form.add label { display: block; }
+form.add label > * { display: block; }
+form.add button { margin-left: auto; }
+
+@media (max-width: 820px) {
+  body { height: auto; overflow: visible; padding: 1rem 1rem 3rem; display: block; }
+  main { display: flex; flex-direction: column; }
+  #list, #pane { overflow: visible; padding: 0; border: 0; }
+  #pane { order: 2; border-top: 1px solid; padding-top: 1rem; }
+  body.reading #pane { order: -1; border-top: 0; border-bottom: 1px solid; margin-bottom: 1rem; padding-bottom: 1rem; }
+  #list h2 { position: static; }
+  .opt { display: none; }
+}
 </style>
 </head>
-<body class="stack">
-  <a class="skip-link" href="#queue">Skip to task queue</a>
-  <div id="error-banner" role="alert" hidden>
-    <span id="error-banner-text"></span>
-    <button type="button" class="error-banner-dismiss" onclick="showError(null)" aria-label="Dismiss error">&times;</button>
-  </div>
-  <noscript>
-    <div class="noscript-banner" role="alert">
-      JavaScript is disabled. This dashboard requires JavaScript to query daemon status. Query tasks via the CLI or HTTP API (<a href="/tasks">/tasks</a>, <a href="/stats">/stats</a>) instead.
-    </div>
-  </noscript>
-  <header>
-    <h1>taskd</h1>
-    <div class="controls">
-      <span id="connection-status" role="status" aria-live="polite" hidden></span>
-      <label for="auto-refresh" class="text-sm text-muted">
-        <input type="checkbox" id="auto-refresh" checked> Auto-refresh
-      </label>
-      <button id="refresh-btn" data-variant="secondary" onclick="loadAll()">Refresh</button>
-    </div>
-  </header>
+<body>
 
-  <main class="stack">
-  <ul class="grid-stats">
-    <li class="card">
-      <button type="button" class="card-btn" data-status-filter="live">
-        <h3 class="stat-label">Live</h3>
-        <div class="stat-val" id="stat-live">-</div>
-      </button>
-    </li>
-    <li class="card">
-      <button type="button" class="card-btn" data-status-filter="pending">
-        <h3 class="stat-label">Pending</h3>
-        <div class="stat-val" id="stat-pending">-</div>
-      </button>
-    </li>
-    <li class="card">
-      <button type="button" class="card-btn" data-status-filter="leased">
-        <h3 class="stat-label">Leased</h3>
-        <div class="stat-val" id="stat-leased">-</div>
-      </button>
-    </li>
-    <li class="card">
-      <button type="button" class="card-btn" data-status-filter="done">
-        <h3 class="stat-label">Done</h3>
-        <div class="stat-val" id="stat-done">-</div>
-      </button>
-    </li>
-    <li class="card">
-      <button type="button" class="card-btn" data-status-filter="buried">
-        <h3 class="stat-label">Buried</h3>
-        <div class="stat-val" id="stat-buried">-</div>
-      </button>
-    </li>
-    <li class="card">
-      <button type="button" class="card-btn" data-status-filter="">
-        <h3 class="stat-label">Total</h3>
-        <div class="stat-val" id="stat-total">-</div>
-      </button>
-    </li>
-  </ul>
+<header>
+  <h1>taskd</h1>
+  <p id="status"></p>
+  <form id="tools">
+    <input type="search" id="q" aria-label="Filter tasks" placeholder="Filter">
+    <button type="button" id="new" hidden>New task</button>
+  </form>
+</header>
 
-  <div class="layout">
-    <section class="panel" aria-labelledby="queue-heading">
-      <div class="panel-header">
-        <h2 id="queue-heading">Task Queue</h2>
-        <div class="cluster">
-          <span id="queue-count" class="text-muted text-sm">-</span>
-          <button type="button" id="kick-buried-btn" class="kick-btn btn-sm" onclick="openKickModal()" aria-haspopup="dialog" title="Kick buried tasks" hidden style="display: none;">Kick Buried</button>
-          <button type="button" id="purge-done-btn" class="purge-btn btn-sm danger" onclick="openPurgeModal()" aria-haspopup="dialog" title="Purge completed tasks">Purge Done</button>
-          <button type="button" id="prev-page-btn" onclick="prevPage()" disabled aria-label="Previous page" class="btn-sm">Prev</button>
-          <button type="button" id="next-page-btn" onclick="nextPage()" disabled aria-label="Next page" class="btn-sm">Next</button>
-        </div>
-      </div>
-      <div class="filter-bar cluster" role="group" aria-label="Task filters">
-        <label for="filter-project" class="text-muted text-sm">Project:</label>
-        <!-- /* loadStats */ in onchange satisfies the external test harness regex -->
-        <select id="filter-project" onchange="onFilterChange(/* loadStats */)">
-          <option value="">(all)</option>
-        </select>
-        <fieldset class="filter-status-group">
-          <legend>Status</legend>
-          <input type="radio" id="filter-status-all" name="filter-status" value="" checked onchange="onFilterChange()">
-          <label for="filter-status-all">(all)</label>
-          <input type="radio" id="filter-status-live" name="filter-status" value="live" onchange="onFilterChange()">
-          <label for="filter-status-live">Live</label>
-          <input type="radio" id="filter-status-pending" name="filter-status" value="pending" onchange="onFilterChange()">
-          <label for="filter-status-pending">Pending</label>
-          <input type="radio" id="filter-status-leased" name="filter-status" value="leased" onchange="onFilterChange()">
-          <label for="filter-status-leased">Leased</label>
-          <input type="radio" id="filter-status-done" name="filter-status" value="done" onchange="onFilterChange()">
-          <label for="filter-status-done">Done</label>
-          <input type="radio" id="filter-status-buried" name="filter-status" value="buried" onchange="onFilterChange()">
-          <label for="filter-status-buried">Buried</label>
-        </fieldset>
-        <label for="filter-priority" class="text-muted text-sm">Priority:</label>
-        <input type="number" min="0" step="1" id="filter-priority" aria-label="Filter by priority" onchange="onFilterChange()" class="input-sm">
-        <label for="filter-worker" class="text-muted text-sm">Worker:</label>
-        <select id="filter-worker" onchange="onFilterChange()">
-          <option value="">(all)</option>
-          <option value="">(unassigned)</option>
-        </select>
-        <label for="filter-search" class="text-muted text-sm">Search tasks:</label>
-        <input type="text" id="filter-search" aria-label="Search tasks" oninput="onSearchInput()" class="input-sm">
-        <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" class="btn-sm">Clear</button>
-        <button type="button" id="reset-filters-btn" onclick="resetFilters()" aria-label="Reset filters" class="btn-sm" hidden>Reset Filters</button>
-      </div>
-      <div id="queue" tabindex="-1" class="overflow-x-auto">
-        <table>
-          <caption class="sr-only">Task queue</caption>
-          <thead id="task-table-head">
-            <tr>
-              <th scope="col" class="sortable" tabindex="0" data-col="id">ID</th>
-              <th scope="col" class="sortable" tabindex="0" data-col="project">Project</th>
-              <th scope="col" class="sortable" tabindex="0" data-col="status">Status</th>
-              <th scope="col" class="sortable" tabindex="0" data-col="priority">Priority</th>
-              <th scope="col" class="sortable" tabindex="0" data-col="claim_count">Claims</th>
-              <th scope="col" class="sortable" tabindex="0" data-col="worker">Worker</th>
-              <th scope="col">Lease</th>
-              <th scope="col" class="sortable" tabindex="0" data-col="created_at">Created At</th>
-              <th scope="col">Summary</th>
-            </tr>
-          </thead>
-          <tbody id="task-table-body">
-            <tr><td colspan="9">Not connected</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
+<main>
+  <div id="list"></div>
+  <div id="pane" aria-live="polite"></div>
+</main>
 
-    <aside class="stack">
-      <section class="panel" id="task-details" aria-labelledby="details-heading" tabindex="-1">
-        <div class="panel-header">
-          <h2 id="details-heading">Task Details</h2>
-          <button type="button" id="task-details-close" class="modal-close-btn" onclick="clearSelectedTask()" aria-label="Close task details">&times;</button>
-        </div>
-        <div class="sidebar-section stack stack-sm" id="task-details-content">
-          <div class="empty-state">
-            <p class="text-muted italic">Select a task from the table to view details</p>
-          </div>
-        </div>
-      </section>
+<script>
+(() => {
+  const MIN = 60e3;
+  let tasks = [];
+  let sel = null;
 
-      <section class="panel" aria-labelledby="submit-heading">
-        <h2 class="panel-header" id="submit-heading">Submit Task</h2>
-        <div class="sidebar-section">
-          <form id="submit-task-form" class="stack stack-sm" action="/tasks" method="POST" onsubmit="submitTask(event)" novalidate>
-            <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1" hidden>
-              <div class="error-summary-title">There is a problem</div>
-              <ul class="error-summary-list" id="form-error-summary-list"></ul>
-            </div>
-            <div id="form-success-summary" class="success-summary" role="status" hidden>
-              <div class="success-summary-title">Success</div>
-              <div class="success-summary-body" id="form-success-summary-body"></div>
-            </div>
-            <div class="field">
-              <label for="form-project">Project *</label>
-              <div class="hint" id="form-project-hint">e.g. default</div>
-              <span class="field-error" id="form-project-error" hidden></span>
-              <input type="text" id="form-project" name="project" list="form-project-list" required aria-required="true" aria-invalid="false" aria-describedby="form-project-hint form-project-error">
-              <datalist id="form-project-list"></datalist>
-            </div>
-            <div class="field">
-              <label for="form-priority">Priority</label>
-              <div class="hint" id="form-priority-hint">1 is top, blank for default</div>
-              <span class="field-error" id="form-priority-error" hidden></span>
-              <input type="number" id="form-priority" name="priority" min="0" step="1" inputmode="numeric" value="" aria-invalid="false" aria-describedby="form-priority-hint form-priority-error">
-            </div>
-            <div class="field">
-              <label for="form-body">Body</label>
-              <div class="hint" id="form-body-hint">Task description or prompt</div>
-              <span class="field-error" id="form-body-error" hidden></span>
-              <textarea id="form-body" name="body" aria-invalid="false" aria-describedby="form-body-hint form-body-count form-body-error"></textarea>
-              <div class="hint" id="form-body-count">0 characters</div>
-            </div>
-            <button type="submit" id="submit-task-btn" data-variant="primary" class="w-full" aria-busy="false">Submit Task</button>
-          </form>
-        </div>
-      </section>
-    </aside>
-  </div>
-  </main>
-  <footer class="app-footer">
-    <div class="shortcut-legend cluster">
-      <button type="button" class="shortcut-btn" onclick="openShortcutsModal()" aria-label="Open keyboard shortcuts help"><kbd>?</kbd> Shortcuts</button>
-      <button type="button" class="shortcut-btn" onclick="document.getElementById('filter-search').focus()"><kbd>/</kbd> Search</button>
-      <button type="button" class="shortcut-btn" onclick="loadAll()"><kbd>r</kbd> Refresh</button>
-      <span><kbd>↑</kbd><kbd>↓</kbd> Table navigation</span>
-    </div>
-  </footer>
+  /* ---------- helpers ---------- */
+  const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const by = s => tasks.filter(t => t.state === s);
+  const get = id => tasks.find(t => t.id === +id);
+  const waits = t => (t.after || []).map(get).filter(a => a && a.state !== 'done');
+  const order = (a, b) => a.pri - b.pri || a.added - b.added;
+  const ready = () => by('queued').filter(t => !waits(t).length).sort(order);
+  const blocked = () => by('queued').filter(t => waits(t).length).sort(order);
+  const ago = ts => {
+    if (!ts) return '';
+    const m = (Date.now() - ts) / MIN;
+    return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 90 ? '1 hour ago' : m < 24 * 60 ? Math.round(m / 60) + ' hours ago' : 'yesterday';
+  };
+  const until = (ts, warn) => `<span data-until="${ts}" data-warn="${warn}"></span>`;
 
-  <dialog id="body-overlay" aria-labelledby="body-overlay-title">
-    <div class="body-overlay-panel">
-      <div class="body-overlay-header">
-        <h2 id="body-overlay-title">Task Body</h2>
-        <button type="button" id="body-overlay-close">Close (Esc)</button>
-      </div>
-      <pre id="body-overlay-pre"></pre>
-    </div>
-  </dialog>
-  <dialog id="kick-modal" class="modal" aria-labelledby="kick-modal-title" aria-describedby="kick-modal-desc" data-state="closed">
-    <div class="modal-panel">
-      <div class="modal-header">
-        <h2 id="kick-modal-title">Kick Buried Tasks</h2>
-        <button type="button" id="kick-modal-close" class="modal-close-btn" onclick="closeKickModal()" aria-label="Close dialog">&times;</button>
-      </div>
-      <p id="kick-modal-desc" class="modal-body">
-        Are you sure you want to unbury tasks<span id="kick-project-warning"></span>?
-      </p>
-      <div class="modal-actions cluster">
-        <button type="button" id="kick-cancel-btn" onclick="closeKickModal()">Cancel</button>
-        <button type="button" id="kick-confirm-btn" class="kick-confirm-btn" onclick="confirmKick()" aria-busy="false">Kick</button>
-      </div>
-    </div>
-  </dialog>
-  <dialog id="purge-modal" class="modal" aria-labelledby="purge-modal-title" aria-describedby="purge-modal-desc" data-state="closed">
-    <div class="modal-panel">
-      <div class="modal-header">
-        <h2 id="purge-modal-title">Purge Completed Tasks</h2>
-        <button type="button" id="purge-modal-close" class="modal-close-btn" onclick="closePurgeModal()" aria-label="Close dialog">&times;</button>
-      </div>
-      <p id="purge-modal-desc" class="modal-body">
-        Are you sure you want to permanently delete completed tasks<span id="purge-project-warning"></span>? This action cannot be undone.
-      </p>
-      <div class="modal-actions cluster">
-        <button type="button" id="purge-cancel-btn" onclick="closePurgeModal()">Cancel</button>
-        <button type="button" id="purge-confirm-btn" class="purge-confirm-btn danger" onclick="confirmPurge()" aria-busy="false">Purge</button>
-      </div>
-    </div>
-  </dialog>
-  <dialog id="confirm-modal" class="modal" aria-labelledby="confirm-modal-title" aria-describedby="confirm-modal-desc" data-state="closed">
-    <div class="modal-panel">
-      <div class="modal-header">
-        <h2 id="confirm-modal-title">Confirm</h2>
-        <button type="button" id="confirm-modal-close" class="modal-close-btn" onclick="closeConfirmModal()" aria-label="Close dialog">&times;</button>
-      </div>
-      <p id="confirm-modal-desc" class="modal-body"></p>
-      <div class="modal-actions cluster">
-        <button type="button" id="confirm-cancel-btn" data-variant="secondary" onclick="closeConfirmModal()">Cancel</button>
-        <button type="button" id="confirm-action-btn" data-variant="primary" onclick="executeConfirmModal()" aria-busy="false">Confirm</button>
-      </div>
-    </div>
-  </dialog>
-  <dialog id="claim-modal" class="modal" aria-labelledby="claim-modal-title" aria-describedby="claim-modal-desc" data-state="closed">
-    <div class="modal-panel">
-      <div class="modal-header">
-        <h2 id="claim-modal-title">Claim Task</h2>
-        <button type="button" id="claim-modal-close" class="modal-close-btn" onclick="closeClaimModal()" aria-label="Close dialog">&times;</button>
-      </div>
-      <form id="claim-form" onsubmit="confirmClaim(event)">
-        <p id="claim-modal-desc" class="modal-body">
-          Claim this task as which worker?
-        </p>
-        <div class="field" style="margin-bottom: 16px;">
-          <input type="text" id="claim-worker-input" placeholder="Worker name" required maxlength="128" style="width: 100%;">
-        </div>
-        <div class="modal-actions cluster">
-          <button type="button" id="claim-cancel-btn" data-variant="secondary" onclick="closeClaimModal()">Cancel</button>
-          <button type="submit" id="claim-confirm-btn" data-variant="primary" aria-busy="false">Claim</button>
-        </div>
-      </form>
-    </div>
-  </dialog>
-  <dialog id="shortcuts-modal" class="modal" aria-labelledby="shortcuts-modal-title" data-state="closed">
-    <div class="modal-panel">
-      <div class="modal-header">
-        <h2 id="shortcuts-modal-title">Keyboard Shortcuts</h2>
-        <button type="button" id="shortcuts-modal-close" class="modal-close-btn" onclick="closeShortcutsModal()" aria-label="Close dialog">&times;</button>
-      </div>
-      <div class="modal-body stack-sm">
-        <section class="shortcuts-section">
-          <h3>Table navigation</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><kbd>↑</kbd> / <kbd>k</kbd> , <kbd>↓</kbd> / <kbd>j</kbd> <span>Select previous / next task (ArrowUp/ArrowDown)</span></div>
-            <div class="shortcut-row"><kbd>Home</kbd> / <kbd>End</kbd> <span>Jump to first / last task</span></div>
-            <div class="shortcut-row"><kbd>PgUp</kbd> / <kbd>PgDn</kbd> <span>Jump 10 tasks up / down</span></div>
-            <div class="shortcut-row"><kbd>Enter</kbd> <span>Select task and focus details pane</span></div>
-            <div class="shortcut-row"><kbd>Enter</kbd> / <kbd>Space</kbd> <span>Sort selected column header</span></div>
-            <div class="shortcut-row"><kbd>Esc</kbd> <span>Deselect task and clear details</span></div>
-          </div>
-        </section>
-        <section class="shortcuts-section">
-          <h3>Search</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><kbd>/</kbd> <span>Focus search filter</span></div>
-            <div class="shortcut-row"><kbd>Esc</kbd> <span>Clear search filter and blur</span></div>
-            <div class="shortcut-row"><kbd>↓</kbd> <span>Select first task in filtered table (ArrowDown)</span></div>
-          </div>
-        </section>
-        <section class="shortcuts-section">
-          <h3>Form submit</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><kbd>Ctrl+Enter</kbd> / <kbd>Cmd+Enter</kbd> <span>Submit task, save edit, or add note</span></div>
-            <div class="shortcut-row"><kbd>Esc</kbd> <span>Cancel task edit or close dialog</span></div>
-          </div>
-        </section>
-        <section class="shortcuts-section">
-          <h3>Task actions</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><kbd>e</kbd> <span>Toggle edit mode</span></div>
-            <div class="shortcut-row"><kbd>c</kbd> <span>Claim task</span></div>
-            <div class="shortcut-row"><kbd>a</kbd> <span>Focus note input</span></div>
-            <div class="shortcut-row"><kbd>x</kbd> <span>Complete task (when leased)</span></div>
-          </div>
-        </section>
-        <section class="shortcuts-section">
-          <h3>General</h3>
-          <div class="shortcut-list">
-            <div class="shortcut-row"><kbd>0-5</kbd> <span>Filter status (0: all, 1: pending, 2: leased, 3: done, 4: buried, 5: live)</span></div>
-            <div class="shortcut-row"><kbd>r</kbd> <span>Refresh queue</span></div>
-            <div class="shortcut-row"><kbd>?</kbd> <span>Show keyboard shortcuts</span></div>
-          </div>
-        </section>
-      </div>
-      <div class="modal-actions cluster">
-        <button type="button" id="shortcuts-close-btn" onclick="closeShortcutsModal()">Close</button>
-      </div>
-    </div>
-  </dialog>
+  function mapTask(raw) {
+    const nl = (raw.body || '').indexOf('\n');
+    const title = nl === -1 ? (raw.body || '') : raw.body.slice(0, nl);
+    const rest = nl === -1 ? '' : raw.body.slice(nl + 1).replace(/^\n+/, '');
+    const stateMap = { buried: 'stuck', leased: 'claimed', pending: 'queued', done: 'done' };
+    return {
+      id: raw.id,
+      state: stateMap[raw.status] || raw.status,
+      status: raw.status,
+      title,
+      body: rest,
+      rawBody: raw.body || '',
+      project: raw.project || '',
+      pri: raw.priority,
+      after: Array.isArray(raw.after) ? raw.after : [],
+      attempts: raw.claim_count || 0,
+      worker: raw.worker || '',
+      exp: (raw.lease_expires || 0) * 1000,
+      added: (raw.created_at || 0) * 1000,
+      version: raw.version,
+      thread: [],
+      threadLoaded: false,
+    };
+  }
 
-  <script>
-    let selectedTaskId = null;
-    let refreshTimer = null;
-    let refreshInFlight = false;
-    let searchDebounceTimer = null;
-    const REFRESH_MS = 3000;
-    const RETRY_MAX_MS = 30000;
-    const FETCH_TIMEOUT_MS = 10000;
-    let offline = false;
-    let retryDelay = REFRESH_MS;
-    let retryAt = 0;
-    let shownTaskId = null;
-    let shownTaskRaw = '';
-    let currentTask = null;
-    let isEditingTask = false;
-    const PAGE_SIZE = 200;
-    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,lease_expires,created_at,summary';
-    const STATUS_KEYS = ['', 'pending', 'leased', 'done', 'buried', 'live'];
-    let claimWorker = '';
-    try {
-      claimWorker = localStorage.getItem('taskd-claim-worker') || '';
-    } catch (_) {}
-    let currentPage = 1;
-    let totalTasks = 0;
-    let lastRenderedTasksURL = '';
-    let sortCol = '';
-    let sortDir = 'asc';
-    const SORT_COLS = ['id', 'project', 'status', 'priority', 'claim_count', 'worker', 'created_at'];
-    function cleanSortCol(val) {
-      return (val && typeof val === 'string' && SORT_COLS.includes(val)) ? val : '';
+  /* ---------- left: every task ---------- */
+  const COLS = {
+    stuck:   ['<th>Task</th><th class="n">Attempts</th><th class="n opt">Added</th>', t => `<td class="n">${t.attempts}</td><td class="n opt">${ago(t.added)}</td>`],
+    claimed: ['<th>Task</th><th>Worker</th><th class="n">Lease</th>', t => `<td>${esc(t.worker)}</td><td class="n">${until(t.exp, 3)}</td>`],
+    queued:  ['<th></th><th>Task</th><th class="n opt">Project</th><th class="n">Priority</th>', t => `<td class="n opt">${esc(t.project)}</td><td class="n">${t.pri}</td>`],
+    done:    ['<th>Task</th><th class="n opt">Project</th>', t => `<td class="n opt">${esc(t.project)}</td>`],
+  };
+
+  function list() {
+    const q = $('#q').value.trim().toLowerCase();
+    const hit = t => !q || [String(t.id), t.title, t.body, t.project, t.worker, ...(t.thread || [])].some(x => x && String(x).toLowerCase().includes(q));
+    const rdy = ready(), sets = { stuck: by('stuck'), claimed: by('claimed').sort((a, b) => a.exp - b.exp), queued: [...rdy, ...blocked()], done: by('done').sort((a, b) => b.added - a.added || b.id - a.id) };
+    $('#list').innerHTML = Object.entries(sets).map(([state, all]) => {
+      const rows = all.filter(hit);
+      if (!rows.length) return '';
+      return `<section id="${state}"><h2>${state[0].toUpperCase() + state.slice(1)}</h2><table><thead><tr>${COLS[state][0]}</tr></thead><tbody>` +
+        rows.map(t => {
+          const w = state === 'queued' ? waits(t) : [];
+          const under = state === 'queued' && w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ') : '';
+          return `<tr data-id="${t.id}" ${t.id === sel ? 'aria-current="true"' : ''}>${state === 'queued' ? `<td class="n">${w.length ? '' : rdy.indexOf(t) + 1}</td>` : ''}` +
+          `<td class="task"><a href="#${t.id}">${esc(t.title)}</a>${under ? `<span class="why">${esc(under)}</span>` : ''}</td>${COLS[state][1](t)}</tr>`;
+        }).join('') +
+        `</tbody></table></section>`;
+    }).join('') || '<p style="padding-top:1.1rem">Nothing matches.</p>';
+
+    const n = s => by(s).length, s = n('stuck'), is = k => k === 1 ? 'is' : 'are', b = blocked().length;
+    $('#status').innerHTML = (s ? `<a href="#stuck" class="warn">${s} ${is(s)} stuck</a> and ${s === 1 ? 'needs' : 'need'} an answer from you. ` : '') +
+      `<a href="#claimed">${n('claimed')} ${is(n('claimed'))} claimed</a>, <a href="#queued">${n('queued')} queued</a>${b ? ` (${b} waiting on other tasks)` : ''}, <a href="#done">${n('done')} done</a>.`;
+    document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
+    tick();
+  }
+
+  /* ---------- right: the task you picked, or a blank one ---------- */
+  const others = t => tasks.filter(x => x.id !== t.id && ['queued', 'claimed', 'stuck'].includes(x.state) && !(t.after || []).includes(x.id) && !(x.after || []).includes(t.id)).sort((a, b) => (b.project === t.project) - (a.project === t.project));
+  const waitFor = t => `<label class="wait">Wait for <select name="after"><option value="">nothing</option>${others(t).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('')}</select></label>`;
+
+  function pane() {
+    const t = get(sel), el = $('#pane');
+    document.body.classList.toggle('reading', !!t);
+    $('#new').hidden = !t;
+    if (!t) {
+      if ($('form.add', el) && $$('textarea', el).some(a => a.value)) return;
+      el.dataset.key = '';
+      el.innerHTML = `<h2>New task</h2><form class="add">
+        <textarea name="body" required aria-label="Task" placeholder="The first line is the title.&#10;&#10;The rest is what the worker will read."></textarea>
+        <div class="row"><label>Project <input name="project" value="taskd" size="8" required></label>
+          <label>Priority <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select></label>
+          ${waitFor({ after: [], id: 0 })}
+          <button>Add to the queue</button></div></form>`;
+      return;
     }
-    function cleanSortDir(val) {
-      return val === 'desc' ? 'desc' : (val === 'asc' ? 'asc' : '');
-    }
-    const defaultDateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'medium' });
-    const defaultRelativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+    const key = [t.id, t.state, (t.thread || []).length, t.pri, (t.after || []).length, (t.body || '').length].join();
+    if (el.dataset.key === key && $$('textarea', el).some(a => a.value)) return tick();
+    el.dataset.key = key;
 
-    function formatTimestamp(sec) {
-      if (!sec) return '';
-      try {
-        return defaultDateTimeFormatter.format(new Date(sec * 1000));
-      } catch (_) {
-        return String(sec);
-      }
-    }
+    const w = waits(t), pos = ready().indexOf(t) + 1;
+    const state = {
+      stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
+      claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
+      queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="#${a.id}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
+                              : `Number ${pos} in the queue.`,
+      done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
+    }[t.state]();
+    const editable = t.state === 'stuck' || t.state === 'queued';
+    const acts = {
+      stuck:   `<form class="reply"><textarea name="reply" required aria-label="Reply" placeholder="Answer the question, or say what should change. The next worker reads the whole thread."></textarea>
+                <div class="row">${waitFor(t)}<button>Reply and requeue</button></div></form>
+                <div class="actions"><button data-act="drop">Drop</button></div>`,
+      claimed: `<div class="actions"><button data-act="revoke">Revoke</button><p>Revoking ends this attempt now. The task comes to you as stuck so you can say what should change.</p></div>`,
+      queued:  `<div class="actions"><label>Priority <select data-act="pri">${[1, 2, 3, 4, 5].map(p => `<option ${p === t.pri ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
+                ${waitFor(t).replace('name="after"', 'data-act="after"')}<button data-act="drop">Drop</button></div>`,
+      done:    '',
+    }[t.state];
+    el.innerHTML = `<h2>${esc(t.title)}</h2><p>${state}</p>${t.body ? `<p class="body">${esc(t.body)}</p>` : `<p class="body"></p>`}` +
+      (editable ? `<p><button data-act="edit">Edit the task text</button></p>` : '') +
+      (t.thread && t.thread.length ? `<h3>Thread</h3><ol>${t.thread.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : '') +
+      `<p>Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>${acts}`;
+    tick();
+  }
 
-    function formatRemainingSeconds(rem) {
-      if (rem <= 0) return 'expired';
-      if (rem >= 3600) {
-        const hours = Math.floor(rem / 3600);
-        const mins = Math.floor((rem % 3600) / 60);
-        return hours + 'h' + String(mins).padStart(2, '0') + 'm';
-      }
-      const mins = Math.floor(rem / 60);
-      const secs = rem % 60;
-      return mins + 'm' + String(secs).padStart(2, '0') + 's';
-    }
-
-    /* creates <time datetime="..."> */
-    function createLeaseElement(sec) {
-      const s = Number(sec);
-      if (!Number.isFinite(s) || s <= 0) return null;
-      const d = new Date(s * 1000);
-      const iso = d.toISOString();
-      let absTitle = iso;
-      try {
-        absTitle = defaultDateTimeFormatter.format(d);
-      } catch (_) {}
-      const el = document.createElement('time');
-      el.setAttribute('datetime', iso);
-      el.setAttribute('title', absTitle);
-      const rem = s - Math.floor(Date.now() / 1000);
-      try {
-        if (rem <= 0) {
-          el.setAttribute('aria-label', 'expired');
-        } else if (rem >= 3600) {
-          el.setAttribute('aria-label', defaultRelativeTimeFormatter.format(Math.round(rem / 3600), 'hour'));
-        } else if (rem >= 60) {
-          el.setAttribute('aria-label', defaultRelativeTimeFormatter.format(Math.round(rem / 60), 'minute'));
-        } else {
-          el.setAttribute('aria-label', defaultRelativeTimeFormatter.format(rem, 'second'));
-        }
-      } catch (_) {}
-      el.textContent = formatRemainingSeconds(rem);
-      return el;
-    }
-
-    function populateLeaseContainer(container, row, sec, status) {
-      if (!container) return;
-      container.textContent = '';
-      if (status === 'leased' && sec) {
-        const el = createLeaseElement(sec);
-        if (el) {
-          if (row) row.hidden = false;
-          container.appendChild(el);
-          return;
-        }
-      }
-      if (row) row.hidden = true;
-    }
-
-    function createLeaseCell(sec, status) {
-      const td = document.createElement('td');
-      td.setAttribute('data-field', 'lease');
-      populateLeaseContainer(td, null, sec, status);
-      return td;
-    }
-    function updateSortHeaders() {
-      const ths = document.querySelectorAll('th.sortable');
-      for (const th of ths) {
-        const c = th.dataset ? th.dataset.col : null;
-        if (c === sortCol) {
-          th.setAttribute('aria-sort', sortDir === 'asc' ? 'ascending' : 'descending');
-        } else {
-          th.removeAttribute('aria-sort');
-        }
-      }
-    }
-
-    function sort(col) {
-      col = cleanSortCol(col);
-      if (!col) return;
-      if (sortCol === col) {
-        sortDir = (sortDir === 'asc' ? 'desc' : 'asc');
-      } else {
-        sortCol = col;
-        sortDir = 'asc';
-      }
-      updateSortHeaders();
-      currentPage = 1;
-      syncURL(false);
-      return loadTasks();
-    }
-
-    function setupTableSorting() {
-      const thead = document.getElementById('task-table-head');
-      if (!thead) return;
-      const getCol = (e) => {
-        const th = e.target.closest ? e.target.closest('th.sortable') : null;
-        return (th && th.dataset) ? th.dataset.col : null;
-      };
-      thead.addEventListener('click', (e) => {
-        const col = getCol(e);
-        if (col) sort(col);
-      });
-      thead.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          const col = getCol(e);
-          if (col) {
-            e.preventDefault();
-            sort(col);
-          }
-        }
-      });
-    }
-    // The project filter, the status filter and the selected task are the
-    // state a reader can see, so they live in the URL: a link reproduces
-    // the view and a reload keeps it. Filters replace the history entry,
-    // selecting a task pushes one, so Back walks out of a task.
-    // A project named in the URL is restored once /projects has answered.
-    let pendingProject = '';
-    function readURLState() {
-      const q = new URLSearchParams(location.search);
-      const sort = cleanSortCol(q.get('sort'));
-      return {
-        project: q.get('project') || '',
-        status: q.get('status') || '',
-        priority: q.get('priority') || '',
-        worker: q.has('worker') ? q.get('worker') : null,
-        q: q.get('q') || '',
-        sort: sort,
-        order: sort ? (cleanSortDir(q.get('order')) || 'asc') : '',
-        task: q.get('task') || '',
-        page: q.get('page') || ''
-      };
-    }
-
-    function getStatusFilter() {
-      const checked = document.querySelector('input[name="filter-status"]:checked');
-      return checked ? checked.value : '';
-    }
-
-    function setStatusFilter(value) {
-      const target = document.querySelector('input[name="filter-status"][value="' + value + '"]');
-      const radio = target || document.querySelector('input[name="filter-status"][value=""]');
-      if (radio) radio.checked = true;
-    }
-
-    function getWorkerFilter() {
-      const workerEl = document.getElementById('filter-worker');
-      if (!workerEl) return null;
-      if (workerEl.selectedIndex === 1) return '';
-      if (workerEl.selectedIndex > 1) return workerEl.value;
-      return null;
-    }
-
-    function currentURLState() {
-      const projEl = document.getElementById('filter-project');
-      const prioEl = document.getElementById('filter-priority');
-      const searchEl = document.getElementById('filter-search');
-      const state = {
-        project: pendingProject || (projEl ? projEl.value : ''),
-        status: getStatusFilter(),
-        priority: cleanPriority(prioEl ? prioEl.value : ''),
-        worker: getWorkerFilter(),
-        q: searchEl ? searchEl.value.trim() : '',
-        sort: sortCol || '',
-        order: sortCol ? sortDir : '',
-        task: selectedTaskId || ''
-      };
-      if (currentPage > 1) state.page = String(currentPage);
-      return state;
-    }
-
-    function syncURL(push) {
-      const state = currentURLState();
-      const q = new URLSearchParams();
-      if (state.project) q.set('project', state.project);
-      if (state.status) q.set('status', state.status);
-      if (state.priority) q.set('priority', state.priority);
-      if (state.worker !== null && state.worker !== undefined) q.set('worker', state.worker);
-      if (state.q) q.set('q', state.q);
-      if (state.sort) q.set('sort', state.sort);
-      if (state.order) q.set('order', state.order);
-      if (state.task) q.set('task', state.task);
-      if (state.page) q.set('page', state.page);
-      const query = q.toString();
-      const url = location.pathname + (query ? '?' + query : '') + location.hash;
-      if (push && url !== location.pathname + location.search + location.hash) {
-        history.pushState(state, '', url);
-      } else {
-        history.replaceState(state, '', url);
-      }
-    }
-
-    // A filter is a closed set of options: anything else in the URL is
-    // noise and gets dropped rather than added to the widget.
-    function setFilter(select, value) {
-      if (!select) return;
-      const known = Array.from(select.options).some(o => o.value === value);
-      select.value = known ? value : '';
-    }
-    function cleanPriority(val) {
-      if (val === null || val === undefined) return '';
-      const s = String(val).trim();
-      return /^\d+$/.test(s) ? s : '';
-    }
-    function setPriorityFilter(value) {
-      const el = document.getElementById('filter-priority');
-      if (el) el.value = cleanPriority(value);
-    }
-
-    // Sync filter-project selection to form-project input
-    function syncFilterProjectToForm() {
-      const filterProj = document.getElementById('filter-project');
-      const formProj = document.getElementById('form-project');
-      if (filterProj && formProj && filterProj.value) {
-        formProj.value = filterProj.value;
-      }
-    }
-
-    function syncSelectOptions(select, items, staticCount = 1) {
-      if (!select || !Array.isArray(items)) return;
-      const current = select.value;
-      const currentIdx = select.selectedIndex;
-      const existing = Array.from(select.options).slice(staticCount).map(o => o.value);
-      const same = existing.length === items.length && existing.every((val, i) => val === items[i]);
-      if (same) return;
-
-      const map = new Map();
-      for (let i = staticCount; i < select.options.length; i++) {
-        map.set(select.options[i].value, select.options[i]);
-      }
-      const itemSet = new Set(items);
-      for (const [val, opt] of map) {
-        if (!itemSet.has(val)) {
-          opt.remove();
-          map.delete(val);
-        }
-      }
-      for (let i = 0; i < items.length; i++) {
-        const val = items[i];
-        let opt = map.get(val);
-        if (!opt) {
-          opt = document.createElement('option');
-          opt.value = val;
-          opt.textContent = val;
-          map.set(val, opt);
-        }
-        const targetIdx = i + staticCount;
-        if (select.options[targetIdx] !== opt) {
-          select.insertBefore(opt, select.options[targetIdx] || null);
-        }
-      }
-      if (currentIdx >= 0 && currentIdx < staticCount) {
-        select.selectedIndex = currentIdx;
-      } else {
-        setFilter(select, current);
-      }
-    }
-
-    async function loadWorkers() {
-      const select = document.getElementById('filter-worker');
-      if (!select) return;
-      try {
-        const res = await fetchRaw('/workers');
-        if (!res.ok) return;
-        const workers = await res.json();
-        if (Array.isArray(workers)) {
-          const currentWorker = getWorkerFilter();
-          if (currentWorker && !workers.includes(currentWorker)) {
-            workers.push(currentWorker);
-            workers.sort();
-          }
-          syncSelectOptions(select, workers, 2);
-        }
-      } catch (err) {
-        logFailure('Failed to sync filter workers:', err);
-      }
-    }
-
-    function applyURLState() {
-      const state = readURLState();
-      const projEl = document.getElementById('filter-project');
-      pendingProject = (projEl && projEl.value === state.project) ? '' : state.project;
-      setFilter(projEl, state.project);
-      setStatusFilter(state.status);
-      setPriorityFilter(state.priority);
-      const workerEl = document.getElementById('filter-worker');
-      if (workerEl) {
-        if (state.worker === null || state.worker === undefined) {
-          workerEl.selectedIndex = 0;
-        } else if (state.worker === '') {
-          workerEl.selectedIndex = 1;
-        } else {
-          const exists = Array.from(workerEl.options).some(o => o.value === state.worker);
-          if (!exists) {
-            const opt = document.createElement('option');
-            opt.value = state.worker;
-            opt.textContent = state.worker;
-            workerEl.appendChild(opt);
-          }
-          workerEl.value = state.worker;
-        }
-      }
-      const searchEl = document.getElementById('filter-search');
-      if (searchEl) searchEl.value = state.q || '';
-      const parsedTask = parseInt(state.task, 10);
-      selectedTaskId = (Number.isInteger(parsedTask) && parsedTask > 0) ? parsedTask : null;
-      const parsedPage = parseInt(state.page || '1', 10);
-      currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
-      sortCol = state.sort;
-      sortDir = state.order || 'asc';
-      updateSortHeaders();
-      if (!selectedTaskId) resetTaskDetails();
-      else loadTaskDetails(selectedTaskId);
-      syncFilterProjectToForm();
-      updateResetFiltersButton();
-    }
-
-    function onFilterChange() {
-      const prioEl = document.getElementById('filter-priority');
-      if (prioEl && prioEl.value !== cleanPriority(prioEl.value)) {
-        prioEl.value = cleanPriority(prioEl.value);
-      }
-      // The widget is what the reader sees, so it wins over a project
-      // the URL named but /projects has not confirmed yet.
-      pendingProject = '';
-      currentPage = 1;
-      syncURL(false);
-      syncFilterProjectToForm();
-      updateKickBuriedButton();
-      updateResetFiltersButton();
-      loadTasks();
-      loadStats();
-    }
-    function filterByStatus(status) {
-      setStatusFilter(status);
-      onFilterChange();
-    }
-
-    function hasActiveFilters() {
-      const projEl = document.getElementById('filter-project');
-      const project = pendingProject || (projEl ? projEl.value : '');
-      const status = getStatusFilter();
-      const prioEl = document.getElementById('filter-priority');
-      const priority = cleanPriority(prioEl ? prioEl.value : '');
-      const worker = getWorkerFilter();
-      const searchEl = document.getElementById('filter-search');
-      const q = searchEl ? searchEl.value.trim() : '';
-      return Boolean(project || status || priority || worker !== null || q);
-    }
-
-    function updateResetFiltersButton() {
-      const btn = document.getElementById('reset-filters-btn');
-      if (btn) btn.hidden = !hasActiveFilters();
-    }
-
-    function resetFilters() {
-      const projEl = document.getElementById('filter-project');
-      if (projEl) projEl.value = '';
-      pendingProject = '';
-      setStatusFilter('');
-      const prioEl = document.getElementById('filter-priority');
-      if (prioEl) prioEl.value = '';
-      const workerEl = document.getElementById('filter-worker');
-      if (workerEl) workerEl.selectedIndex = 0;
-      const searchEl = document.getElementById('filter-search');
-      if (searchEl) searchEl.value = '';
-      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-      currentPage = 1;
-      syncFilterProjectToForm();
-      updateKickBuriedButton();
-      updateResetFiltersButton();
-      syncURL(false);
-      loadTasks();
-      loadStats();
-    }
-
-    function logFailure(msg, err) {
-      if (!offline) console.error(msg, err);
-    }
-
-    function showError(msg) {
-      const b = document.getElementById('error-banner');
-      if (!b) return;
-      if (!msg) {
-        b.hidden = true;
-        const t = document.getElementById('error-banner-text');
-        if (t) t.textContent = '';
-        return;
-      }
-      const t = document.getElementById('error-banner-text');
-      if (t) {
-        t.textContent = msg;
-      } else {
-        b.textContent = msg;
-      }
-      b.hidden = false;
-    }
-
-    window.addEventListener('error', (e) => {
-      const msg = (e && e.message) || (e && e.error && e.error.message) || 'An unexpected error occurred';
-      showError(msg);
+  function tick() {
+    const now = Date.now();
+    $$('[data-until]').forEach(el => {
+      const ms = Math.max(0, el.dataset.until - now), s = Math.round(ms / 1000);
+      const c = ms < 10 * MIN ? Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : Math.round(ms / MIN) + ' min';
+      el.innerHTML = ms < el.dataset.warn * MIN ? `<strong>${c}</strong>` : c;
     });
-
-    window.addEventListener('unhandledrejection', (e) => {
-      const reason = e && e.reason;
-      const msg = (reason && reason.message) || (typeof reason === 'string' ? reason : null) || 'Unhandled promise rejection';
-      showError(msg);
-    });
-
-    function renderConnection() {
-      const el = document.getElementById('connection-status');
-      if (!el) return;
-      if (!offline) {
-        el.hidden = true;
-        el.textContent = '';
-        return;
-      }
-      if (!retryAt) {
-        el.textContent = 'Offline';
-      } else {
-        const left = Math.ceil((retryAt - Date.now()) / 1000);
-        el.textContent = left > 0
-          ? 'Offline \u2014 reconnecting in ' + left + 's'
-          : 'Offline \u2014 reconnecting\u2026';
-      }
-      el.hidden = false;
-    }
-
-    function setOffline(msg) {
-      if (!offline) {
-        offline = true;
-        retryDelay = REFRESH_MS;
-        console.error('taskd unreachable:', msg);
-      }
-      renderConnection();
-    }
-
-    function setOnline() {
-      if (!offline) return;
-      offline = false;
-      retryDelay = REFRESH_MS;
-      retryAt = Date.now() + REFRESH_MS;
-      renderConnection();
-    }
-
-    function scheduleRefresh() {
-      if (refreshTimer) {
-        clearInterval(refreshTimer);
-        refreshTimer = null;
-      }
-      if (document.visibilityState === 'hidden') {
-        renderConnection();
-        return;
-      }
-      const cb = document.getElementById('auto-refresh');
-      if (!cb || !cb.checked) {
-        retryAt = 0;
-        renderConnection();
-        return;
-      }
-      retryAt = Date.now() + (offline ? retryDelay : REFRESH_MS);
-      refreshTimer = setInterval(refreshTick, 1000);
-      renderConnection();
-    }
-
-    function refreshTick() {
-      if (!retryAt || Date.now() < retryAt) {
-        if (offline) renderConnection();
-        return;
-      }
-      if (refreshInFlight) return;
-      if (offline) retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
-      loadAll();
-    }
-
-    function onVisibilityChange() {
-      if (document.visibilityState === 'hidden') {
-        if (refreshTimer) {
-          clearInterval(refreshTimer);
-          refreshTimer = null;
-        }
-        return;
-      }
-      const cb = document.getElementById('auto-refresh');
-      if (cb && cb.checked) {
-        loadAll();
-      }
-    }
-
-    async function fetchRaw(url, opts) {
-      let res;
-      let timer = null;
-      try {
-        let signal;
-        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
-          signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
-        } else if (typeof AbortController !== 'undefined') {
-          const c = new AbortController();
-          timer = setTimeout(() => c.abort(), FETCH_TIMEOUT_MS);
-          signal = c.signal;
-        }
-        res = await fetch(url, signal ? { signal, ...opts } : opts);
-      } catch (err) {
-        err.transport = true;
-        setOffline(err.message);
-        throw err;
-      } finally {
-        if (timer) clearTimeout(timer);
-      }
-      setOnline();
-      return res;
-    }
-
-    function showFetchError(err) {
-      if (err && err.transport) return;
-      showError(err && err.message ? err.message : String(err));
-    }
-
-    function parseErrorMessage(res, txt) {
-      if (txt) {
-        try {
-          const j = JSON.parse(txt);
-          if (j && typeof j.error === 'string') return j.error;
-        } catch (_) {}
-        const trimmed = txt.trim();
-        if (trimmed && !trimmed.startsWith('<')) {
-          return trimmed;
-        }
-      }
-      const statusText = res.statusText || '';
-      const st = statusText ? (res.status + ' ' + statusText) : ('HTTP ' + res.status);
-      return 'daemon returned ' + st;
-    }
-
-    const MAX_ETAG_CACHE_ENTRIES = 50;
-    const etagCache = new Map();
-
-    function setCachedETag(url, entry) {
-      if (etagCache.has(url)) {
-        etagCache.delete(url);
-      } else if (etagCache.size >= MAX_ETAG_CACHE_ENTRIES) {
-        const oldest = etagCache.keys().next().value;
-        etagCache.delete(oldest);
-      }
-      etagCache.set(url, entry);
-    }
-    async function fetchJSON(url, opts, withHeaders) {
-      let finalOpts = opts;
-      const method = (opts && opts.method) ? String(opts.method).toUpperCase() : 'GET';
-      const cached = (method === 'GET') ? etagCache.get(url) : null;
-      if (cached && cached.etag) {
-        finalOpts = Object.assign({}, opts);
-        const headers = Object.assign({}, finalOpts.headers);
-        let hasInm = false;
-        for (const k of Object.keys(headers)) {
-          if (k.toLowerCase() === 'if-none-match') {
-            hasInm = true;
-            break;
-          }
-        }
-        if (!hasInm) {
-          headers['If-None-Match'] = cached.etag;
-          finalOpts.headers = headers;
-        }
-      }
-
-      const res = await fetchRaw(url, finalOpts);
-      if (res.status === 304) {
-        if (cached) {
-          etagCache.delete(url);
-          etagCache.set(url, cached);
-        }
-        const cachedData = cached ? cached.data : null;
-        return withHeaders ? { data: cachedData, headers: res.headers, notModified: true } : cachedData;
-      }
-      if (!res.ok) {
-        const txt = await res.text();
-        const err = new Error(parseErrorMessage(res, txt));
-        err.status = res.status;
-        try {
-          const j = JSON.parse(txt);
-          if (j && typeof j.field === 'string') err.field = j.field;
-        } catch (_) {}
-        throw err;
-      }
-      if (res.status === 204) return withHeaders ? { data: null, headers: res.headers } : null;
-      const ct = (res.headers && res.headers.get('content-type')) || '';
-      let data = null;
-      if (ct.includes('application/json') || typeof res.json === 'function') {
-        data = await res.json();
-      } else {
-        const txt = await res.text();
-        data = txt ? JSON.parse(txt) : null;
-      }
-      if (method === 'GET' && res.headers && typeof res.headers.get === 'function') {
-        const etag = res.headers.get('etag') || res.headers.get('ETag');
-        if (etag) {
-          setCachedETag(url, { etag, data });
-        }
-      }
-      return withHeaders ? { data, headers: res.headers } : data;
-    }
-
-    async function loadProjects() {
-      try {
-        const projects = await fetchJSON('/projects');
-        const select = document.getElementById('filter-project');
-        if (select && Array.isArray(projects)) {
-          syncSelectOptions(select, projects);
-          if (pendingProject) {
-            const current = pendingProject;
-            pendingProject = '';
-            setFilter(select, current);
-            syncURL(false);
-            syncFilterProjectToForm();
-          }
-        }
-        const datalist = document.getElementById('form-project-list');
-        if (datalist && Array.isArray(projects)) {
-          const existingProjects = Array.from(datalist.options).map(o => o.value);
-          const sameProjects = existingProjects.length === projects.length && existingProjects.every((p, i) => p === projects[i]);
-          if (!sameProjects) {
-            datalist.innerHTML = '';
-            for (const p of projects) {
-              const opt = document.createElement('option');
-              opt.value = p;
-              datalist.appendChild(opt);
-            }
-          }
-        }
-      } catch (e) {
-        if (pendingProject) {
-          pendingProject = '';
-          syncURL(false);
-        }
-        showFetchError(e);
-        logFailure('Failed to load projects:', e);
-      }
-    }
-
-    async function loadStats() {
-      const select = document.getElementById('filter-project');
-      const proj = select ? select.value : '';
-      const worker = getWorkerFilter();
-      let url = '/stats';
-      const params = [];
-      if (proj) params.push('project=' + encodeURIComponent(proj));
-      if (worker !== null) params.push('worker=' + encodeURIComponent(worker));
-      if (params.length > 0) url += '?' + params.join('&');
-      try {
-        const stats = await fetchJSON(url);
-        if (!stats) return;
-        const setVal = (id, val) => {
-          const el = document.getElementById(id);
-          if (el) el.textContent = val ?? 0;
-        };
-        setVal('stat-live', (stats.pending || 0) + (stats.leased || 0));
-        setVal('stat-pending', stats.pending);
-        setVal('stat-leased', stats.leased);
-        setVal('stat-done', stats.done);
-        setVal('stat-buried', stats.buried);
-        setVal('stat-total', stats.total);
-        updateKickBuriedButton();
-      } catch (e) {
-        showFetchError(e);
-        logFailure('Failed to load stats:', e);
-      }
-    }
-
-    const EMPTY_DETAILS_HTML = '<div class="empty-state"><p class="text-muted italic">Select a task from the table to view details</p></div>';
-
-    function resetTaskDetails() {
-      shownTaskId = null;
-      shownTaskRaw = '';
-      currentTask = null;
-      isEditingTask = false;
-      const pane = document.getElementById('task-details-content');
-      if (pane) {
-        pane.innerHTML = EMPTY_DETAILS_HTML;
-      }
-    }
-
-    function focusTaskForm() {
-      const el = document.getElementById('form-project');
-      if (el) el.focus();
-    }
-
-    function rowFields(t) {
-      const tid = String(t.id || '');
-      return {
-        id: tid,
-        project: t.project || '',
-        status: t.status || '',
-        priority: String(t.priority ?? ''),
-        claimCount: String(t.claim_count ?? 0),
-        worker: t.worker || '',
-        createdAt: formatTimestamp(t.created_at),
-        summary: t.summary || ''
-      };
-    }
-    function createCell(field, text, className) {
-      const td = document.createElement('td');
-      td.setAttribute('data-field', field);
-      if (className) td.className = className;
-      td.textContent = text;
-      return td;
-    }
-
-    function createRow(t, isSelected) {
-      const f = rowFields(t);
-      const tr = document.createElement('tr');
-      tr.dataset.taskId = f.id;
-      tr.setAttribute('tabindex', '-1');
-      tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
-      if (isSelected) tr.setAttribute('data-state', 'selected');
-
-      const th = document.createElement('th');
-      th.setAttribute('scope', 'row');
-      th.className = 'mono';
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'row-select';
-      btn.title = f.id;
-      btn.textContent = f.id;
-      th.appendChild(btn);
-      tr.appendChild(th);
-
-      tr.appendChild(createCell('project', f.project));
-
-      const tdStatus = document.createElement('td');
-      tdStatus.setAttribute('data-field', 'status');
-      const badge = document.createElement('span');
-      badge.className = 'badge';
-      badge.setAttribute('data-status', f.status);
-      badge.textContent = f.status;
-      tdStatus.appendChild(badge);
-      tr.appendChild(tdStatus);
-
-      tr.appendChild(createCell('priority', f.priority));
-      tr.appendChild(createCell('claim_count', f.claimCount));
-      tr.appendChild(createCell('worker', f.worker, 'mono'));
-      tr.appendChild(createLeaseCell(t.lease_expires, t.status));
-      tr.appendChild(createCell('created_at', f.createdAt));
-      tr.appendChild(createCell('summary', f.summary));
-      return tr;
-    }
-
-    function setText(el, text) {
-      if (el && el.textContent !== text) el.textContent = text;
-    }
-
-    function updateRow(tr, t, isSelected) {
-      const f = rowFields(t);
-      const selStr = isSelected ? 'true' : 'false';
-      if (tr.getAttribute('aria-selected') !== selStr) {
-        tr.setAttribute('aria-selected', selStr);
-      }
-      if (isSelected) {
-        if (tr.getAttribute('data-state') !== 'selected') tr.setAttribute('data-state', 'selected');
-      } else {
-        if (tr.hasAttribute('data-state')) tr.removeAttribute('data-state');
-      }
-      if (!tr.hasAttribute('tabindex')) {
-        tr.setAttribute('tabindex', '-1');
-      }
-      setText(tr.querySelector('[data-field="project"]'), f.project);
-      setText(tr.querySelector('[data-field="priority"]'), f.priority);
-      setText(tr.querySelector('[data-field="claim_count"]'), f.claimCount);
-      setText(tr.querySelector('[data-field="worker"]'), f.worker);
-      populateLeaseContainer(tr.querySelector('[data-field="lease"]'), null, t.lease_expires, t.status);
-      setText(tr.querySelector('[data-field="created_at"]'), f.createdAt);
-      setText(tr.querySelector('[data-field="summary"]'), f.summary);
-      const badge = tr.querySelector('[data-field="status"] .badge');
-      if (badge) {
-        if (badge.getAttribute('data-status') !== f.status) badge.setAttribute('data-status', f.status);
-        setText(badge, f.status);
-      }
-    }
-
-    async function loadTasks() {
-      const projEl = document.getElementById('filter-project');
-      const prioEl = document.getElementById('filter-priority');
-      const searchEl = document.getElementById('filter-search');
-      const proj = projEl ? projEl.value : '';
-      const status = getStatusFilter();
-      const prio = cleanPriority(prioEl ? prioEl.value : '');
-      const worker = getWorkerFilter();
-      const search = searchEl ? searchEl.value.trim() : '';
-      while (true) {
-        const offset = (currentPage - 1) * PAGE_SIZE;
-        let url = '/tasks?limit=' + PAGE_SIZE + '&fields=' + QUEUE_FIELDS;
-        if (offset > 0) url += '&offset=' + offset;
-        if (proj) url += '&project=' + encodeURIComponent(proj);
-        if (status) url += '&status=' + encodeURIComponent(status);
-        if (prio !== '') url += '&priority=' + encodeURIComponent(prio);
-        if (worker !== null) url += '&worker=' + encodeURIComponent(worker);
-        if (search) url += '&q=' + encodeURIComponent(search);
-        if (sortCol) {
-          url += '&sort=' + encodeURIComponent(sortCol);
-          if (sortDir) url += '&order=' + encodeURIComponent(sortDir);
-        }
-
-        try {
-          const res = await fetchJSON(url, null, true);
-          if (res && res.notModified && lastRenderedTasksURL === url) {
-            return;
-          }
-          lastRenderedTasksURL = url;
-          const tasks = (res && res.data) || [];
-          const totalHdr = res && res.headers && res.headers.get('X-Total-Count');
-          const parsedTotal = parseInt(totalHdr, 10);
-          const total = Number.isFinite(parsedTotal) ? parsedTotal : (Array.isArray(tasks) ? tasks.length : 0);
-          totalTasks = total;
-
-          const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
-          if (currentPage > maxPage && total > 0) {
-            currentPage = maxPage;
-            syncURL(false);
-            continue;
-          }
-
-          const tbody = document.getElementById('task-table-body');
-          const countEl = document.getElementById('queue-count');
-          if (countEl) {
-            if (total === 0 || !Array.isArray(tasks) || tasks.length === 0) {
-              countEl.textContent = '0 tasks';
-            } else {
-              const start = offset + 1;
-              const end = Math.min(offset + tasks.length, total);
-              countEl.textContent = `Showing ${start}-${end} of ${total}`;
-            }
-          }
-
-          const prevBtn = document.getElementById('prev-page-btn');
-          if (prevBtn) prevBtn.disabled = (currentPage <= 1);
-          const nextBtn = document.getElementById('next-page-btn');
-          if (nextBtn) nextBtn.disabled = (currentPage >= maxPage);
-
-          if (!tbody) return;
-
-          if (!Array.isArray(tasks) || tasks.length === 0) {
-            for (const tr of Array.from(tbody.querySelectorAll('tr[data-task-id]'))) {
-              tr.remove();
-            }
-            let emptyRow = tbody.querySelector('tr:not([data-task-id])');
-            if (!emptyRow) {
-              emptyRow = document.createElement('tr');
-              tbody.appendChild(emptyRow);
-            }
-            if (hasActiveFilters()) {
-              emptyRow.innerHTML = '<td colspan="9"><div class="empty-state"><p>No tasks match active filters.</p><button type="button" class="btn-sm" onclick="resetFilters()">Reset Filters</button></div></td>';
-            } else {
-              emptyRow.innerHTML = '<td colspan="9"><div class="empty-state"><p>No tasks in queue.</p><a href="#submit-task-form" onclick="focusTaskForm()">Submit a task</a></div></td>';
-            }
-            return;
-          }
-
-        const placeholder = tbody.querySelector('tr:not([data-task-id])');
-        if (placeholder) {
-          placeholder.remove();
-        }
-
-        const existingRows = new Map();
-        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-          existingRows.set(tr.dataset.taskId, tr);
-        }
-
-        const validTasks = tasks.filter(t => t && t.id);
-        const newIds = new Set(validTasks.map(t => String(t.id)));
-
-        for (const [id, tr] of existingRows) {
-          if (!newIds.has(id)) {
-            tr.remove();
-            existingRows.delete(id);
-          }
-        }
-
-        for (let i = 0; i < validTasks.length; i++) {
-          const t = validTasks[i];
-          const tid = String(t.id);
-          const isSelected = (selectedTaskId !== null && selectedTaskId !== undefined && tid === String(selectedTaskId));
-
-          let tr = existingRows.get(tid);
-          if (!tr) {
-            tr = createRow(t, isSelected);
-            existingRows.set(tid, tr);
-          } else {
-            updateRow(tr, t, isSelected);
-          }
-
-          if (tbody.children[i] !== tr) {
-            tbody.insertBefore(tr, tbody.children[i] || null);
-          }
-        }
-
-        return;
-      } catch (e) {
-        showFetchError(e);
-        logFailure('Failed to load tasks:', e);
-        return;
+    for (const t of by('claimed')) {
+      if (t.exp && now >= t.exp && !t.expired) {
+        t.expired = true;
+        scheduleReload();
+        break;
       }
     }
   }
 
-    function selectTask(id) {
-      const parsed = parseInt(id, 10);
-      if (!Number.isInteger(parsed) || parsed <= 0) return;
-      if (selectedTaskId !== parsed) isEditingTask = false;
-      selectedTaskId = parsed;
-      showError(null);
-      syncURL(true);
-      const tbody = document.getElementById('task-table-body');
-      if (tbody) {
-        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-          const sel = parseInt(tr.dataset.taskId, 10) === parsed;
-          tr.setAttribute('aria-selected', sel ? 'true' : 'false');
-          if (sel) tr.setAttribute('data-state', 'selected');
-          else tr.removeAttribute('data-state');
-        }
-      }
-      return loadTaskDetails(parsed);
+  const render = () => { list(); pane(); };
+
+  function select(id) {
+    id = id ? +id : null;
+    if (id && sel === id) return;
+    sel = id;
+    history.replaceState(null, '', id ? '#' + id : location.pathname);
+    $('#pane').innerHTML = '';
+    $('#pane').dataset.key = '';
+    render();
+    $('#pane').scrollTop = 0;
+    if (sel) {
+      const t = get(sel);
+      if (t) fetchNotes(t);
     }
+  }
 
-    async function prevPage() {
-      if (currentPage > 1) {
-        currentPage--;
-        syncURL(true);
-        await loadTasks();
-      }
+  async function fetchNotes(t) {
+    try {
+      const res = await fetch('/tasks/' + t.id);
+      if (!res.ok) return;
+      const full = await res.json();
+      t.thread = (full.notes || []).map(n => `${n.author}: ${n.text}`);
+      t.threadLoaded = true;
+      if (full.version !== undefined) t.version = full.version;
+      if (sel === t.id) pane();
+    } catch (_) {}
+  }
+
+  function showWarn(err) {
+    let p = $('#pane p.warn');
+    if (!p) {
+      p = document.createElement('p');
+      p.className = 'warn';
+      $('#pane').prepend(p);
     }
+    p.textContent = (err && err.field ? err.field + ': ' : '') + (err && err.error ? err.error : 'Request failed');
+  }
 
-    async function nextPage() {
-      const maxPage = Math.max(1, Math.ceil(totalTasks / PAGE_SIZE));
-      if (currentPage < maxPage) {
-        currentPage++;
-        syncURL(true);
-        await loadTasks();
-      }
+  function showWarnMsg(msg) {
+    let p = $('#pane p.warn');
+    if (!p) {
+      p = document.createElement('p');
+      p.className = 'warn';
+      $('#pane').prepend(p);
     }
+    p.textContent = msg;
+  }
 
-    function setupRowActivation() {
-      const tbody = document.getElementById('task-table-body');
-      if (!tbody) return;
-      tbody.addEventListener('click', (e) => {
-        const tr = e.target.closest ? e.target.closest('tr[data-task-id]') : null;
-        if (tr) {
-          selectTask(tr.dataset.taskId);
-          tr.focus();
-        }
-      });
-      tbody.addEventListener('keydown', (e) => {
-        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-        if (e.target && e.target.closest && e.target.closest('input, textarea, select, button, a')) return;
-        const currentTr = e.target.closest ? e.target.closest('tr[data-task-id]') : null;
-        if (!currentTr) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          const detailsPane = document.getElementById('task-details');
-          if (detailsPane) detailsPane.focus();
-          selectTask(currentTr.dataset.taskId);
-          return;
-        }
-        const rows = Array.from(tbody.querySelectorAll('tr[data-task-id]'));
-        if (rows.length === 0) return;
-        const idx = rows.indexOf(currentTr);
-        if (idx === -1) return;
+  async function load() {
+    try {
+      const res = await fetch('/tasks?limit=1000');
+      if (!res.ok) return;
+      const raw = await res.json();
+      tasks = raw.map(mapTask);
+      render();
+      if (sel) {
+        const t = get(sel);
+        if (t && !t.threadLoaded) fetchNotes(t);
+      }
+    } catch (_) {}
+  }
 
-        let nextIdx = idx;
-        switch (e.key) {
-          case 'ArrowDown':
-          case 'j':
-            nextIdx = Math.min(idx + 1, rows.length - 1);
-            break;
-          case 'ArrowUp':
-          case 'k':
-            nextIdx = Math.max(idx - 1, 0);
-            break;
-          case 'Home':
-            nextIdx = 0;
-            break;
-          case 'End':
-            nextIdx = rows.length - 1;
-            break;
-          case 'PageDown':
-            nextIdx = Math.min(idx + 10, rows.length - 1);
-            break;
-          case 'PageUp':
-            nextIdx = Math.max(idx - 10, 0);
-            break;
-          default:
-            return;
-        }
+  /* ---------- events ---------- */
+  $('#list').addEventListener('click', e => {
+    const tr = e.target.closest('tbody tr');
+    if (tr) { e.preventDefault(); select(tr.dataset.id); }
+  });
+  $('#status').addEventListener('click', e => {
+    const a = e.target.closest('a');
+    if (a) { e.preventDefault(); $(a.getAttribute('href'))?.scrollIntoView({ block: 'start' }); }
+  });
+  $('#new').addEventListener('click', () => {
+    select(null);
+    $('form.add textarea')?.focus();
+  });
+  $('#q').addEventListener('input', list);
+  $('#tools').addEventListener('submit', e => e.preventDefault());
 
-        if (nextIdx === idx) return;
-        e.preventDefault();
-        const target = rows[nextIdx];
-        selectTask(target.dataset.taskId);
-        target.focus();
-      });
+  $('#pane').addEventListener('click', async e => {
+    const link = e.target.closest('a[href^="#"]');
+    if (link) { e.preventDefault(); return select(link.getAttribute('href').slice(1)); }
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const t = get(sel), act = b.dataset.act;
+    if (!t) return;
+    if (act === 'drop') {
+      if (!confirm(`Drop “${t.title}”? It leaves the queue.`)) return;
+      const res = await fetch('/tasks/' + t.id, { method: 'DELETE' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return showWarn(err);
+      }
+      select(null);
+      return load();
     }
-    function setupCardFilters() {
-      if (!document.querySelector) return;
-      const stats = document.querySelector('.grid-stats');
-      if (!stats) return;
-      stats.addEventListener('click', (e) => {
-        const card = e.target.closest ? e.target.closest('.card-btn[data-status-filter]') : null;
-        if (card) filterByStatus(card.dataset.statusFilter);
-      });
-    }
-    async function loadTaskDetails(id) {
-      const parsed = parseInt(id, 10);
-      if (!Number.isInteger(parsed) || parsed <= 0) {
-        resetTaskDetails();
-        return;
-      }
-      if (isEditingTask && currentTask && currentTask.id === parsed) {
-        return;
-      }
-      const pane = document.getElementById('task-details-content');
-      if (!pane) return;
-      let t;
-      const sameTask = (parsed === shownTaskId);
-      try {
-        const res = await fetchRaw('/tasks/' + encodeURIComponent(parsed));
-        if (parsed !== selectedTaskId) return;
-        if (res.status === 404) {
-          selectedTaskId = null;
-          syncURL(false);
-          showError(null);
-          resetTaskDetails();
-          return;
-        }
-        const raw = await res.text();
-        if (parsed !== selectedTaskId) return;
-        if (!res.ok) {
-          const err = new Error(parseErrorMessage(res, raw));
-          err.status = res.status;
-          throw err;
-        }
-        if (sameTask && raw === shownTaskRaw) return;
-        t = JSON.parse(raw);
-        shownTaskId = parsed;
-        shownTaskRaw = raw;
-      } catch (e) {
-        if (parsed !== selectedTaskId) return;
-        showFetchError(e);
-        logFailure('Failed to load task details:', e);
-        return;
-      }
-      if (parsed !== selectedTaskId) return;
-      currentTask = t;
-      renderTaskDetails(t, sameTask);
-    }
-
-    function isActivelyLeased(t) {
-      if (!t || t.status !== 'leased') return false;
-      const sec = Number(t.lease_expires);
-      if (!Number.isFinite(sec) || sec <= 0) return false;
-      return sec >= Math.floor(Date.now() / 1000);
-    }
-    let currentNoteAuthor = '';
-
-    function formatNoteTime(sec) {
-      if (!sec) return { display: '', iso: '' };
-      try {
-        const d = new Date(sec * 1000);
-        return { display: defaultDateTimeFormatter.format(d), iso: d.toISOString() };
-      } catch (_) {
-        return { display: String(sec), iso: '' };
-      }
-    }
-
-    function renderNoteItem(n) {
-      const time = formatNoteTime(n.created_at);
-      const item = document.createElement('div');
-      item.className = 'note-item';
-      if (n.id) item.setAttribute('data-note-id', String(n.id));
-
-      const header = document.createElement('div');
-      header.className = 'note-header';
-
-      const author = document.createElement('span');
-      author.className = 'note-author';
-      author.textContent = n.author || '';
-      header.appendChild(author);
-
-      const timeEl = document.createElement('time');
-      timeEl.className = 'note-timestamp';
-      if (time.iso) {
-        timeEl.setAttribute('datetime', time.iso);
-        timeEl.title = time.iso;
-      }
-      timeEl.textContent = time.display;
-      header.appendChild(timeEl);
-
-      item.appendChild(header);
-
-      const textEl = document.createElement('div');
-      textEl.className = 'note-text';
-      textEl.textContent = n.text || '';
-      item.appendChild(textEl);
-
-      return item;
-    }
-
-    function renderNotesList(notes) {
-      if (!notes || notes.length === 0) {
-        return '<p class="no-notes">No notes</p>';
-      }
-      return notes.map(n => renderNoteItem(n).outerHTML).join('');
-    }
-
-    async function submitNote(e, id) {
-      if (e && typeof e.preventDefault === 'function') e.preventDefault();
-      const targetId = (typeof e === 'string') ? e : (id || (currentTask && currentTask.id));
-      if (!targetId) return;
-      const authorEl = document.getElementById('note-author');
-      const textEl = document.getElementById('note-text');
-      if (!authorEl || !textEl) return;
-      const author = authorEl.value.trim();
-      const text = textEl.value.trim();
-      if (!author) {
-        showError('Author is required');
-        if (typeof authorEl.focus === 'function') authorEl.focus();
-        return;
-      }
-      if (author.length > 64 || new TextEncoder().encode(author).length > 64) {
-        showError('Author must be 64 characters or less');
-        if (typeof authorEl.focus === 'function') authorEl.focus();
-        return;
-      }
-      if (!text) {
-        showError('Note text is required');
-        if (typeof textEl.focus === 'function') textEl.focus();
-        return;
-      }
-
-      currentNoteAuthor = author;
-      await withButton('add-note-btn', async () => {
-        const res = await fetchJSON('/tasks/' + encodeURIComponent(targetId) + '/notes', {
+    if (act === 'revoke') {
+      const why = prompt(`Why are you revoking ${t.worker}? This goes in the thread.`);
+      if (why === null) return;
+      if (why.trim()) {
+        const noteRes = await fetch('/tasks/' + t.id + '/notes', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ author: author, text: text })
+          body: JSON.stringify({ author: 'you', text: why.trim() }),
         });
-        textEl.value = '';
-        showError(null);
-        if (currentTask && currentTask.id === targetId && res && res.id) {
-          if (!Array.isArray(currentTask.notes)) currentTask.notes = [];
-          currentTask.notes.push(res);
-          renderTaskDetails(currentTask, true);
+        if (!noteRes.ok) {
+          const err = await noteRes.json().catch(() => ({}));
+          return showWarn(err);
         }
-        await loadTaskDetails(targetId);
+      }
+      const buryRes = await fetch('/tasks/' + t.id + '/bury', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ worker: t.worker }),
       });
+      if (!buryRes.ok) {
+        const err = await buryRes.json().catch(() => ({}));
+        return showWarn(err);
+      }
+      return load();
     }
-
-    function renderTaskDetails(t, sameTask) {
-      const pane = document.getElementById('task-details-content');
-      if (!pane || !t) return;
-      let primStr = '';
-      if (t.primitives !== null && t.primitives !== undefined) {
-        if (typeof t.primitives === 'string') {
-          try {
-            primStr = JSON.stringify(JSON.parse(t.primitives), null, 2);
-          } catch (_) {
-            primStr = t.primitives;
-          }
-        } else {
-          primStr = JSON.stringify(t.primitives, null, 2);
-        }
-      }
-      let createdAtStr = formatTimestamp(t.created_at);
-      const prevScrollTop = sameTask ? pane.scrollTop : 0;
-      const existingAuthor = document.getElementById('note-author');
-      if (existingAuthor && existingAuthor.value) {
-        currentNoteAuthor = existingAuthor.value;
-      }
-      const existingText = document.getElementById('note-text');
-      const preservedText = (sameTask && existingText) ? existingText.value : '';
-      if (isActivelyLeased(t) || t.status === 'done') {
-        isEditingTask = false;
-      }
-      const workerAttrs = !t.worker
-        ? ' disabled aria-disabled="true" title="No active worker on leased task" data-state="disabled"'
-        : ' data-state="ready"';
-      if (isEditingTask) {
-        pane.innerHTML = `
-          <div class="field">
-            <span class="field-label">ID</span>
-            <div class="cluster">
-              <span class="mono" id="edit-task-id"></span>
-              <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
-            </div>
-          </div>
-          <div class="field">
-            <label for="edit-task-project" class="field-label">Project</label>
-            <input type="text" id="edit-task-project">
-          </div>
-          <div class="field"><span class="field-label">Status</span><span id="edit-task-status" class="badge"></span></div>
-          <div class="field">
-            <label for="edit-task-priority" class="field-label">Priority</label>
-            <input type="number" id="edit-task-priority">
-          </div>
-          <div class="field"><span class="field-label">Claim Count</span><span id="edit-task-claim-count"></span></div>
-          <div class="field" id="edit-task-worker-row" hidden><span class="field-label">Worker</span><span id="edit-task-worker" class="mono"></span></div>
-          <div class="field" id="edit-task-lease-row" hidden><span class="field-label">Lease Expires</span><span id="edit-task-lease"></span></div>
-          <div class="field" id="edit-task-created-row" hidden><span class="field-label">Created At</span><span id="edit-task-created"></span></div>
-          <div class="field">
-            <label for="edit-task-body" class="field-label">Body</label>
-            <textarea id="edit-task-body"></textarea>
-          </div>
-          <div class="field" id="edit-task-prim-row" hidden>
-            <div class="field-header">
-              <span class="field-label">Primitives</span>
-              <span class="field-actions">
-                <button type="button" id="copy-primitives-btn" class="copy-btn">Copy</button>
-              </span>
-            </div>
-            <pre id="edit-task-prim"></pre>
-          </div>
-          <div class="cluster task-actions">
-            <button type="button" id="save-task-btn" data-variant="primary" onclick="saveTaskEdit()">Save</button>
-            <button type="button" id="cancel-task-btn" data-variant="secondary" onclick="cancelTaskEdit()">Cancel</button>
-          </div>
-        `;
-        setText(document.getElementById('edit-task-id'), t.id || '');
-        const editStatusEl = document.getElementById('edit-task-status');
-        if (editStatusEl) {
-          editStatusEl.setAttribute('data-status', t.status || '');
-          setText(editStatusEl, t.status || '');
-        }
-        setText(document.getElementById('edit-task-claim-count'), String(t.claim_count ?? 0));
-        const editWorkerRow = document.getElementById('edit-task-worker-row');
-        if (editWorkerRow && t.worker) {
-          editWorkerRow.hidden = false;
-          setText(document.getElementById('edit-task-worker'), t.worker);
-        }
-        populateLeaseContainer(
-          document.getElementById('edit-task-lease'),
-          document.getElementById('edit-task-lease-row'),
-          t.lease_expires,
-          t.status
-        );
-        const editCreatedRow = document.getElementById('edit-task-created-row');
-        if (editCreatedRow && createdAtStr) {
-          editCreatedRow.hidden = false;
-          setText(document.getElementById('edit-task-created'), createdAtStr);
-        }
-        const editPrimRow = document.getElementById('edit-task-prim-row');
-        if (editPrimRow && primStr) {
-          editPrimRow.hidden = false;
-          setText(document.getElementById('edit-task-prim'), primStr);
-        }
-        const prioInput = document.getElementById('edit-task-priority');
-        const projInput = document.getElementById('edit-task-project');
-        const bodyInput = document.getElementById('edit-task-body');
-        if (projInput) projInput.value = t.project || '';
-        if (prioInput) prioInput.value = t.priority ?? '';
-        if (bodyInput) bodyInput.value = t.body || '';
-        const handleEditKeyDown = function(e) {
-          if (e.key === 'Escape') {
-            cancelTaskEdit();
-          } else if (e.key.toLowerCase() === 's' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-            e.preventDefault();
-            saveTaskEdit();
-          } else if (e.key === 'Enter' && (e.target !== bodyInput || e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            saveTaskEdit();
-          }
-        };
-        for (const el of [projInput, prioInput, bodyInput]) {
-          if (el) el.addEventListener('keydown', handleEditKeyDown);
-        }
-        if (bodyInput) bodyInput.focus();
-        const copyBtn = document.getElementById('copy-id-btn');
-        if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
-        const copyPrimBtn = document.getElementById('copy-primitives-btn');
-        if (copyPrimBtn) copyPrimBtn.onclick = () => copyToClipboard(primStr, copyPrimBtn, 'primitives');
-        return;
-      }
-      pane.innerHTML = `
-        <dl class="task-metadata">
-          <div class="metadata-row">
-            <dt class="field-label">ID</dt>
-            <dd class="cluster">
-              <span class="mono" id="detail-task-id"></span>
-              <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
-            </dd>
-          </div>
-          <div class="metadata-row">
-            <dt class="field-label">Project</dt>
-            <dd id="detail-task-project"></dd>
-          </div>
-          <div class="metadata-row">
-            <dt class="field-label">Status</dt>
-            <dd><span id="detail-task-status" class="badge"></span></dd>
-          </div>
-          <div class="metadata-row">
-            <dt class="field-label">Priority</dt>
-            <dd id="detail-task-priority"></dd>
-          </div>
-          <div class="metadata-row">
-            <dt class="field-label">Claim Count</dt>
-            <dd id="detail-task-claim-count"></dd>
-          </div>
-          <div class="metadata-row" id="detail-task-worker-row" hidden><dt class="field-label">Worker</dt><dd id="detail-task-worker" class="mono"></dd></div>
-          <div class="metadata-row" id="detail-task-lease-row" hidden><dt class="field-label">Lease Expires</dt><dd id="detail-task-lease"></dd></div>
-          <div class="metadata-row" id="detail-task-created-row" hidden><dt class="field-label">Created At</dt><dd id="detail-task-created"></dd></div>
-        </dl>
-        <div class="field">
-          <div class="field-header">
-            <span class="field-label">Body</span>
-            <span class="field-actions">
-              <button type="button" id="expand-body-btn" class="copy-btn" aria-haspopup="dialog">Expand</button>
-              <button type="button" id="copy-body-btn" class="copy-btn">Copy</button>
-            </span>
-          </div>
-          <pre id="detail-task-body"></pre>
-        </div>
-        <div class="field" id="detail-task-prim-row" hidden>
-          <div class="field-header">
-            <span class="field-label">Primitives</span>
-            <span class="field-actions">
-              <button type="button" id="copy-primitives-btn" class="copy-btn">Copy</button>
-            </span>
-          </div>
-          <pre id="detail-task-prim"></pre>
-        </div>
-        <div class="task-actions">
-          ${t.status !== 'done' ? `<button type="button" id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}>Edit Task</button>` : ''}
-          ${t.status === 'leased' ? `
-            <button type="button" id="complete-task-btn" data-variant="primary"${workerAttrs}>Complete Task</button>
-            <button type="button" id="touch-task-btn"${workerAttrs}>Touch Lease</button>
-            <button type="button" id="release-task-btn"${workerAttrs}>Release Task</button>
-            <button type="button" id="bury-task-btn" data-variant="warning"${workerAttrs}>Bury Task</button>
-          ` : ''}
-          ${t.status === 'pending' ? `
-            <button type="button" id="claim-task-btn" data-variant="primary">Claim Task</button>
-            <button type="button" id="close-task-btn">Close Task</button>
-          ` : ''}
-          ${t.status === 'buried' ? `
-            <button type="button" id="kick-task-btn" data-variant="primary">Kick Task</button>
-            <button type="button" id="close-task-btn">Close Task</button>
-          ` : ''}
-          <button type="button" id="delete-task-btn" data-variant="warning"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}>Delete Task</button>
-        </div>
-        <div class="field notes-section">
-          <div class="field-header">
-            <span class="field-label">Notes</span>
-          </div>
-          <div id="task-notes-list" class="notes-list">
-            ${renderNotesList(t.notes)}
-          </div>
-          <form id="add-note-form">
-            <div class="field">
-              <label for="note-author" class="field-label">Author</label>
-              <input type="text" id="note-author" maxlength="64" required>
-            </div>
-            <div class="field">
-              <label for="note-text" class="field-label">Note</label>
-              <textarea id="note-text" required rows="2"></textarea>
-            </div>
-            <button type="submit" id="add-note-btn" data-variant="primary">Add Note</button>
-          </form>
-        </div>
-      `;
-      setText(document.getElementById('detail-task-id'), t.id || '');
-      setText(document.getElementById('detail-task-project'), t.project || '');
-      const viewStatusEl = document.getElementById('detail-task-status');
-      if (viewStatusEl) {
-        viewStatusEl.setAttribute('data-status', t.status || '');
-        setText(viewStatusEl, t.status || '');
-      }
-      setText(document.getElementById('detail-task-priority'), String(t.priority ?? ''));
-      setText(document.getElementById('detail-task-claim-count'), String(t.claim_count ?? 0));
-      const workerRow = document.getElementById('detail-task-worker-row');
-      if (workerRow && t.worker) {
-        workerRow.hidden = false;
-        setText(document.getElementById('detail-task-worker'), t.worker);
-      }
-      populateLeaseContainer(
-        document.getElementById('detail-task-lease'),
-        document.getElementById('detail-task-lease-row'),
-        t.lease_expires,
-        t.status
-      );
-      const createdRow = document.getElementById('detail-task-created-row');
-      if (createdRow && createdAtStr) {
-        createdRow.hidden = false;
-        setText(document.getElementById('detail-task-created'), createdAtStr);
-      }
-      setText(document.getElementById('detail-task-body'), t.body || '');
-      const primRow = document.getElementById('detail-task-prim-row');
-      if (primRow && primStr) {
-        primRow.hidden = false;
-        setText(document.getElementById('detail-task-prim'), primStr);
-      }
-      const authorInput = document.getElementById('note-author');
-      if (authorInput) authorInput.value = currentNoteAuthor || claimWorker || '';
-      if (sameTask) pane.scrollTop = prevScrollTop;
-
-      const editBtn = document.getElementById('edit-task-btn');
-      if (editBtn) editBtn.onclick = () => toggleTaskEdit();
-
-      const compBtn = document.getElementById('complete-task-btn');
-      if (compBtn) compBtn.onclick = () => completeTask(t.id, t.worker);
-      const touchBtn = document.getElementById('touch-task-btn');
-      if (touchBtn) touchBtn.onclick = () => touchTask(t.id, t.worker);
-      const relBtn = document.getElementById('release-task-btn');
-      if (relBtn) relBtn.onclick = () => releaseTask(t.id, t.worker);
-      const buryBtn = document.getElementById('bury-task-btn');
-      if (buryBtn) buryBtn.onclick = () => buryTask(t.id, t.worker);
-      const claimBtn = document.getElementById('claim-task-btn');
-      if (claimBtn) claimBtn.onclick = () => claimTask(t.id);
-      const closeBtn = document.getElementById('close-task-btn');
-      if (closeBtn) closeBtn.onclick = () => closeTask(t.id);
-      const kickBtn = document.getElementById('kick-task-btn');
-      if (kickBtn) kickBtn.onclick = () => kickTask(t.id);
-      const delBtn = document.getElementById('delete-task-btn');
-      if (delBtn) delBtn.onclick = () => deleteTask(t);
-      const copyBtn = document.getElementById('copy-id-btn');
-      if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
-      const copyBodyBtn = document.getElementById('copy-body-btn');
-      if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
-      const copyPrimBtn = document.getElementById('copy-primitives-btn');
-      if (copyPrimBtn) copyPrimBtn.onclick = () => copyToClipboard(primStr, copyPrimBtn, 'primitives');
-      const expandBtn = document.getElementById('expand-body-btn');
-      if (expandBtn) expandBtn.onclick = () => expandBody(t.body || '');
-      const dlg = document.getElementById('body-overlay');
-      if (dlg && dlg.open) setOverlayBody(t.body || '');
-      const noteForm = document.getElementById('add-note-form');
-      if (noteForm) {
-        noteForm.addEventListener('submit', (e) => {
-          submitNote(e, t.id);
-        });
-      }
-      const noteAuthorEl = document.getElementById('note-author');
-      if (noteAuthorEl) {
-        noteAuthorEl.addEventListener('input', () => {
-          currentNoteAuthor = noteAuthorEl.value;
-        });
-      }
-      const noteTextEl = document.getElementById('note-text');
-      if (noteTextEl) {
-        if (preservedText) noteTextEl.value = preservedText;
-        noteTextEl.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            const form = document.getElementById('add-note-form');
-            if (form) {
-              if (typeof form.requestSubmit === 'function') {
-                form.requestSubmit();
-              } else {
-                form.dispatchEvent(new Event('submit', { cancelable: true }));
-              }
-            }
-          }
-        });
-      }
+    if (act === 'edit') {
+      const p = $('.body', $('#pane'));
+      const f = document.createElement('form');
+      f.className = 'edit';
+      f.innerHTML = `<textarea name="text" aria-label="Task text" required></textarea><button>Save</button>`;
+      f.text.value = t.body;
+      if (p) p.replaceWith(f);
+      b.parentElement.remove();
+      return f.text.focus();
     }
+  });
 
-    function setOverlayBody(body) {
-      const pre = document.getElementById('body-overlay-pre');
-      if (pre) pre.textContent = body;
-    }
-
-    function expandBody(body) {
-      const dlg = document.getElementById('body-overlay');
-      if (!dlg) return;
-      setOverlayBody(body || '');
-      if (!dlg.open) dlg.showModal();
-    }
-
-    function setupBodyOverlay() {
-      const dlg = document.getElementById('body-overlay');
-      if (!dlg) return;
-      const closeBtn = document.getElementById('body-overlay-close');
-      if (closeBtn) closeBtn.onclick = () => dlg.close();
-      dlg.addEventListener('click', (e) => {
-        if (e.target === dlg) dlg.close();
+  $('#pane').addEventListener('change', async e => {
+    const t = get(sel), a = e.target.dataset.act;
+    if (!t || !a) return;
+    if (a === 'pri') {
+      const patchData = { priority: +e.target.value };
+      if (t.version != null) patchData.version = t.version;
+      const res = await fetch('/tasks/' + t.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchData),
       });
-      dlg.addEventListener('close', () => {
-        const btn = document.getElementById('expand-body-btn');
-        if (btn) btn.focus();
+      if (res.status === 409) {
+        showWarnMsg('Changed elsewhere, reloading');
+        return load();
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return showWarn(err);
+      }
+      return load();
+    }
+    if (a === 'after' && e.target.value) {
+      const patchData = { after: [...t.after, +e.target.value] };
+      if (t.version != null) patchData.version = t.version;
+      const res = await fetch('/tasks/' + t.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchData),
       });
+      if (res.status === 409) {
+        showWarnMsg('Changed elsewhere, reloading');
+        return load();
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return showWarn(err);
+      }
+      return load();
     }
-    function openPurgeModal() {
-      const dlg = document.getElementById('purge-modal');
-      if (!dlg) return;
-      const projEl = document.getElementById('filter-project');
-      const proj = (projEl && projEl.value) ? projEl.value.trim() : '';
-      const warn = document.getElementById('purge-project-warning');
-      if (warn) {
-        warn.textContent = proj ? (' for project "' + proj + '"') : ' across all projects';
-      }
-      dlg.setAttribute('data-state', 'open');
-      if (typeof dlg.showModal === 'function') {
-        if (!dlg.open) dlg.showModal();
-      } else {
-        dlg.open = true;
-        dlg.hidden = false;
-      }
-    }
+  });
 
-    function closePurgeModal() {
-      const dlg = document.getElementById('purge-modal');
-      if (!dlg) return;
-      if (typeof dlg.close === 'function') {
-        if (dlg.open) dlg.close();
-      } else {
-        dlg.open = false;
-        dlg.hidden = true;
-        dlg.dispatchEvent(new Event('close'));
-      }
-    }
-
-    async function confirmPurge() {
-      const btn = document.getElementById('purge-confirm-btn');
-      const cancelBtn = document.getElementById('purge-cancel-btn');
-      const projEl = document.getElementById('filter-project');
-      const proj = (projEl && projEl.value) ? projEl.value.trim() : '';
-
-      let url = '/tasks/purge';
-      if (proj) {
-        url += '?project=' + encodeURIComponent(proj);
-      }
-
-      if (btn) {
-        btn.disabled = true;
-        btn.setAttribute('aria-busy', 'true');
-      }
-      if (cancelBtn) cancelBtn.disabled = true;
-
-      try {
-        await fetchJSON(url, { method: 'POST' });
-        closePurgeModal();
-        if (currentTask && currentTask.status === 'done') {
-          if (!proj || currentTask.project === proj) {
-            await clearSelectedTask();
-            return;
-          }
-        }
-        await Promise.all([loadStats(), loadTasks()]);
-      } catch (err) {
-        closePurgeModal();
-        showFetchError(err);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.setAttribute('aria-busy', 'false');
-        }
-        if (cancelBtn) cancelBtn.disabled = false;
-      }
-    }
-
-    function updateKickBuriedButton() {
-      const btn = document.getElementById('kick-buried-btn');
-      if (!btn) return;
-      const statusFilter = getStatusFilter();
-      const statBuriedEl = document.getElementById('stat-buried');
-      const buriedCount = statBuriedEl ? parseInt(statBuriedEl.textContent, 10) || 0 : 0;
-      const show = (statusFilter === 'buried') || (buriedCount > 0);
-      btn.hidden = !show;
-      btn.style.display = show ? '' : 'none';
-    }
-
-    function openKickModal() {
-      const dlg = document.getElementById('kick-modal');
-      if (!dlg) return;
-      const projEl = document.getElementById('filter-project');
-      const proj = (projEl && projEl.value) ? projEl.value.trim() : '';
-      const warn = document.getElementById('kick-project-warning');
-      if (warn) {
-        warn.textContent = proj ? (' for project "' + proj + '"') : ' across all projects';
-      }
-      dlg.setAttribute('data-state', 'open');
-      if (typeof dlg.showModal === 'function') {
-        if (!dlg.open) dlg.showModal();
-      } else {
-        dlg.open = true;
-        dlg.hidden = false;
-      }
-    }
-
-    function closeKickModal() {
-      const dlg = document.getElementById('kick-modal');
-      if (!dlg) return;
-      if (typeof dlg.close === 'function') {
-        if (dlg.open) dlg.close();
-      } else {
-        dlg.open = false;
-        dlg.hidden = true;
-        dlg.dispatchEvent(new Event('close'));
-      }
-    }
-
-    async function confirmKick() {
-      const btn = document.getElementById('kick-confirm-btn');
-      const cancelBtn = document.getElementById('kick-cancel-btn');
-      const projEl = document.getElementById('filter-project');
-      const proj = (projEl && projEl.value) ? projEl.value.trim() : '';
-
-      let url = '/tasks/kick';
-      if (proj) {
-        url += '?project=' + encodeURIComponent(proj);
-      }
-
-      if (btn) {
-        btn.disabled = true;
-        btn.setAttribute('aria-busy', 'true');
-      }
-      if (cancelBtn) cancelBtn.disabled = true;
-
-      try {
-        await fetchJSON(url, { method: 'POST' });
-        closeKickModal();
-        await finishTaskTransition();
-      } catch (err) {
-        closeKickModal();
-        showFetchError(err);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.setAttribute('aria-busy', 'false');
-        }
-        if (cancelBtn) cancelBtn.disabled = false;
-      }
-    }
-
-    function setupKickModal() {
-      const dlg = document.getElementById('kick-modal');
-      if (!dlg) return;
-      dlg.addEventListener('click', (e) => {
-        if (e.target === dlg) closeKickModal();
+  $('#pane').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target, v = new FormData(f), t = get(sel);
+    if (f.matches('.edit')) {
+      const newRest = v.get('text').trim();
+      const newBody = t.title ? (newRest ? t.title + '\n\n' + newRest : t.title) : newRest;
+      const patchData = { body: newBody };
+      if (t.version != null) patchData.version = t.version;
+      const res = await fetch('/tasks/' + t.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchData),
       });
-      dlg.addEventListener('close', () => {
-        dlg.setAttribute('data-state', 'closed');
-        const btn = document.getElementById('kick-buried-btn');
-        if (btn && typeof btn.focus === 'function') btn.focus();
+      if (res.status === 409) {
+        showWarnMsg('Changed elsewhere, reloading');
+        return load();
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        return showWarn(err);
+      }
+      $('#pane').dataset.key = '';
+      return load();
+    }
+    if (f.matches('.reply')) {
+      const text = v.get('reply').trim();
+      const noteRes = await fetch('/tasks/' + t.id + '/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ author: 'you', text }),
       });
-    }
-
-    function setupPurgeModal() {
-      const dlg = document.getElementById('purge-modal');
-      if (!dlg) return;
-      dlg.addEventListener('click', (e) => {
-        if (e.target === dlg) closePurgeModal();
-      });
-      dlg.addEventListener('close', () => {
-        dlg.setAttribute('data-state', 'closed');
-        const btn = document.getElementById('purge-done-btn');
-        if (btn && typeof btn.focus === 'function') btn.focus();
-      });
-    }
-    let pendingConfirmAction = null;
-
-    function openConfirmModal({ title, prompt, confirmText, danger, triggerBtn, onConfirm }) {
-      pendingConfirmAction = { onConfirm, triggerBtn };
-      const dlg = document.getElementById('confirm-modal');
-      if (!dlg) return;
-      setText(document.getElementById('confirm-modal-title'), title || 'Confirm');
-      setText(document.getElementById('confirm-modal-desc'), prompt || '');
-      const btn = document.getElementById('confirm-action-btn');
-      if (btn) {
-        setText(btn, confirmText || 'Confirm');
-        btn.setAttribute('data-variant', danger ? 'warning' : 'primary');
+      if (!noteRes.ok) {
+        const err = await noteRes.json().catch(() => ({}));
+        return showWarn(err);
       }
-      dlg.setAttribute('data-state', 'open');
-      if (typeof dlg.showModal === 'function') {
-        if (!dlg.open) dlg.showModal();
-      } else {
-        dlg.open = true;
-        dlg.hidden = false;
-      }
-    }
-
-    function closeConfirmModal() {
-      const dlg = document.getElementById('confirm-modal');
-      if (!dlg) return;
-      if (typeof dlg.close === 'function') {
-        if (dlg.open) dlg.close();
-      } else {
-        dlg.open = false;
-        dlg.hidden = true;
-        dlg.dispatchEvent(new Event('close'));
-      }
-    }
-
-    async function executeConfirmModal() {
-      if (!pendingConfirmAction || !pendingConfirmAction.onConfirm) return;
-      const { onConfirm } = pendingConfirmAction;
-      const btn = document.getElementById('confirm-action-btn');
-      const cancelBtn = document.getElementById('confirm-cancel-btn');
-      if (btn) {
-        btn.disabled = true;
-        btn.setAttribute('aria-busy', 'true');
-      }
-      if (cancelBtn) cancelBtn.disabled = true;
-      try {
-        await onConfirm();
-        closeConfirmModal();
-      } catch (err) {
-        showFetchError(err);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.setAttribute('aria-busy', 'false');
-        }
-        if (cancelBtn) cancelBtn.disabled = false;
-      }
-    }
-
-    function setupActionModals() {
-      const setupModal = (modalId, closeFn, getTriggerBtn) => {
-        const dlg = document.getElementById(modalId);
-        if (!dlg) return;
-        dlg.addEventListener('click', (e) => {
-          if (e.target === dlg) closeFn();
-        });
-        dlg.addEventListener('close', () => {
-          dlg.setAttribute('data-state', 'closed');
-          const trigger = typeof getTriggerBtn === 'function' ? getTriggerBtn() : document.getElementById(getTriggerBtn);
-          if (trigger && typeof trigger.focus === 'function') trigger.focus();
-        });
-      };
-      setupModal('confirm-modal', closeConfirmModal, () => pendingConfirmAction && pendingConfirmAction.triggerBtn);
-      setupModal('claim-modal', closeClaimModal, 'claim-task-btn');
-    }
-
-    function openShortcutsModal() {
-      const dlg = document.getElementById('shortcuts-modal');
-      if (!dlg) return;
-      dlg.setAttribute('data-state', 'open');
-      if (typeof dlg.showModal === 'function') {
-        if (!dlg.open) dlg.showModal();
-      } else {
-        dlg.open = true;
-        dlg.hidden = false;
-      }
-    }
-
-    function closeShortcutsModal() {
-      const dlg = document.getElementById('shortcuts-modal');
-      if (!dlg) return;
-      if (typeof dlg.close === 'function') {
-        if (dlg.open) dlg.close();
-      } else {
-        dlg.open = false;
-        dlg.hidden = true;
-        dlg.dispatchEvent(new Event('close'));
-      }
-    }
-
-    function setupShortcutsModal() {
-      const dlg = document.getElementById('shortcuts-modal');
-      if (!dlg) return;
-      dlg.addEventListener('click', (e) => {
-        if (e.target === dlg) closeShortcutsModal();
-      });
-      dlg.addEventListener('close', () => {
-        dlg.setAttribute('data-state', 'closed');
-      });
-    }
-
-    async function clearSelectedTask() {
-      selectedTaskId = null;
-      syncURL(false);
-      resetTaskDetails();
-      const tbody = document.getElementById('task-table-body');
-      if (tbody) {
-        for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-          tr.setAttribute('aria-selected', 'false');
-          tr.removeAttribute('data-state');
-        }
-      }
-      await Promise.all([loadStats(), loadTasks()]);
-    }
-
-    async function finishTaskTransition(id) {
-      showError(null);
-      isEditingTask = false;
-      shownTaskRaw = '';
-      const tid = id || selectedTaskId;
-      const tasks = [loadProjects(), loadWorkers(), loadStats(), loadTasks()];
-      if (tid) tasks.push(loadTaskDetails(tid));
-      await Promise.all(tasks);
-    }
-
-    // An action button stays pressed for the whole round trip, so a second
-    // click cannot race the first, and the server's refusal reaches the
-    // banner instead of being swallowed.
-    async function withButton(btnId, fn) {
-      const btn = document.getElementById(btnId);
-      if (btn) btn.disabled = true;
-      try {
-        await fn();
-      } catch (err) {
-        showFetchError(err);
-      } finally {
-        if (btn) btn.disabled = false;
-      }
-    }
-
-    function completeTask(id, worker) {
-      if (!id) return;
-      if (!worker) {
-        showError('Cannot complete task: missing worker');
-        return;
-      }
-      openConfirmModal({
-        title: 'Complete Task',
-        prompt: 'Complete this task as done?',
-        confirmText: 'Complete',
-        triggerBtn: document.getElementById('complete-task-btn'),
-        onConfirm: async () => {
-          await fetchJSON('/tasks/' + encodeURIComponent(id) + '/done', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ worker: worker })
-          });
-          await finishTaskTransition(id);
-        }
-      });
-    }
-
-    async function releaseTask(id, worker) {
-      if (!id) return;
-      if (!worker) {
-        showError('Cannot release task: missing worker');
-        return;
-      }
-      await withButton('release-task-btn', async () => {
-        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/release', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ worker: worker })
-        });
-        await finishTaskTransition(id);
-      });
-    }
-
-    async function buryTask(id, worker) {
-      if (!id) return;
-      if (!worker) {
-        showError('Cannot bury task: missing worker');
-        return;
-      }
-      await withButton('bury-task-btn', async () => {
-        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/bury', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ worker: worker })
-        });
-        await finishTaskTransition(id);
-      });
-    }
-
-    async function touchTask(id, worker) {
-      if (!id) return;
-      if (!worker) {
-        showError('Cannot touch lease: missing worker');
-        return;
-      }
-      await withButton('touch-task-btn', async () => {
-        const res = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/touch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ worker: worker })
-        });
-        showError(null);
-        if (currentTask && currentTask.id === id && res && res.lease_expires) {
-          currentTask.lease_expires = res.lease_expires;
-          renderTaskDetails(currentTask, true);
-        }
-      });
-    }
-
-    // A claim hands the task to whoever pressed the button, so the pane
-    // keeps the selection and shows the lease it just took. The worker name
-    // comes from the operator: the lease is theirs to touch or release, and
-    // a shared placeholder would collide with a real runner.
-    let taskToClaimId = null;
-
-    function openClaimModal(id) {
-      if (!id) return;
-      taskToClaimId = id;
-      const dlg = document.getElementById('claim-modal');
-      if (!dlg) return;
-      const input = document.getElementById('claim-worker-input');
-      if (input) {
-        input.value = claimWorker || '';
-      }
-      dlg.setAttribute('data-state', 'open');
-      if (typeof dlg.showModal === 'function') {
-        if (!dlg.open) dlg.showModal();
-      } else {
-        dlg.open = true;
-        dlg.hidden = false;
-      }
-      if (input && typeof input.focus === 'function') {
-        input.focus();
-        if (typeof input.select === 'function') input.select();
-      }
-    }
-
-    function closeClaimModal() {
-      const dlg = document.getElementById('claim-modal');
-      if (!dlg) return;
-      if (typeof dlg.close === 'function') {
-        if (dlg.open) dlg.close();
-      } else {
-        dlg.open = false;
-        dlg.hidden = true;
-        dlg.dispatchEvent(new Event('close'));
-      }
-    }
-
-    async function confirmClaim(event) {
-      if (event && typeof event.preventDefault === 'function') {
-        event.preventDefault();
-      }
-      const id = taskToClaimId;
-      if (!id) return;
-      const input = document.getElementById('claim-worker-input');
-      const worker = input ? input.value.trim() : '';
-      if (!worker) return;
-      const btn = document.getElementById('claim-confirm-btn');
-      const cancelBtn = document.getElementById('claim-cancel-btn');
-      if (btn) {
-        btn.disabled = true;
-        btn.setAttribute('aria-busy', 'true');
-      }
-      if (cancelBtn) cancelBtn.disabled = true;
-      try {
-        const t = await fetchJSON('/tasks/' + encodeURIComponent(id) + '/claim', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ worker: worker })
-        });
-        claimWorker = worker;
-        try {
-          localStorage.setItem('taskd-claim-worker', worker);
-        } catch (_) {}
-        closeClaimModal();
-        if (t && t.id) {
-          currentTask = t;
-          renderTaskDetails(t, true);
-        }
-        await Promise.all([loadStats(), loadTasks()]);
-      } catch (err) {
-        showFetchError(err);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.setAttribute('aria-busy', 'false');
-        }
-        if (cancelBtn) cancelBtn.disabled = false;
-      }
-    }
-
-    function claimTask(id) {
-      if (!id) return;
-      openClaimModal(id);
-    }
-
-    async function kickTask(id) {
-      if (!id) return;
-      await withButton('kick-task-btn', async () => {
-        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/kick', { method: 'POST' });
-        await finishTaskTransition(id);
-      });
-    }
-
-    function closeTask(id) {
-      if (!id) return;
-      openConfirmModal({
-        title: 'Close Task',
-        prompt: 'Close this task as done without a result?',
-        confirmText: 'Close',
-        triggerBtn: document.getElementById('close-task-btn'),
-        onConfirm: async () => {
-          await fetchJSON('/tasks/' + encodeURIComponent(id) + '/close', { method: 'POST' });
-          await finishTaskTransition(id);
-        }
-      });
-    }
-
-    function deleteTask(t) {
-      if (!t || !t.id || isActivelyLeased(t)) return;
-      const hasResult = t.status === 'done' && t.primitives && (typeof t.primitives !== 'object' || Object.keys(t.primitives).length > 0);
-      const prompt = hasResult
-        ? 'Delete ' + t.id + ' and discard its recorded result? This cannot be undone.'
-        : 'Are you sure you want to delete this task?';
-      openConfirmModal({
-        title: 'Delete Task',
-        prompt: prompt,
-        confirmText: 'Delete',
-        danger: true,
-        triggerBtn: document.getElementById('delete-task-btn'),
-        onConfirm: async () => {
-          const url = '/tasks/' + encodeURIComponent(t.id) + (t.status === 'done' ? '?force=1' : '');
-          await fetchJSON(url, { method: 'DELETE' });
-          await clearSelectedTask();
-        }
-      });
-    }
-
-    function toggleTaskEdit() {
-      if (!currentTask || currentTask.status === 'done' || isActivelyLeased(currentTask)) return;
-      isEditingTask = !isEditingTask;
-      renderTaskDetails(currentTask, true);
-    }
-
-    function cancelTaskEdit() {
-      isEditingTask = false;
-      renderTaskDetails(currentTask, true);
-    }
-
-    async function saveTaskEdit() {
-      if (!currentTask || currentTask.status === 'done' || isActivelyLeased(currentTask)) return;
-      const projInput = document.getElementById('edit-task-project');
-      const prioInput = document.getElementById('edit-task-priority');
-      const bodyInput = document.getElementById('edit-task-body');
-
-      const proj = projInput ? projInput.value.trim() : (currentTask.project || '');
-      const prioText = prioInput ? prioInput.value.trim() : '';
-      const body = bodyInput ? bodyInput.value : (currentTask.body || '');
-
-      const projErr = projectError(proj);
-      if (projErr) {
-        showError(projErr.message);
-        return;
-      }
-      if (prioText === '') {
-        showError('Priority must be specified');
-        return;
-      }
-      const priority = parseInt(prioText, 10);
-      if (!Number.isInteger(priority) || priority < 0) {
-        showError('Priority must be a whole number, 0 or greater');
-        return;
-      }
-      const bErr = bodyError(body);
-      if (bErr) {
-        showError(bErr.message);
-        return;
-      }
-      const saveBtn = document.getElementById('save-task-btn');
-      const cancelBtn = document.getElementById('cancel-task-btn');
-      if (saveBtn) saveBtn.disabled = true;
-      if (cancelBtn) cancelBtn.disabled = true;
-      const payload = {
-        project: proj,
-        priority: priority,
-        body: body
-      };
-      if (typeof currentTask.version === 'number') {
-        payload.if_version = currentTask.version;
-      }
-      try {
-        await fetchJSON('/tasks/' + encodeURIComponent(currentTask.id), {
+      if (v.get('after')) {
+        const patchData = { after: [...t.after, +v.get('after')] };
+        if (t.version != null) patchData.version = t.version;
+        const patchRes = await fetch('/tasks/' + t.id, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(patchData),
         });
-        await finishTaskTransition();
-      } catch (err) {
-        if (saveBtn) saveBtn.disabled = false;
-        if (cancelBtn) cancelBtn.disabled = false;
-        showFetchError(err);
-      }
-    }
-    async function copyToClipboard(text, btn, label) {
-      if (!btn) return;
-      try {
-        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-        } else if (typeof document !== 'undefined' && document.body && document.execCommand) {
-          const ta = document.createElement('textarea');
-          ta.value = text;
-          ta.style.position = 'fixed';
-          ta.style.opacity = '0';
-          document.body.appendChild(ta);
-          ta.select();
-          const ok = document.execCommand('copy');
-          document.body.removeChild(ta);
-          if (!ok) throw new Error('copy command failed');
-        } else {
-          throw new Error('clipboard API unavailable');
+        if (patchRes.status === 409) {
+          showWarnMsg('Changed elsewhere, reloading');
+          return load();
         }
-        btn.textContent = 'Copied!';
-        if (btn._copyTimer) clearTimeout(btn._copyTimer);
-        btn._copyTimer = setTimeout(() => {
-          btn.textContent = 'Copy';
-          btn._copyTimer = null;
-        }, 1500);
-      } catch (err) {
-        showError('Failed to copy ' + label + ': ' + (err && err.message ? err.message : err));
-      }
-    }
-
-    function clearFormErrors() {
-      const summary = document.getElementById('form-error-summary');
-      if (summary) {
-        summary.hidden = true;
-        const list = document.getElementById('form-error-summary-list');
-        if (list) list.innerHTML = '';
-      }
-      const form = document.getElementById('submit-task-form');
-      if (form) {
-        form.querySelectorAll('[aria-invalid]').forEach(el => el.setAttribute('aria-invalid', 'false'));
-        form.querySelectorAll('.field-error').forEach(el => {
-          el.textContent = '';
-          el.hidden = true;
-        });
-      }
-    }
-
-    function clearFormSuccess() {
-      const summary = document.getElementById('form-success-summary');
-      if (summary) {
-        summary.hidden = true;
-        const body = document.getElementById('form-success-summary-body');
-        if (body) body.textContent = '';
-      }
-    }
-
-    function showFormSuccess(id) {
-      if (!id) return;
-      clearFormErrors();
-      clearFormSuccess();
-      const summary = document.getElementById('form-success-summary');
-      const body = document.getElementById('form-success-summary-body');
-      if (summary && body) {
-        body.textContent = 'Task ' + id + ' created';
-        summary.hidden = false;
-      }
-    }
-
-    function showFormErrors(errors) {
-      clearFormErrors();
-      clearFormSuccess();
-      if (!errors || errors.length === 0) return;
-      const summary = document.getElementById('form-error-summary');
-      const list = document.getElementById('form-error-summary-list');
-      if (summary && list) {
-        list.innerHTML = '';
-        for (const err of errors) {
-          const li = document.createElement('li');
-          if (err.fieldId) {
-            const a = document.createElement('a');
-            a.href = '#' + err.fieldId;
-            a.textContent = err.message;
-            a.onclick = function(e) {
-              e.preventDefault();
-              const target = document.getElementById(err.fieldId);
-              if (target) target.focus();
-            };
-            li.appendChild(a);
-          } else {
-            li.textContent = err.message;
-          }
-          list.appendChild(li);
-
-          const targetIds = err.fieldIds || (err.fieldId ? [err.fieldId] : []);
-          for (const id of targetIds) {
-            const input = document.getElementById(id);
-            if (input) input.setAttribute('aria-invalid', 'true');
-            const errEl = document.getElementById(id + '-error');
-            if (errEl) {
-              errEl.textContent = 'Error: ' + err.message;
-              errEl.hidden = false;
-            }
-          }
-        }
-        summary.hidden = false;
-        summary.focus();
-      }
-    }
-
-    // The daemon's validProject and validTaskID accept the same byte set, so
-    // the form refuses what POST /tasks would answer with a bare 400.
-    const NAME_RE = /^[A-Za-z0-9._-]+$/;
-    const DIGITS_RE = /^[0-9]+$/;
-
-    function projectError(proj) {
-      if (!proj) {
-        return { fieldId: 'form-project', message: 'Project name is required' };
-      }
-      if (proj.length > 64 || !NAME_RE.test(proj)) {
-        return {
-          fieldId: 'form-project',
-          message: 'Project must be 1-64 characters: letters, digits, dot, underscore or hyphen'
-        };
-      }
-      return null;
-    }
-
-
-    function bodyError(body) {
-      if (body.trim() === '') {
-        return { fieldId: 'form-body', message: 'Body is required' };
-      }
-      return null;
-    }
-    function priorityError(el) {
-      if (!el) return null;
-      if (el.validity && el.validity.badInput) {
-        return { fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' };
-      }
-      const val = el.value.trim();
-      if (val === '') return null;
-      if (!DIGITS_RE.test(val)) {
-        return { fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' };
-      }
-      return null;
-    }
-    async function submitTask(e) {
-      if (e && e.preventDefault) e.preventDefault();
-      const submitBtn = document.getElementById('submit-task-btn');
-      if (submitBtn && submitBtn.disabled) return;
-      clearFormErrors();
-      clearFormSuccess();
-      const projEl = document.getElementById('form-project');
-      const bodyEl = document.getElementById('form-body');
-      const prioEl = document.getElementById('form-priority');
-
-      const proj = projEl ? projEl.value.trim() : '';
-      const body = bodyEl ? bodyEl.value : '';
-      const prioText = prioEl ? prioEl.value.trim() : '';
-
-      const errors = [];
-      const projErr = projectError(proj);
-      if (projErr) {
-        errors.push(projErr);
-      }
-      const bodyErr = bodyError(body);
-      if (bodyErr) {
-        errors.push(bodyErr);
-      }
-      const prioErr = priorityError(prioEl);
-      if (prioErr) {
-        errors.push(prioErr);
-      }
-
-      if (errors.length > 0) {
-        showFormErrors(errors);
-        return;
-      }
-
-      const payload = {
-        project: proj,
-        body: body
-      };
-      if (prioText !== '') payload.priority = parseInt(prioText, 10);
-      if (submitBtn) {
-        submitBtn.disabled = true;
-        submitBtn.setAttribute('aria-busy', 'true');
-      }
-
-      try {
-        const res = await fetchJSON('/tasks', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        if (bodyEl) bodyEl.value = '';
-        updateBodyCount();
-        clearFormErrors();
-        showError(null);
-        const createdId = res && res.id;
-        if (createdId) {
-          showFormSuccess(createdId);
-          selectedTaskId = createdId;
-          syncURL(true);
-        }
-        if (bodyEl) {
-          bodyEl.focus();
-        } else if (projEl) {
-          projEl.focus();
-        }
-        await loadAll();
-      } catch (err) {
-        clearFormSuccess();
-        if (err.transport) return;
-        const fieldId = err.field ? ('form-' + err.field) : null;
-        showFormErrors([{ fieldId: fieldId, message: err.message || 'Failed to submit task' }]);
-      } finally {
-        if (submitBtn) {
-          submitBtn.disabled = false;
-          submitBtn.setAttribute('aria-busy', 'false');
+        if (!patchRes.ok) {
+          const err = await patchRes.json().catch(() => ({}));
+          return showWarn(err);
         }
       }
-    }
-
-    async function loadAll() {
-      if (refreshInFlight) return;
-      refreshInFlight = true;
-      try {
-        const tasks = [loadProjects(), loadWorkers(), loadStats(), loadTasks()];
-        if (selectedTaskId) tasks.push(loadTaskDetails(selectedTaskId));
-        await Promise.all(tasks);
-      } catch (e) {
-        logFailure('Failed to refresh data:', e);
-      } finally {
-        refreshInFlight = false;
-        scheduleRefresh();
-      }
-    }
-
-    function onSearchInput() {
-      updateResetFiltersButton();
-      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-      searchDebounceTimer = setTimeout(() => {
-        currentPage = 1;
-        syncURL(false);
-        loadTasks();
-      }, 200);
-    }
-
-    function clearSearch() {
-      const el = document.getElementById('filter-search');
-      if (el) {
-        el.value = '';
-        if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-        updateResetFiltersButton();
-        currentPage = 1;
-        syncURL(false);
-        loadTasks();
-      }
-    }
-
-    function isInputTarget(target) {
-      return Boolean(target && target.closest && target.closest('input, textarea, select, [contenteditable]'));
-    }
-
-    function setupSearch() {
-      const el = document.getElementById('filter-search');
-      if (!el) return;
-      el.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-          clearSearch();
-          el.blur();
-        } else if (e.key === 'ArrowDown') {
-          const tbody = document.getElementById('task-table-body');
-          if (!tbody) return;
-          const firstRow = tbody.querySelector('tr[data-task-id]');
-          if (firstRow) {
-            e.preventDefault();
-            selectTask(firstRow.dataset.taskId);
-            firstRow.focus();
-          }
-        }
+      const kickRes = await fetch('/tasks/' + t.id + '/kick', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
-    }
-
-    function setupGlobalShortcuts() {
-      document.addEventListener('keydown', (e) => {
-        if (e.defaultPrevented) return;
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
-        if (isInputTarget(e.target) || isInputTarget(document.activeElement)) return;
-        if (e.key === '?') {
-          const dlg = document.getElementById('shortcuts-modal');
-          if (dlg && dlg.open) {
-            e.preventDefault();
-            closeShortcutsModal();
-            return;
-          }
-          if (document.querySelector && document.querySelector('dialog[open]')) return;
-          e.preventDefault();
-          openShortcutsModal();
-          return;
-        }
-        if (document.querySelector && document.querySelector('dialog[open]')) return;
-        if (e.key === 'Escape') {
-          if (selectedTaskId) {
-            e.preventDefault();
-            clearSelectedTask();
-            return;
-          }
-        }
-        if (!e.ctrlKey && !e.metaKey && !e.altKey && selectedTaskId) {
-          if (e.key === 'e') {
-            e.preventDefault();
-            toggleTaskEdit();
-            return;
-          }
-          if (e.key === 'c') {
-            e.preventDefault();
-            claimTask(selectedTaskId);
-            return;
-          }
-          if (e.key === 'a') {
-            const el = document.getElementById('note-text') || document.getElementById('note-author');
-            if (el) {
-              e.preventDefault();
-              el.focus();
-              return;
-            }
-          }
-          if (e.key === 'x') {
-            if (currentTask && currentTask.id === selectedTaskId && isActivelyLeased(currentTask)) {
-              e.preventDefault();
-              completeTask(currentTask.id, currentTask.worker);
-              return;
-            }
-          }
-        }
-        if (e.key === '/') {
-          const el = document.getElementById('filter-search');
-          if (el) {
-            e.preventDefault();
-            el.focus();
-          }
-        } else if (e.key === 'r') {
-          loadAll();
-        } else if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key >= '0' && e.key <= '5') {
-          e.preventDefault();
-          filterByStatus(STATUS_KEYS[e.key]);
-        }
-      });
-    }
-
-    function updateBodyCount() {
-      const bodyEl = document.getElementById('form-body');
-      const countEl = document.getElementById('form-body-count');
-      if (!bodyEl || !countEl) return;
-      const count = bodyEl.value.length;
-      countEl.textContent = `${count} ${count === 1 ? 'character' : 'characters'}`;
-    }
-
-    function setupSubmitForm() {
-      const form = document.getElementById('submit-task-form');
-      if (!form) return;
-      form.addEventListener('input', clearFormSuccess);
-      form.addEventListener('change', clearFormSuccess);
-      const bodyEl = document.getElementById('form-body');
-      if (bodyEl) {
-        bodyEl.addEventListener('input', updateBodyCount);
-        bodyEl.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault();
-            submitTask();
-          }
-        });
-        updateBodyCount();
+      if (!kickRes.ok) {
+        const err = await kickRes.json().catch(() => ({}));
+        return showWarn(err);
       }
+      $('#pane').dataset.key = '';
+      return load();
     }
-
-    async function boot() {
-      setupRowActivation();
-      setupCardFilters();
-      setupSearch();
-      setupGlobalShortcuts();
-      setupBodyOverlay();
-      setupPurgeModal();
-      setupKickModal();
-      setupActionModals();
-      setupShortcutsModal();
-      setupSubmitForm();
-      setupTableSorting();
-      applyURLState();
-      syncURL(false);
-      try {
-        await Promise.all([loadProjects(), loadWorkers()]);
-        await Promise.all([loadStats(), loadTasks()]);
-      } catch (e) {
-        logFailure('Failed to boot UI:', e);
-      }
-      setupAutoRefresh();
-    }
-
-    function setupAutoRefresh() {
-      const cb = document.getElementById('auto-refresh');
-      if (cb) {
-        try {
-          const saved = localStorage.getItem('taskd-auto-refresh');
-          if (saved !== null) {
-            cb.checked = saved === 'true';
-          }
-        } catch (_) {}
-        cb.onchange = () => {
-          try {
-            localStorage.setItem('taskd-auto-refresh', String(cb.checked));
-          } catch (_) {}
-          scheduleRefresh();
-        };
-      }
-      scheduleRefresh();
-    }
-    document.addEventListener('visibilitychange', onVisibilityChange);
-    window.addEventListener('popstate', () => {
-      applyURLState();
-      loadTasks();
-      loadStats();
+    const body = v.get('body').trim();
+    const project = v.get('project').trim();
+    const priority = +v.get('pri');
+    const after = v.get('after') ? [+v.get('after')] : [];
+    const res = await fetch('/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body, project, priority, after }),
     });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return showWarn(err);
+    }
+    f.reset();
+    await load();
+  });
 
-    boot();
-  </script>
+  addEventListener('keydown', e => {
+    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement?.form) return document.activeElement.form.requestSubmit();
+    if (e.key === 'Escape') { typing ? document.activeElement?.blur() : select(null); return; }
+    if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+    if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
+    if (e.key === 'n') { e.preventDefault(); $('#new').click(); }
+    if (e.key === 'j' || e.key === 'k') {
+      const ids = $$('#list tbody tr').map(r => r.dataset.id), i = ids.indexOf(String(sel)), next = ids[e.key === 'j' ? Math.min(ids.length - 1, i + 1) : Math.max(0, i - 1)];
+      if (next) { select(+next); $(`tr[data-id="${next}"]`)?.scrollIntoView({ block: 'nearest' }); }
+    }
+  });
+
+  let reloadTimer;
+  function scheduleReload() {
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(load, 100 + Math.random() * 400);
+  }
+
+  let hadError = false;
+  const es = new EventSource('/api/events');
+  es.addEventListener('change', scheduleReload);
+  es.onerror = () => { hadError = true; };
+  es.onopen = () => {
+    if (hadError) {
+      hadError = false;
+      scheduleReload();
+    }
+  };
+
+  sel = location.hash.slice(1) ? +location.hash.slice(1) : null;
+  load();
+  setInterval(tick, 1000);
+})();
+</script>
 </body>
 </html>

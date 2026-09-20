@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 )
@@ -183,14 +182,5 @@ PRAGMA user_version = 7;
 	}
 	if postCreatedAt <= 0 {
 		t.Fatalf("expected positive created_at on migrated db, got %d", postCreatedAt)
-	}
-}
-func TestWebUICreatedAt(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, "Created At") {
-		t.Fatal("expected 'Created At' in web/index.html")
-	}
-	if !strings.Contains(ui, `data-col="created_at"`) {
-		t.Fatal("expected data-col=\"created_at\" in web/index.html")
 	}
 }

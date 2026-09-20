@@ -146,6 +146,7 @@ type store struct {
 	projectSeq  map[string]uint64
 	wildcardSeq uint64
 	closed      bool
+	events      *broadcaster
 }
 
 func (s *store) currentSeq(project string) uint64 {
@@ -301,7 +302,7 @@ func openDBInit(path string, maxClaims int) (s *store, isNew bool, err error) {
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	s = &store{rw: rw, ro: ro, cancel: cancel, maxClaims: maxClaims}
+	s = &store{rw: rw, ro: ro, cancel: cancel, maxClaims: maxClaims, events: newBroadcaster()}
 	if _, err := s.sweep(); err != nil {
 		cancel()
 		rw.Close()
@@ -1933,6 +1934,7 @@ FROM tasks`
 			internalError(w, err)
 			return
 		}
+		db.events.publish()
 		for _, t := range tasks {
 			db.notifyPending(t.project)
 		}
@@ -2033,6 +2035,7 @@ WHERE id = (
 
 			item, err := tryClaim()
 			if err == nil {
+				db.events.publish()
 				w.Header().Set("Content-Type", "application/json")
 				json.NewEncoder(w).Encode(item)
 				return
@@ -2153,6 +2156,7 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 			internalError(w, err)
 			return
 		}
+		db.events.publish()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
 	}
@@ -2182,6 +2186,7 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='done', primitives=?, lease_expires=NULL, version = version + 1", id, req.Worker, req.ClaimCount, prim); !ok {
 			return
 		}
+		db.events.publish()
 		if projs, err := blockedProjects(db.ro, id); err == nil {
 			for _, p := range projs {
 				db.notifyPending(p)
@@ -2213,6 +2218,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
 		}
+		db.events.publish()
 		if projs, err := blockedProjects(db.ro, id); err == nil {
 			for _, p := range projs {
 				db.notifyPending(p)
@@ -2234,6 +2240,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
+		db.events.publish()
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(env)
 	}
@@ -2251,6 +2258,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
+		db.events.publish()
 		if env.Project != "" {
 			db.notifyPending(env.Project)
 		}
@@ -2286,6 +2294,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='buried', worker=NULL, lease_expires=NULL, priority=COALESCE(?, priority), primitives=?, version = version + 1", id, worker, req.ClaimCount, req.Priority, prim); !ok {
 			return
 		}
+		db.events.publish()
 		w.WriteHeader(http.StatusNoContent)
 	}
 	kickIDHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -2307,6 +2316,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			internalError(w, err)
 			return
 		}
+		db.events.publish()
 		if project != "" {
 			db.notifyPending(project)
 		}
@@ -2757,6 +2767,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			internalError(w, err)
 			return
 		}
+		db.events.publish()
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(note)
@@ -2956,6 +2967,7 @@ RETURNING status, project`,
 			internalError(w, err)
 			return
 		}
+		db.events.publish()
 
 		if ((req.Project != nil && *req.Project != prevProject) || req.After != nil) && updatedStatus == "pending" && updatedProject != "" {
 			db.notifyPending(updatedProject)
@@ -3009,6 +3021,7 @@ RETURNING status, project`,
 			internalError(w, err)
 			return
 		}
+		db.events.publish()
 		for _, p := range projs {
 			db.notifyPending(p)
 		}
@@ -3065,6 +3078,9 @@ RETURNING status, project`,
 		if err != nil {
 			internalError(w, err)
 			return
+		}
+		if deleted > 0 {
+			db.events.publish()
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int64{"deleted": deleted})
@@ -3172,6 +3188,9 @@ RETURNING status, project`,
 			internalError(w, err)
 			return
 		}
+		if kicked > 0 {
+			db.events.publish()
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]int{"kicked": kicked})
@@ -3248,6 +3267,7 @@ RETURNING status, project`,
 	handleMethods(mux, "/workers", map[string]route{
 		http.MethodGet: {handler: workersHandler, params: []string{"project", "status"}},
 	})
+	mux.Handle("GET /api/events", db.events)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not found")
 	})
@@ -3569,10 +3589,11 @@ func runLeaseSweeper(ctx context.Context, s *store, interval time.Duration) {
 		case <-ticker.C:
 			if projects, err := s.sweep(); err != nil && !errors.Is(err, context.Canceled) {
 				log.Printf("lease sweeper error: %v", err)
-			} else {
+			} else if len(projects) > 0 {
 				for _, p := range projects {
 					s.notifyPending(p)
 				}
+				s.events.publish()
 			}
 		}
 	}

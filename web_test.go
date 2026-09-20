@@ -3,19 +3,18 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
 	"testing"
 )
 
-func TestWebUIFetchTimeout(t *testing.T) {
+func runNodeHarness(t *testing.T, testName string) []byte {
+	t.Helper()
 	node, err := exec.LookPath("node")
 	if err != nil {
 		if os.Getenv("CI") != "" {
@@ -23,7 +22,8 @@ func TestWebUIFetchTimeout(t *testing.T) {
 		}
 		t.Skip("node not installed")
 	}
-	out, err := exec.Command(node, "testdata/timeout.js", "web/index.html").Output()
+	cmd := exec.Command(node, "testdata/ui.js", testName, "web/index.html")
+	out, err := cmd.Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
@@ -31,431 +31,127 @@ func TestWebUIFetchTimeout(t *testing.T) {
 		}
 		t.Fatalf("harness failed: %v", err)
 	}
+	return out
+}
 
+func TestWebUIRendersSections(t *testing.T) {
+	out := runNodeHarness(t, "renders_sections")
 	var got struct {
-		BootRows        []string `json:"bootRows"`
-		BootCount       string   `json:"bootCount"`
-		BootStatus      string   `json:"bootStatus"`
-		BootDisplay     string   `json:"bootDisplay"`
-		WindowRequests  int      `json:"windowRequests"`
-		StaleRows       []string `json:"staleRows"`
-		OfflineStatus   string   `json:"offlineStatus"`
-		OfflineHidden   bool     `json:"offlineHidden"`
-		RetryRequests   int      `json:"retryRequests"`
-		RecoveredRows   []string `json:"recoveredRows"`
-		RecoveredHidden bool     `json:"recoveredHidden"`
+		Sections   []string `json:"sections"`
+		StatusText string   `json:"statusText"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
+		t.Fatalf("unmarshal: %v\n%s", err, out)
 	}
-
-	if len(got.BootRows) != 3 || got.BootCount != "Showing 1-3 of 3" {
-		t.Errorf("boot state = %v, count = %q, want 3 tasks", got.BootRows, got.BootCount)
+	wantSections := []string{"stuck", "claimed", "queued", "done"}
+	if !slices.Equal(got.Sections, wantSections) {
+		t.Errorf("sections = %v, want %v", got.Sections, wantSections)
 	}
-	if got.WindowRequests != 0 {
-		t.Errorf("requests issued during timeout window = %d, want 0", got.WindowRequests)
-	}
-	if !strings.Contains(got.OfflineStatus, "Offline") || got.OfflineHidden {
-		t.Errorf("offline status = %q, hidden = %v, want visible offline indicator", got.OfflineStatus, got.OfflineHidden)
-	}
-	if got.RetryRequests == 0 {
-		t.Errorf("requests issued on poll tick after timeout window = 0, want > 0")
-	}
-	wantRecovered := []string{"1", "3", "4"}
-	if !slices.Equal(got.RecoveredRows, wantRecovered) {
-		t.Errorf("recovered rows = %v, want %v", got.RecoveredRows, wantRecovered)
-	}
-	if !got.RecoveredHidden {
-		t.Errorf("recovered status hidden = %v, want true", got.RecoveredHidden)
+	if !strings.Contains(got.StatusText, "1 is stuck") {
+		t.Errorf("statusText = %q, want it to contain '1 is stuck'", got.StatusText)
 	}
 }
 
-func TestWebUIInitialPlaceholdersAndNoscript(t *testing.T) {
-	ui := string(uiHTML)
-	stats := []string{"stat-pending", "stat-leased", "stat-done", "stat-buried", "stat-total"}
-	for _, id := range stats {
-		placeholder := `id="` + id + `">-`
-		if !strings.Contains(ui, placeholder) {
-			t.Errorf("expected placeholder %q in web/index.html", placeholder)
-		}
-		zero := `id="` + id + `">0`
-		if strings.Contains(ui, zero) {
-			t.Errorf("found hard-coded zero %q in web/index.html", zero)
-		}
-	}
-
-	if !strings.Contains(ui, "<noscript") {
-		t.Fatal("expected <noscript> block in web/index.html")
-	}
-	if !strings.Contains(ui, "CLI") || !strings.Contains(ui, "/tasks") {
-		t.Error("expected noscript block to name CLI and API alternatives")
-	}
-
-	if !strings.Contains(ui, `id="queue-count"`) {
-		t.Fatal("expected #queue-count in web/index.html")
-	}
-	if strings.Contains(ui, `id="queue-count" style="color: var(--text-muted); font-size: 12px;">0 tasks</span>`) {
-		t.Error("expected queue-count to not start with hard-coded 0 tasks")
-	}
-
-	if !strings.Contains(ui, `id="task-table-body"`) {
-		t.Fatal("expected #task-table-body in web/index.html")
-	}
-	if !strings.Contains(ui, "Not connected") {
-		t.Error("expected initial table body to indicate Not connected")
-	}
-	if strings.Contains(ui, `<tbody id="task-table-body">`+"\n"+`            <tr><td colspan="7" style="text-align: center; color: var(--text-muted);">No tasks</td></tr>`) {
-		t.Error("table body should not claim No tasks in initial markup")
-	}
-
-	if !strings.Contains(ui, "<main") || !strings.Contains(ui, "</main>") {
-		t.Error("expected <main> landmark in web/index.html")
-	}
-	if !strings.Contains(ui, "<aside") || !strings.Contains(ui, "</aside>") {
-		t.Error("expected <aside> landmark in web/index.html")
-	}
-	if !strings.Contains(ui, `<dl class="task-metadata">`) {
-		t.Error("expected <dl class=\"task-metadata\"> definition list in web/index.html")
-	}
-	if !strings.Contains(ui, "@media (prefers-color-scheme: light)") {
-		t.Error("expected prefers-color-scheme light media query in web/index.html")
-	}
-	if !strings.Contains(ui, "@media (prefers-reduced-motion: reduce)") {
-		t.Error("expected prefers-reduced-motion media query in web/index.html")
-	}
-}
-
-func TestWebUIExpiredLeaseActions(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, "function isActivelyLeased(t)") {
-		t.Fatal("expected isActivelyLeased helper in web/index.html")
-	}
-	if strings.Contains(ui, `id="edit-task-btn"${t.status === 'leased'`) {
-		t.Error("edit-task-btn should not unconditionally disable on leased status")
-	}
-	if !strings.Contains(ui, `id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}`) {
-		t.Error("edit-task-btn should check isActivelyLeased(t)")
-	}
-	if strings.Contains(ui, `id="delete-task-btn" data-variant="warning"${t.status === 'leased'`) {
-		t.Error("delete-task-btn should not unconditionally disable on leased status")
-	}
-	if !strings.Contains(ui, `id="delete-task-btn" data-variant="warning"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}`) {
-		t.Error("delete-task-btn should check isActivelyLeased(t)")
-	}
-	if strings.Contains(ui, "if (!id || status === 'leased') return") {
-		t.Error("deleteTask should not unconditionally return on leased status")
-	}
-	if !strings.Contains(ui, "if (!t || !t.id || isActivelyLeased(t)) return") {
-		t.Error("deleteTask should guard on active lease expiration")
-	}
-	if strings.Contains(ui, "currentTask.status === 'leased'") {
-		t.Error("task edit handlers should not unconditionally return on leased status")
-	}
-	if !strings.Contains(ui, "if (!currentTask || currentTask.status === 'done' || isActivelyLeased(currentTask)) return") {
-		t.Error("task edit handlers should guard on active lease expiration")
-	}
-}
-func TestWebUIConfirmActions(t *testing.T) {
-	ui := string(uiHTML)
-	modals := []string{"confirm-modal", "claim-modal"}
-	for _, id := range modals {
-		if !strings.Contains(ui, `<dialog id="`+id+`"`) {
-			t.Errorf("expected <dialog id=%q> in web/index.html", id)
-		}
-	}
-	if strings.Contains(ui, "window.confirm") || strings.Contains(ui, "window.prompt") {
-		t.Error("unexpected call to window.confirm or window.prompt in web/index.html")
-	}
-	if strings.Contains(ui, "confirm('") || strings.Contains(ui, "prompt('") {
-		t.Error("unexpected call to native confirm or prompt in web/index.html")
-	}
-	if !strings.Contains(ui, `id="confirm-action-btn"`) || !strings.Contains(ui, `id="confirm-cancel-btn"`) {
-		t.Error("expected confirm-action-btn and confirm-cancel-btn in confirm modal")
-	}
-	if !strings.Contains(ui, `id="claim-confirm-btn"`) || !strings.Contains(ui, `id="claim-cancel-btn"`) {
-		t.Error("expected claim-confirm-btn and claim-cancel-btn in claim modal")
-	}
-	if !strings.Contains(ui, `id="claim-worker-input"`) {
-		t.Error("expected claim-worker-input in claim modal")
-	}
-	if !strings.Contains(ui, "openConfirmModal({") {
-		t.Error("expected openConfirmModal in web/index.html")
-	}
-	if !strings.Contains(ui, "openClaimModal(") {
-		t.Error("expected openClaimModal in web/index.html")
-	}
-}
-func TestWebUIWorkerStats(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `<select id="filter-worker" onchange="onFilterChange()">`) {
-		t.Fatal("expected filter-worker select to trigger onFilterChange")
-	}
-	if !strings.Contains(ui, "const workerEl = document.getElementById('filter-worker');") {
-		t.Fatal("expected loadStats to read filter-worker element")
-	}
-	if !strings.Contains(ui, "'worker=' + encodeURIComponent(worker)") {
-		t.Fatal("expected loadStats to pass encoded worker to /stats")
-	}
-}
-func TestWebUINotesTimelineAndForm(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `id="add-note-form"`) {
-		t.Error("expected #add-note-form in web/index.html")
-	}
-	if strings.Contains(ui, `<form id="add-note-form" onsubmit=`) {
-		t.Error("add-note-form should not use inline onsubmit attribute")
-	}
-	if !strings.Contains(ui, `id="note-author"`) {
-		t.Error("expected #note-author input in web/index.html")
-	}
-	if !strings.Contains(ui, `id="note-text"`) {
-		t.Error("expected #note-text textarea in web/index.html")
-	}
-	if !strings.Contains(ui, `id="task-notes-list"`) {
-		t.Error("expected #task-notes-list container in web/index.html")
-	}
-	if !strings.Contains(ui, "renderNotesList(t.notes)") {
-		t.Error("expected renderNotesList call in task details pane")
-	}
-	if !strings.Contains(ui, "note-author") || !strings.Contains(ui, "note-timestamp") || !strings.Contains(ui, "note-text") {
-		t.Error("expected note author, timestamp, and text markup in web/index.html")
-	}
-	if !strings.Contains(ui, "/notes") {
-		t.Error("expected note endpoint call in web/index.html")
-	}
-	if !strings.Contains(ui, "noteForm.addEventListener('submit'") {
-		t.Error("expected noteForm submit event listener in web/index.html")
-	}
-	if !strings.Contains(ui, "form.requestSubmit") {
-		t.Error("expected form.requestSubmit call on Enter keydown in note textarea")
-	}
-	if !strings.Contains(ui, "renderTaskDetails(currentTask, true)") {
-		t.Error("expected re-render of task details without full page reload")
-	}
-}
-func TestWebUITaskSubmitErrorMapping(t *testing.T) {
-	db, err := openDB(t.TempDir()+"/test.db", 300)
-	if err != nil {
-		t.Fatalf("openDB failed: %v", err)
-	}
-	defer db.Close()
-
-	srv := httptest.NewServer(newHandler(db, 300))
-	defer srv.Close()
-
-	cases := []struct {
-		payload   string
-		wantCode  int
-		wantError string
-		wantField string
-	}{
-		{`{"project":"bad/proj","body":"test"}`, http.StatusBadRequest, `invalid project "bad/proj": must contain only [a-zA-Z0-9._-]`, "project"},
-		{`{"body":"test"}`, http.StatusBadRequest, "missing project", "project"},
-		{`{"project":"p","body":"test","priority":-1}`, http.StatusBadRequest, "invalid priority -1, must be 0 or greater", "priority"},
-		{`{"project":"p","body":"test","id":"bad id!"}`, http.StatusBadRequest, "id is assigned by the server", "id"},
-		{`{"project":"p"}`, http.StatusBadRequest, "missing body", "body"},
-		{`{"project":"p","body":"   "}`, http.StatusBadRequest, "missing body", "body"},
-	}
-
-	for _, tc := range cases {
-		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(tc.payload))
-		if err != nil {
-			t.Fatalf("POST /tasks failed: %v", err)
-		}
-		if resp.StatusCode != tc.wantCode {
-			resp.Body.Close()
-			t.Fatalf("POST %s status = %d, want %d", tc.payload, resp.StatusCode, tc.wantCode)
-		}
-		var apiErr struct {
-			Error string `json:"error"`
-			Field string `json:"field"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			resp.Body.Close()
-			t.Fatalf("decode response failed: %v", err)
-		}
-		resp.Body.Close()
-		if apiErr.Error != tc.wantError || apiErr.Field != tc.wantField {
-			t.Errorf("POST %s got error=%q field=%q, want error=%q field=%q",
-				tc.payload, apiErr.Error, apiErr.Field, tc.wantError, tc.wantField)
-		}
-	}
-}
-func TestWebUISaveTaskEditVersionConflict(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/task_edit_cas.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("cas harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("cas harness failed: %v", err)
-	}
-
+func TestWebUIEventTriggersReload(t *testing.T) {
+	out := runNodeHarness(t, "event_reload")
 	var got struct {
-		SentVersion  int    `json:"sentVersion"`
-		BannerHidden bool   `json:"bannerHidden"`
-		BannerText   string `json:"bannerText"`
+		InitialFetches     int `json:"initialFetches"`
+		BeforeFlushFetches int `json:"beforeFlushFetches"`
+		TotalFetches       int `json:"totalFetches"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
+		t.Fatalf("unmarshal: %v\n%s", err, out)
 	}
-
-	if got.SentVersion != 3 {
-		t.Errorf("expected PATCH payload if_version = 3, got %d", got.SentVersion)
+	if got.InitialFetches != 1 {
+		t.Errorf("initialFetches = %d, want 1", got.InitialFetches)
 	}
-	if got.BannerHidden || got.BannerText != "version conflict" {
-		t.Errorf("expected visible 409 error banner with 'version conflict', got hidden=%v text=%q",
-			got.BannerHidden, got.BannerText)
+	if got.BeforeFlushFetches != 1 {
+		t.Errorf("beforeFlushFetches = %d, want 1 (reload was scheduled, not immediate)", got.BeforeFlushFetches)
+	}
+	if got.TotalFetches != 2 {
+		t.Errorf("totalFetches = %d, want 2 (exactly one GET /tasks after two rapid change events)", got.TotalFetches)
 	}
 }
-func TestWebUISubmitBusyState(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/submit_busy.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("harness failed: %v", err)
-	}
 
+func TestWebUIAddTaskPosts(t *testing.T) {
+	out := runNodeHarness(t, "add_task")
 	var got struct {
-		InFlightDisabled bool   `json:"inFlightDisabled"`
-		InFlightBusy     string `json:"inFlightBusy"`
-		SettledDisabled  bool   `json:"settledDisabled"`
-		SettledBusy      string `json:"settledBusy"`
-		FetchCount       int    `json:"fetchCount"`
+		Posted struct {
+			Body     string `json:"body"`
+			Project  string `json:"project"`
+			Priority int    `json:"priority"`
+			After    []int  `json:"after"`
+		} `json:"posted"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
+		t.Fatalf("unmarshal: %v\n%s", err, out)
 	}
-
-	if !got.InFlightDisabled {
-		t.Errorf("expected submit button disabled while in-flight, got %v", got.InFlightDisabled)
+	if got.Posted.Body != "New Task Title\nDetailed instructions" {
+		t.Errorf("body = %q, want 'New Task Title\\nDetailed instructions'", got.Posted.Body)
 	}
-	if got.InFlightBusy != "true" {
-		t.Errorf("expected aria-busy 'true' while in-flight, got %q", got.InFlightBusy)
+	if got.Posted.Project != "taskd" {
+		t.Errorf("project = %q, want 'taskd'", got.Posted.Project)
 	}
-	if got.SettledDisabled {
-		t.Errorf("expected submit button re-enabled on settle, got %v", got.SettledDisabled)
+	if got.Posted.Priority != 2 {
+		t.Errorf("priority = %d, want 2", got.Posted.Priority)
 	}
-	if got.SettledBusy != "false" {
-		t.Errorf("expected aria-busy 'false' on settle, got %q", got.SettledBusy)
-	}
-	if got.FetchCount != 1 {
-		t.Errorf("expected 1 fetch, got %d (duplicate submission was not blocked)", got.FetchCount)
+	if len(got.Posted.After) != 0 {
+		t.Errorf("after = %v, want empty", got.Posted.After)
 	}
 }
 
-func TestWebUIDetailsPaneFocusOnSelection(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `id="task-details"`) || !strings.Contains(ui, `tabindex="-1"`) {
-		t.Error("expected details container with id=\"task-details\" and tabindex=\"-1\" in web/index.html")
-	}
-
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/details_focus.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("details focus harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("details focus harness failed: %v", err)
-	}
-
+func TestWebUIReplyPostsNoteAndKicks(t *testing.T) {
+	out := runNodeHarness(t, "reply_kick")
 	var got struct {
-		ClickFocus     bool `json:"clickFocus"`
-		CtrlIgnored    bool `json:"ctrlIgnored"`
-		InputIgnored   bool `json:"inputIgnored"`
-		EnterFocus     bool `json:"enterFocus"`
-		EnterPrevented bool `json:"enterPrevented"`
-		ArrowFocus     bool `json:"arrowFocus"`
-		JFocus         bool `json:"jFocus"`
-		KFocus         bool `json:"kFocus"`
-		ArrowUpFocus   bool `json:"arrowUpFocus"`
-		HomeFocus      bool `json:"homeFocus"`
-		EndFocus       bool `json:"endFocus"`
-		PageDownFocus  bool `json:"pageDownFocus"`
-		PageUpFocus    bool `json:"pageUpFocus"`
+		Requests []struct {
+			Method string          `json:"method"`
+			URL    string          `json:"url"`
+			Body   json.RawMessage `json:"body"`
+		} `json:"requests"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
+		t.Fatalf("unmarshal: %v\n%s", err, out)
 	}
-
-	if !got.ClickFocus {
-		t.Errorf("expected click to keep focus on clicked row, got %v", got.ClickFocus)
+	var posts []struct {
+		url  string
+		body string
 	}
-	if !got.CtrlIgnored {
-		t.Errorf("expected Ctrl+Enter to be ignored by row activation, got %v", got.CtrlIgnored)
-	}
-	if !got.InputIgnored {
-		t.Errorf("expected keydown on inputs inside row to be ignored, got %v", got.InputIgnored)
-	}
-	if !got.EnterFocus {
-		t.Errorf("expected enter on row to move focus to details container, got %v", got.EnterFocus)
-	}
-	if !got.EnterPrevented {
-		t.Errorf("expected enter keydown default to be prevented, got %v", got.EnterPrevented)
-	}
-	if !got.ArrowFocus {
-		t.Errorf("expected arrow navigation to focus adjacent row, got %v", got.ArrowFocus)
-	}
-	if !got.JFocus {
-		t.Errorf("expected j keydown to focus next row, got %v", got.JFocus)
-	}
-	if !got.KFocus {
-		t.Errorf("expected k keydown to focus previous row, got %v", got.KFocus)
-	}
-	if !got.ArrowUpFocus {
-		t.Errorf("expected ArrowUp keydown to focus previous row, got %v", got.ArrowUpFocus)
-	}
-	if !got.HomeFocus {
-		t.Errorf("expected Home keydown to focus first row, got %v", got.HomeFocus)
-	}
-	if !got.EndFocus {
-		t.Errorf("expected End keydown to focus last row, got %v", got.EndFocus)
-	}
-	if !got.PageDownFocus {
-		t.Errorf("expected PageDown keydown to focus lower row, got %v", got.PageDownFocus)
-	}
-	if !got.PageUpFocus {
-		t.Errorf("expected PageUp keydown to focus upper row, got %v", got.PageUpFocus)
-	}
-}
-func TestWebUIFieldHintsAndCharacterCount(t *testing.T) {
-	ui := string(uiHTML)
-	hints := []string{
-		`class="hint" id="form-project-hint"`,
-		`class="hint" id="form-priority-hint"`,
-		`class="hint" id="form-body-hint"`,
-		`class="hint" id="form-body-count"`,
-	}
-	for _, h := range hints {
-		if !strings.Contains(ui, h) {
-			t.Errorf("expected hint markup %q in web/index.html", h)
+	for _, req := range got.Requests {
+		if req.Method == "POST" {
+			posts = append(posts, struct {
+				url  string
+				body string
+			}{url: req.URL, body: string(req.Body)})
 		}
 	}
-	if !strings.Contains(ui, `aria-describedby="form-project-hint form-project-error"`) {
-		t.Error("expected form-project to link hint in aria-describedby")
+	if len(posts) < 2 {
+		t.Fatalf("got %d POST requests, want at least 2: %v", len(posts), got.Requests)
 	}
-	if !strings.Contains(ui, `aria-describedby="form-body-hint form-body-count form-body-error"`) {
-		t.Error("expected form-body to link hint and count in aria-describedby")
+	if posts[0].url != "/tasks/42/notes" {
+		t.Errorf("first POST = %q, want '/tasks/42/notes'", posts[0].url)
 	}
-	if strings.Contains(ui, `id="form-body-count" aria-live=`) {
-		t.Error("form-body-count should not have aria-live to avoid screen reader chatter on keystrokes")
+	if !strings.Contains(posts[0].body, `"author":"you"`) || !strings.Contains(posts[0].body, `"text":"I fixed the issue"`) {
+		t.Errorf("first POST body = %s, want author 'you' and text", posts[0].body)
 	}
-	if !strings.Contains(ui, `function updateBodyCount()`) {
-		t.Error("expected updateBodyCount helper in web/index.html")
+	if posts[1].url != "/tasks/42/kick" {
+		t.Errorf("second POST = %q, want '/tasks/42/kick'", posts[1].url)
+	}
+}
+
+func TestWebUIBlockedNotClaimable(t *testing.T) {
+	out := runNodeHarness(t, "blocked_not_claimable")
+	var got struct {
+		Position string `json:"position"`
+		Why      string `json:"why"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal: %v\n%s", err, out)
+	}
+	if got.Position != "" {
+		t.Errorf("position = %q, want empty", got.Position)
+	}
+	if !strings.Contains(got.Why, "Not claimable until this is done: Prereq task") {
+		t.Errorf("why = %q, want it to contain 'Not claimable until this is done: Prereq task'", got.Why)
 	}
 }
 
@@ -478,466 +174,34 @@ func TestWebUIServe(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
 	}
+	ct := resp.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
 }
 
-func TestWebUIButtonVariants(t *testing.T) {
+func TestWebUINoPolling(t *testing.T) {
 	ui := string(uiHTML)
-	if !strings.Contains(ui, `button[data-variant="warning"]`) {
-		t.Error("expected button[data-variant=\"warning\"] in web/index.html")
+	if strings.Contains(strings.ToLower(ui), "asset") {
+		t.Error("web/index.html contains 'asset'")
 	}
-	if !strings.Contains(ui, `button[data-variant="secondary"]`) {
-		t.Error("expected button[data-variant=\"secondary\"] in web/index.html")
+	if strings.Contains(strings.ToLower(ui), "budget") {
+		t.Error("web/index.html contains 'budget'")
 	}
-	if !strings.Contains(ui, `button[data-variant="primary"]`) {
-		t.Error("expected button[data-variant=\"primary\"] in web/index.html")
+	if strings.Contains(strings.ToLower(ui), "tokens") {
+		t.Error("web/index.html contains 'tokens'")
 	}
-	if !strings.Contains(ui, `id="submit-task-btn" data-variant="primary"`) {
-		t.Error("expected submit-task-btn to have data-variant=\"primary\"")
+	if strings.Contains(ui, "db.tasks") {
+		t.Error("web/index.html contains 'db.tasks'")
 	}
-	if !strings.Contains(ui, `id="refresh-btn" data-variant="secondary"`) {
-		t.Error("expected refresh-btn to have data-variant=\"secondary\"")
+	if strings.Contains(ui, "HOURLY") {
+		t.Error("web/index.html contains 'HOURLY'")
 	}
-	if !strings.Contains(ui, `id="delete-task-btn" data-variant="warning"`) {
-		t.Error("expected delete-task-btn to have data-variant=\"warning\"")
+	if strings.Contains(ui, "#type") {
+		t.Error("web/index.html contains '#type'")
 	}
-}
-
-func TestWebUIPurgeDone(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `id="purge-done-btn"`) {
-		t.Fatal("expected #purge-done-btn in web/index.html")
-	}
-	if !strings.Contains(ui, `onclick="openPurgeModal()"`) {
-		t.Fatal("expected #purge-done-btn to trigger openPurgeModal()")
-	}
-	if !strings.Contains(ui, `aria-haspopup="dialog"`) {
-		t.Fatal("expected #purge-done-btn to declare aria-haspopup=dialog")
-	}
-	if !strings.Contains(ui, `<dialog id="purge-modal"`) {
-		t.Fatal("expected #purge-modal dialog in web/index.html")
-	}
-	if !strings.Contains(ui, `data-state="closed"`) {
-		t.Fatal("expected #purge-modal to start with data-state=closed")
-	}
-	if !strings.Contains(ui, `id="purge-confirm-btn"`) {
-		t.Fatal("expected #purge-confirm-btn in web/index.html")
-	}
-	if !strings.Contains(ui, `onclick="confirmPurge()"`) {
-		t.Fatal("expected #purge-confirm-btn to trigger confirmPurge()")
-	}
-	if !strings.Contains(ui, `id="purge-cancel-btn"`) {
-		t.Fatal("expected #purge-cancel-btn in web/index.html")
-	}
-	if !strings.Contains(ui, `onclick="closePurgeModal()"`) {
-		t.Fatal("expected #purge-cancel-btn to trigger closePurgeModal()")
-	}
-}
-func TestWebUIGlobalErrorBoundary(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/error_boundary.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("error boundary harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("error boundary harness failed: %v", err)
-	}
-
-	var got struct {
-		ErrorCaptured struct {
-			Hidden bool   `json:"hidden"`
-			Text   string `json:"text"`
-		} `json:"errorCaptured"`
-		RejectionCaptured struct {
-			Hidden bool   `json:"hidden"`
-			Text   string `json:"text"`
-		} `json:"rejectionCaptured"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
-	}
-
-	if got.ErrorCaptured.Hidden || got.ErrorCaptured.Text != "test uncaught error" {
-		t.Errorf("error banner not shown on uncaught error: %+v", got.ErrorCaptured)
-	}
-	if got.RejectionCaptured.Hidden || got.RejectionCaptured.Text != "test unhandled rejection" {
-		t.Errorf("error banner not shown on unhandled rejection: %+v", got.RejectionCaptured)
-	}
-}
-
-func TestWebUIRowDOMCreation(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/create_row.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("create_row harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("create_row harness failed: %v", err)
-	}
-
-	var got struct {
-		BtnTitle          string `json:"btnTitle"`
-		BtnText           string `json:"btnText"`
-		ProjText          string `json:"projText"`
-		ProjChildCount    int    `json:"projChildCount"`
-		StatusText        string `json:"statusText"`
-		StatusAttr        string `json:"statusAttr"`
-		PrioText          string `json:"prioText"`
-		ClaimText         string `json:"claimText"`
-		WorkerText        string `json:"workerText"`
-		WorkerChildCount  int    `json:"workerChildCount"`
-		SummaryText       string `json:"summaryText"`
-		SummaryChildCount int    `json:"summaryChildCount"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
-	}
-
-	if got.BtnTitle != "1" || got.BtnText != "1" {
-		t.Errorf("unexpected button title/text: %q / %q", got.BtnTitle, got.BtnText)
-	}
-	if got.ProjText != "<script>bad()</script>" || got.ProjChildCount != 0 {
-		t.Errorf("project cell not treated as textContent: text=%q, children=%d", got.ProjText, got.ProjChildCount)
-	}
-	if got.SummaryText != "<b>summary</b>" || got.SummaryChildCount != 0 {
-		t.Errorf("summary cell not treated as textContent: text=%q, children=%d", got.SummaryText, got.SummaryChildCount)
-	}
-	if got.WorkerText != "worker<1>" || got.WorkerChildCount != 0 {
-		t.Errorf("worker cell not treated as textContent: text=%q, children=%d", got.WorkerText, got.WorkerChildCount)
-	}
-	if got.StatusText != "pending" || got.StatusAttr != "pending" {
-		t.Errorf("badge not configured: text=%q, attr=%q", got.StatusText, got.StatusAttr)
-	}
-}
-
-func TestWebUISelectPollReconciliation(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/select_reconcile.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("select reconcile harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("select reconcile harness failed: %v", err)
-	}
-
-	var got struct {
-		WorkerNodePreservedOnSame    bool    `json:"workerNodePreservedOnSame"`
-		WorkerNodePreservedOnChange  bool    `json:"workerNodePreservedOnChange"`
-		ProjectNodePreservedOnSame   bool    `json:"projectNodePreservedOnSame"`
-		ProjectNodePreservedOnChange bool    `json:"projectNodePreservedOnChange"`
-		UnassignedIndex              int     `json:"unassignedIndex"`
-		UnassignedWorker             *string `json:"unassignedWorker"`
-		UnassignedSyncURL            string  `json:"unassignedSyncURL"`
-		AllIndex                     int     `json:"allIndex"`
-		AllWorker                    *string `json:"allWorker"`
-		NamedIndex                   int     `json:"namedIndex"`
-		NamedWorker                  *string `json:"namedWorker"`
-		IdleIndexAfter               int     `json:"idleIndexAfter"`
-		IdleWorkerAfter              *string `json:"idleWorkerAfter"`
-		IdleWorkerValue              string  `json:"idleWorkerValue"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
-	}
-
-	if !got.WorkerNodePreservedOnSame {
-		t.Error("worker option DOM node replaced when workers list unchanged")
-	}
-	if !got.WorkerNodePreservedOnChange {
-		t.Error("worker option DOM node not preserved when workers list updated")
-	}
-	if !got.ProjectNodePreservedOnSame {
-		t.Error("project option DOM node replaced when projects list unchanged")
-	}
-	if !got.ProjectNodePreservedOnChange {
-		t.Error("project option DOM node not preserved when projects list updated")
-	}
-	if got.UnassignedIndex != 1 || got.UnassignedWorker == nil || *got.UnassignedWorker != "" {
-		t.Errorf("expected unassigned worker state at index 1 with '', got index %d, worker %v", got.UnassignedIndex, got.UnassignedWorker)
-	}
-	if got.AllIndex != 0 || got.AllWorker != nil {
-		t.Errorf("expected all worker state at index 0 with null, got index %d, worker %v", got.AllIndex, got.AllWorker)
-	}
-	if got.NamedIndex != 2 || got.NamedWorker == nil || *got.NamedWorker != "w1" {
-		t.Errorf("expected named worker state at index 2 with 'w1', got index %d, worker %v", got.NamedIndex, got.NamedWorker)
-	}
-	if !strings.Contains(got.UnassignedSyncURL, "worker=") || strings.Contains(got.UnassignedSyncURL, "worker=none") {
-		t.Errorf("expected unassigned sync URL to set empty worker query, got %q", got.UnassignedSyncURL)
-	}
-	if got.IdleWorkerAfter == nil || *got.IdleWorkerAfter != "idle-worker" {
-		t.Errorf("expected idle-worker to be retained after empty workers poll, got %v", got.IdleWorkerAfter)
-	}
-	if got.IdleWorkerValue != "idle-worker" {
-		t.Errorf("expected worker select value to be idle-worker, got %q", got.IdleWorkerValue)
-	}
-}
-
-func TestWebUIUnassignedWorkerFilter(t *testing.T) {
-	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
-	if err != nil {
-		t.Fatalf("openDB failed: %v", err)
-	}
-	defer db.Close()
-
-	srv := httptest.NewServer(newHandler(db, 300))
-	defer srv.Close()
-
-	postJSON := func(endpoint string, body any) {
-		t.Helper()
-		data, err := json.Marshal(body)
-		if err != nil {
-			t.Fatalf("marshal failed: %v", err)
-		}
-		resp, err := http.Post(srv.URL+endpoint, "application/json", strings.NewReader(string(data)))
-		if err != nil {
-			t.Fatalf("POST %s failed: %v", endpoint, err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			b, _ := io.ReadAll(resp.Body)
-			t.Fatalf("POST %s status %d: %s", endpoint, resp.StatusCode, b)
-		}
-	}
-
-	postJSON("/tasks", map[string]string{"project": "p", "body": "unclaimed task"})
-	postJSON("/tasks", map[string]string{"project": "p", "body": "claimed task"})
-	postJSON("/tasks/2/claim", map[string]string{"worker": "worker-1"})
-
-	resp, err := http.Get(srv.URL + "/tasks?worker=")
-	if err != nil {
-		t.Fatalf("GET /tasks?worker= failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /tasks?worker=: got %d, want 200", resp.StatusCode)
-	}
-	var tasks []struct {
-		ID     int64  `json:"id"`
-		Worker string `json:"worker"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&tasks); err != nil {
-		t.Fatalf("decode failed: %v", err)
-	}
-	if len(tasks) != 1 || tasks[0].ID != 1 || tasks[0].Worker != "" {
-		t.Fatalf("expected only unclaimed tasks from ?worker=, got %+v", tasks)
-	}
-}
-
-func TestWebUIEditTaskPrefill(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/task_edit_prefill.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("edit prefill harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("edit prefill harness failed: %v", err)
-	}
-
-	var got struct {
-		IsEditing bool   `json:"isEditing"`
-		Project   string `json:"project"`
-		Priority  string `json:"priority"`
-		Body      string `json:"body"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
-	}
-
-	if !got.IsEditing {
-		t.Errorf("expected isEditing = true after clicking Edit Task, got %v", got.IsEditing)
-	}
-	if got.Project != "proj-alpha" {
-		t.Errorf("expected project %q, got %q", "proj-alpha", got.Project)
-	}
-	if got.Priority != "15" {
-		t.Errorf("expected priority %q, got %q", "15", got.Priority)
-	}
-	if got.Body != "Fix the widget layout" {
-		t.Errorf("expected body %q, got %q", "Fix the widget layout", got.Body)
-	}
-}
-
-func TestWebUICopyPrimitivesButton(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `id="copy-primitives-btn"`) {
-		t.Fatal("expected #copy-primitives-btn in web/index.html")
-	}
-	if !strings.Contains(ui, `id="detail-task-prim-row"`) {
-		t.Fatal("expected #detail-task-prim-row in web/index.html")
-	}
-	if !strings.Contains(ui, `copyToClipboard(primStr, copyPrimBtn, 'primitives')`) {
-		t.Fatal("expected copyToClipboard call for primitives in web/index.html")
-	}
-	if !strings.Contains(ui, `primRow.hidden = false`) {
-		t.Fatal("expected primRow visibility toggled in web/index.html")
-	}
-}
-func TestWebUICloseBuriedTask(t *testing.T) {
-	ui := string(uiHTML)
-	re := regexp.MustCompile(`status\s*===\s*'buried'[\s\S]*?id="kick-task-btn"[\s\S]*?id="close-task-btn"`)
-	if !re.MatchString(ui) {
-		t.Fatal("expected #close-task-btn alongside #kick-task-btn for buried tasks in web/index.html")
-	}
-}
-func TestWebSubmitCtrlEnter(t *testing.T) {
-	ui := string(uiHTML)
-	re := regexp.MustCompile(`const\s+bodyEl\s*=\s*document\.getElementById\('form-body'\);[\s\S]*?bodyEl\.addEventListener\('keydown',\s*\(?e\)?\s*=>\s*\{[\s\S]*?e\.key\s*===\s*'Enter'\s*&&\s*\(e\.ctrlKey\s*\|\|\s*e\.metaKey\)[\s\S]*?e\.preventDefault\(\)[\s\S]*?submitTask\(\)`)
-	if !re.MatchString(ui) {
-		t.Fatal("expected #form-body keydown listener for Ctrl+Enter or Cmd+Enter invoking submitTask in web/index.html")
-	}
-}
-func TestWebUIPersistAutoRefresh(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `localStorage.getItem('taskd-auto-refresh')`) {
-		t.Fatal("expected localStorage.getItem('taskd-auto-refresh') in web/index.html")
-	}
-	if !strings.Contains(ui, `localStorage.setItem('taskd-auto-refresh', String(`) {
-		t.Fatal("expected localStorage.setItem('taskd-auto-refresh', ...) in web/index.html")
-	}
-}
-
-func TestWebFinishTaskTransitionLoadsWorkers(t *testing.T) {
-	ui := string(uiHTML)
-	re := regexp.MustCompile(`async function finishTaskTransition[\s\S]*?}`)
-	fn := re.FindString(ui)
-	if fn == "" {
-		t.Fatal("finishTaskTransition not found in web/index.html")
-	}
-	if !strings.Contains(fn, "loadWorkers()") {
-		t.Fatal("expected finishTaskTransition to include loadWorkers() in web/index.html")
-	}
-}
-
-func TestWebUIKeyboardShortcuts(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, "setupGlobalShortcuts") {
-		t.Fatal("expected setupGlobalShortcuts in web/index.html")
-	}
-	if !strings.Contains(ui, "setupGlobalShortcuts();") {
-		t.Fatal("expected setupGlobalShortcuts invocation in boot()")
-	}
-	if !regexp.MustCompile(`function\s+setupSearch\(\)\s*\{[\s\S]*?e\.key\s*===\s*'Escape'[\s\S]*?el\.blur\(\)`).MatchString(ui) {
-		t.Fatal("expected Escape in #filter-search to unfocus via el.blur()")
-	}
-	if !regexp.MustCompile(`e\.key\s*===\s*'/'[\s\S]*?e\.preventDefault\(\)[\s\S]*?el\.focus\(\)`).MatchString(ui) {
-		t.Fatal("expected / keydown handler to preventDefault and focus search")
-	}
-	if !regexp.MustCompile(`e\.key\s*===\s*'r'[\s\S]*?loadAll\(\)`).MatchString(ui) {
-		t.Fatal("expected r keydown handler to invoke loadAll()")
-	}
-	if !regexp.MustCompile(`function\s+isInputTarget\(target\)\s*\{[\s\S]*?target\.closest\('input, textarea, select, \[contenteditable\]'\)`).MatchString(ui) {
-		t.Fatal("expected isInputTarget to check editable inputs")
-	}
-}
-
-func TestWebSubmitTaskSelectsNewTask(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/submit_select.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("harness failed: %v", err)
-	}
-
-	var got struct {
-		SelectedTaskId    int64 `json:"selectedTaskId"`
-		DetailsFetchCount int   `json:"detailsFetchCount"`
-	}
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
-	}
-
-	if got.SelectedTaskId != 1 {
-		t.Errorf("expected selectedTaskId 1, got %d", got.SelectedTaskId)
-	}
-	if got.DetailsFetchCount != 1 {
-		t.Errorf("expected exactly 1 details fetch without duplication, got %d", got.DetailsFetchCount)
-	}
-}
-
-func TestWebUITaskEditCtrlS(t *testing.T) {
-	node, err := exec.LookPath("node")
-	if err != nil {
-		t.Skip("node not available: " + err.Error())
-	}
-	out, err := exec.Command(node, "testdata/task_edit_ctrl_s.js", "web/index.html").Output()
-	if err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			t.Fatalf("harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
-		}
-		t.Fatalf("harness failed: %v", err)
-	}
-
-	var results map[string]struct {
-		CtrlS        bool `json:"ctrlS"`
-		CmdS         bool `json:"cmdS"`
-		ShiftIgnored bool `json:"shiftIgnored"`
-		AltIgnored   bool `json:"altIgnored"`
-	}
-	if err := json.Unmarshal(out, &results); err != nil {
-		t.Fatalf("bad harness output: %v\n%s", err, out)
-	}
-
-	for field, res := range results {
-		if !res.CtrlS {
-			t.Errorf("field %s: expected Ctrl+S to save task edit", field)
-		}
-		if !res.CmdS {
-			t.Errorf("field %s: expected Cmd+S to save task edit", field)
-		}
-		if !res.ShiftIgnored {
-			t.Errorf("field %s: expected Ctrl+Shift+S not to trigger saveTaskEdit", field)
-		}
-		if !res.AltIgnored {
-			t.Errorf("field %s: expected AltGr/Alt+S not to trigger saveTaskEdit", field)
-		}
-	}
-}
-func TestWebUIResetFilters(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `id="reset-filters-btn"`) {
-		t.Fatal("expected #reset-filters-btn in web/index.html")
-	}
-	if !strings.Contains(ui, `onclick="resetFilters()"`) {
-		t.Fatal("expected onclick=\"resetFilters()\" in web/index.html")
-	}
-	if !strings.Contains(ui, `hidden>Reset Filters</button>`) {
-		t.Fatal("expected Reset Filters button with hidden attribute in web/index.html")
-	}
-	if !strings.Contains(ui, "function resetFilters()") {
-		t.Fatal("expected function resetFilters() in web/index.html")
-	}
-	if !strings.Contains(ui, "function hasActiveFilters()") {
-		t.Fatal("expected function hasActiveFilters() in web/index.html")
-	}
-	if !strings.Contains(ui, "function updateResetFiltersButton()") {
-		t.Fatal("expected function updateResetFiltersButton() in web/index.html")
-	}
-	if !strings.Contains(ui, "btn.hidden = !hasActiveFilters()") {
-		t.Fatal("expected updateResetFiltersButton to toggle hidden based on active filters")
-	}
-	if !strings.Contains(ui, "syncURL(false)") {
-		t.Fatal("expected resetFilters to synchronize URL")
+	re := regexp.MustCompile(`setInterval\s*\([^)]*fetch`)
+	if re.MatchString(ui) {
+		t.Error("web/index.html contains setInterval calling fetch directly")
 	}
 }
