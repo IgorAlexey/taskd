@@ -766,7 +766,7 @@ func (f formModel) refit() formModel {
 // copy is refitted so the drawing and the stored layout are the same.
 func (f formModel) View() string {
 	if f.discarding {
-		actions := f.th.accent.Render("[y] discard") + "   " + f.th.dim.Render("[n] cancel")
+		actions := f.th.dim.Render("[y] discard") + "   " + f.th.accent.Render("[n] cancel")
 		boxWidth, inner := boxSize(f.width, 20, 54)
 		head := wrapRows([]string{"Discard unsaved changes?", ""}, inner)
 		return box(head, wrapRows([]string{actions}, inner), boxWidth, f.height, lipgloss.Center, f.th)
@@ -896,9 +896,9 @@ func (c confirmModel) View(width, height int, th theme) string {
 
 	var styledKeep []string
 	if len(l.keep) == 1 {
-		styledKeep = []string{th.accent.Render(l.yToken) + gapStr + th.dim.Render(l.nToken)}
+		styledKeep = []string{th.dim.Render(l.yToken) + gapStr + th.accent.Render(l.nToken)}
 	} else if len(l.keep) >= 2 {
-		styledKeep = []string{th.accent.Render(l.yToken), th.dim.Render(l.nToken)}
+		styledKeep = []string{th.dim.Render(l.yToken), th.accent.Render(l.nToken)}
 	}
 
 	var centeredLines []string
