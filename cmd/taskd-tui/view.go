@@ -364,7 +364,8 @@ func (m model) View() tea.View {
 				}
 			}
 		}
-		hasScrollbar := len(m.shown) > tRows
+		sb := tableScrollbar(len(m.shown), m.offset, tRows)
+		hasScrollbar := sb.hasScrollbar
 		cols := budgetColumns(w, maxScope, maxWorker, maxClaims, hasScrollbar)
 		wScope, wClaims, wWorker := cols.scope, cols.claims, cols.worker
 		wLease, wLeft, wID, wTitle := cols.lease, cols.left, cols.id, cols.title
@@ -423,26 +424,13 @@ func (m model) View() tea.View {
 				}
 			}
 		} else {
-			total := len(m.shown)
-			thumbSize := tRows * tRows / total
-			if thumbSize < 1 {
-				thumbSize = 1
-			}
-			thumbStart := m.offset * tRows / total
-			if thumbStart+thumbSize > tRows {
-				thumbStart = tRows - thumbSize
-			}
-			if thumbStart < 0 {
-				thumbStart = 0
-			}
-
 			ellipsis := m.glyph.ellipsis
 
 			for i := 0; i < tRows; i++ {
 				shownIdx := m.offset + i
 				var scrollCell string
 				if hasScrollbar {
-					if i >= thumbStart && i < thumbStart+thumbSize {
+					if i >= sb.thumbStart && i < sb.thumbStart+sb.thumbSize {
 						scrollCell = m.theme.accent.Render(m.glyph.thumb)
 					} else {
 						scrollCell = m.theme.dim.Render(m.glyph.track)

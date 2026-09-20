@@ -179,6 +179,34 @@ func (p paneLayout) inDetail(y int) bool {
 	return p.detailRows > 0 && y >= p.detailTop && y < p.detailTop+p.detailRows
 }
 
+type scrollbarLayout struct {
+	hasScrollbar bool
+	thumbStart   int
+	thumbSize    int
+}
+
+func tableScrollbar(total, offset, tRows int) scrollbarLayout {
+	if total <= tRows || tRows <= 0 {
+		return scrollbarLayout{}
+	}
+	thumbSize := tRows * tRows / total
+	if thumbSize < 1 {
+		thumbSize = 1
+	}
+	thumbStart := offset * tRows / total
+	if thumbStart+thumbSize > tRows {
+		thumbStart = tRows - thumbSize
+	}
+	if thumbStart < 0 {
+		thumbStart = 0
+	}
+	return scrollbarLayout{
+		hasScrollbar: true,
+		thumbStart:   thumbStart,
+		thumbSize:    thumbSize,
+	}
+}
+
 // Layout constants shared by view and model (paging, offset clamping).
 const (
 	headerRows  = 1 // pill, url, connection, db, refresh

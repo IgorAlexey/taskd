@@ -386,6 +386,35 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			panes := m.panes()
 			if panes.inTable(msg.Y) {
+				sb := tableScrollbar(len(m.shown), m.offset, panes.tableRows)
+				if msg.X == m.width-1 && sb.hasScrollbar {
+					clickRow := msg.Y - panes.tableTop
+					step := panes.tableRows / 2
+					if step < 1 {
+						step = 1
+					}
+					if clickRow < sb.thumbStart {
+						m.offset -= step
+						if m.cursor >= 0 {
+							m.cursor -= step
+						}
+					} else if clickRow >= sb.thumbStart+sb.thumbSize {
+						m.offset += step
+						if m.cursor >= 0 {
+							m.cursor += step
+						}
+					}
+					m.clamp()
+					if m.cursor >= 0 {
+						m.lastRow = m.cursor
+					}
+					m.syncDetail()
+					if m.mode == modeDetail {
+						m.mode = modeTable
+					}
+					return m, nil
+				}
+
 				idx := m.offset + (msg.Y - panes.tableTop)
 				if idx >= 0 && idx < len(m.shown) {
 					m.cursor = idx

@@ -251,3 +251,132 @@ func TestClickFilterTabs(t *testing.T) {
 		t.Fatalf("click in gap between project and worker should not cycle project, got %q", m.project)
 	}
 }
+
+func TestClickScrollbarTrack(t *testing.T) {
+	m := setupTestModel()
+	totalTasks := 40
+	tasks := make([]task, totalTasks)
+	for i := range tasks {
+		tasks[i] = task{
+			ID:       string(rune('a' + (i % 26))),
+			Body:     "line\n",
+			Status:   "pending",
+			Priority: 1,
+		}
+	}
+	m.tasks = tasks
+	shown := make([]int, totalTasks)
+	for i := range shown {
+		shown[i] = i
+	}
+	m.shown = shown
+	m.cursor = 0
+	m.offset = 0
+	m.clamp()
+
+	panes := m.panes()
+	tRows := panes.tableRows
+	if len(m.shown) <= tRows {
+		t.Fatalf("expected shown (%d) > tableRows (%d)", len(m.shown), tRows)
+	}
+
+	sb := tableScrollbar(len(m.shown), m.offset, tRows)
+	if !sb.hasScrollbar {
+		t.Fatalf("expected scrollbar for 40 tasks in %d rows", tRows)
+	}
+
+	step := tRows / 2
+	if step < 1 {
+		step = 1
+	}
+
+	clickBelowY := panes.tableTop + sb.thumbStart + sb.thumbSize + 1
+	if clickBelowY >= panes.tableTop+tRows {
+		clickBelowY = panes.tableTop + tRows - 1
+	}
+
+	res, _ := m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      clickBelowY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+
+	if m.offset != step {
+		t.Fatalf("expected offset %d after clicking below thumb, got offset %d", step, m.offset)
+	}
+
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      clickBelowY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+
+	if m.offset != 2*step {
+		t.Fatalf("expected offset %d after second click below thumb, got %d", 2*step, m.offset)
+	}
+
+	sbAfterDown := tableScrollbar(len(m.shown), m.offset, tRows)
+	if sbAfterDown.thumbStart <= sb.thumbStart {
+		t.Fatalf("expected thumb to advance down, was %d, now %d", sb.thumbStart, sbAfterDown.thumbStart)
+	}
+
+	clickAboveY := panes.tableTop + sbAfterDown.thumbStart - 1
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      clickAboveY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+
+	if m.offset != step {
+		t.Fatalf("expected offset %d after clicking above thumb, got %d", step, m.offset)
+	}
+
+	m.offset = 16
+	m.cursor = 16
+	m.clamp()
+	sbMid := tableScrollbar(len(m.shown), m.offset, tRows)
+	thumbCenterY := panes.tableTop + sbMid.thumbStart + sbMid.thumbSize/2
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      thumbCenterY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+	if m.offset != 16 {
+		t.Fatalf("expected offset 16 to remain unchanged on thumb click, got %d", m.offset)
+	}
+	sbCenter := tableScrollbar(len(m.shown), m.offset, tRows)
+	clickRow := thumbCenterY - panes.tableTop
+	if clickRow < sbCenter.thumbStart || clickRow >= sbCenter.thumbStart+sbCenter.thumbSize {
+		t.Fatalf("thumb ran away from click: clickRow %d not in [%d, %d)",
+			clickRow, sbCenter.thumbStart, sbCenter.thumbStart+sbCenter.thumbSize)
+	}
+
+	m.mode = modeDetail
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      thumbCenterY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+	if m.mode != modeTable {
+		t.Fatalf("expected modeTable after scrollbar click in modeDetail, got %v", m.mode)
+	}
+
+	shortModel := setupTestModel()
+	shortPanes := shortModel.panes()
+	if len(shortModel.shown) <= shortPanes.tableRows {
+		res, _ = shortModel.Update(tea.MouseClickMsg{
+			X:      shortModel.width - 1,
+			Y:      shortPanes.tableTop + 2,
+			Button: tea.MouseLeft,
+		})
+		shortModel = res.(model)
+		if shortModel.cursor != 2 {
+			t.Fatalf("expected row 2 selected when no scrollbar, got cursor %d", shortModel.cursor)
+		}
+	}
+}
