@@ -342,9 +342,19 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 				if md == modeTable && !strings.HasPrefix(lines[h-1], "j/k move") {
 					t.Fatalf("%dx%d lost the footer: %q", w, h, lines[h-1])
 				}
+				// The form opens with focus on the body; whatever else is
+				// dropped, the field being typed into stays on screen.
+				if md == modeForm && w >= 20 && h >= 4 && !strings.Contains(strings.Join(lines, "\n"), "first line") {
+					t.Fatalf("%dx%d form hides the focused body field:\n%s", w, h, strings.Join(lines, "\n"))
+				}
 				// Border, three fields, one body row, the error and the
-				// button need eight rows; from there both must be on screen.
-				if md == modeForm && w >= 20 && h >= 8 {
+				// button need eight rows, nine when the error wraps (the
+				// text is 23 cells; the box is w-4 outside, 8 less inside).
+				errRows := 8
+				if w-8 < 23 {
+					errRows = 9
+				}
+				if md == modeForm && w >= 20 && h >= errRows {
 					all := strings.Join(lines, "\n")
 					if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "cannot") {
 						t.Fatalf("%dx%d form hides the button or the error:\n%s", w, h, all)
@@ -355,7 +365,7 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 						t.Fatalf("%dx%d mode %d line is %d wide: %q", w, h, md, lw, l)
 					}
 				}
-				if md == modeConfirm && w >= 20 && h >= 4 && !strings.Contains(strings.Join(lines, "\n"), "[y]") {
+				if md == modeConfirm && w >= 20 && h >= 3 && !strings.Contains(strings.Join(lines, "\n"), "[y]") {
 					t.Fatalf("%dx%d confirm hides its actions:\n%s", w, h, strings.Join(lines, "\n"))
 				}
 				if md == modeHelp && w >= 20 && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "Press ?") {

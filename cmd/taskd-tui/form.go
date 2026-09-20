@@ -29,6 +29,7 @@ type formModel struct {
 	origHasPriority bool
 	origAsset       string
 	origBody        string
+	level           int // compaction fit chose; see lines
 }
 
 func newCreateForm(project string) (formModel, tea.Cmd) {
@@ -98,10 +99,10 @@ func newEditForm(t task) (formModel, tea.Cmd) {
 
 // boxSize is an overlay's outer width for a terminal, between lo and hi
 // with a two-column margin, and the text width inside its border and
-// padding, never below one cell.
+// padding. Under five columns there is no text width; box draws nothing.
 func boxSize(width, lo, hi int) (outer, inner int) {
 	outer = min(max(lo, min(width-4, hi)), width)
-	return outer, max(1, outer-4)
+	return outer, outer - 4
 }
 
 func (f *formModel) resize(inner int) {
@@ -113,27 +114,41 @@ func (f *formModel) resize(inner int) {
 
 // lines is the form's rows at a given level of compaction: 0 keeps the
 // separators and hint, 1 drops them, 2 also drops the asset field and
-// body label. slot is the index the textarea goes at; rows[keepAt:] up
-// to keepN are the error and the button, which a short frame must never
-// cut; anything after them is the hint.
+// body label, 3 shows only the focused field and the button, since an
+// error is no help when the field it names is off screen. slot is the
+// index the textarea goes at (-1 when it is not drawn); rows[keepAt:]
+// up to keepN are the error and the button, which a short frame must
+// never cut; anything after them is the hint.
 func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keepN int) {
-	rows = append(rows, th.accent.Render(f.title))
+	show := func(field int) bool { return level < 3 || f.focus == field || (field == 3 && f.focus == 4) }
+	if level < 3 {
+		rows = append(rows, th.accent.Render(f.title))
+	}
 	if level == 0 {
 		rows = append(rows, "")
 	}
-	rows = append(rows, th.dim.Render("project:  ")+f.project.View())
-	rows = append(rows, th.dim.Render("priority: ")+f.priority.View())
-	if level < 2 {
+	if show(0) {
+		rows = append(rows, th.dim.Render("project:  ")+f.project.View())
+	}
+	if show(1) {
+		rows = append(rows, th.dim.Render("priority: ")+f.priority.View())
+	}
+	if level < 2 || (level == 3 && f.focus == 2) {
 		rows = append(rows, th.dim.Render("asset:    ")+f.asset.View())
+	}
+	if level < 2 {
 		rows = append(rows, th.dim.Render("body:"))
 	}
-	slot = len(rows)
-	rows = append(rows, "")
+	slot = -1
+	if show(3) {
+		slot = len(rows)
+		rows = append(rows, "")
+	}
 	if level == 0 {
 		rows = append(rows, "")
 	}
 	keepAt = len(rows)
-	if f.errText != "" {
+	if f.errText != "" && level < 3 {
 		rows = append(rows, th.err.Render(f.errText))
 	}
 	if f.focus == 4 {
@@ -151,6 +166,9 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 // wrapRows renders rows at width so each element is one terminal line;
 // a row that soft-wraps becomes several. Counting happens after this.
 func wrapRows(rows []string, width int) []string {
+	if width < 1 {
+		return nil
+	}
 	var out []string
 	for _, r := range rows {
 		soft := lipgloss.NewStyle().Width(width).Render(r)
@@ -168,6 +186,9 @@ func wrapRows(rows []string, width int) []string {
 // not fit shows its first lines, so an action row or a hint is never
 // reduced to its tail.
 func box(head []string, keep [][]string, tail []string, boxWidth, height int, align lipgloss.Position, th theme) string {
+	if boxWidth < 5 {
+		return ""
+	}
 	room := max(1, height-2)
 	need := 0
 	for _, r := range keep {
@@ -199,6 +220,15 @@ func box(head []string, keep [][]string, tail []string, boxWidth, height int, al
 }
 
 func (f *formModel) setFocus(target int) tea.Cmd {
+	if f.level == 2 && (target%5+5)%5 == 2 {
+		// The asset field is not drawn at this level; skip it in the
+		// direction of travel.
+		if target > f.focus {
+			target++
+		} else {
+			target--
+		}
+	}
 	f.focus = (target%5 + 5) % 5
 	f.project.Blur()
 	f.priority.Blur()
@@ -400,25 +430,31 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // View agree on the layout.
 func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, tail []string, boxWidth int) {
 	boxWidth, inner := boxSize(width, 20, 90)
-	f.resize(inner)
+	f.resize(max(1, inner))
 	var rows []string
 	var slot, keepAt, keepN, bodyH int
-	for level := 0; level <= 2; level++ {
-		rows, slot, keepAt, keepN = f.lines(level, th)
-		bodyH = height - 2 - (len(wrapRows(rows, inner)) - 1) // the slot row is the textarea
-		if bodyH >= 1 {
+	for f.level = 0; f.level <= 3; f.level++ {
+		rows, slot, keepAt, keepN = f.lines(f.level, th)
+		bodyH = height - 2 - len(wrapRows(rows, inner))
+		if slot >= 0 {
+			bodyH++ // the slot row stands in for the textarea
+		}
+		if bodyH >= 1 || f.level == 3 {
 			break
 		}
 	}
 	bodyH = max(1, min(12, bodyH))
 	f.body.SetHeight(bodyH)
-	// The textarea can render its placeholder taller than its height;
-	// hold it to the rows that were budgeted.
-	body := wrapRows([]string{f.body.View()}, inner)
-	if len(body) > bodyH {
-		body = body[:bodyH]
+	head = wrapRows(rows[:keepAt], inner)
+	if slot >= 0 {
+		// The textarea can render its placeholder taller than its
+		// height; hold it to the rows that were budgeted.
+		body := wrapRows([]string{f.body.View()}, inner)
+		if len(body) > bodyH {
+			body = body[:bodyH]
+		}
+		head = append(append(wrapRows(rows[:slot], inner), body...), wrapRows(rows[slot+1:keepAt], inner)...)
 	}
-	head = append(append(wrapRows(rows[:slot], inner), body...), wrapRows(rows[slot+1:keepAt], inner)...)
 	for _, r := range rows[keepAt : keepAt+keepN] {
 		keep = append(keep, wrapRows([]string{r}, inner))
 	}

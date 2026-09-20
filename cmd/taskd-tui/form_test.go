@@ -283,3 +283,39 @@ func TestHelpView(t *testing.T) {
 		}
 	}
 }
+
+func TestBlinkMessagesRoundTripThroughTheForm(t *testing.T) {
+	f, cmd := newCreateForm("")
+	if cmd == nil {
+		t.Fatalf("focusing the first field must schedule the cursor blink")
+	}
+	msg := cmd()
+	if _, ok := msg.(tea.KeyPressMsg); ok {
+		t.Fatalf("blink command must not be a key press")
+	}
+	f, next := f.Update(msg)
+	if next == nil {
+		t.Fatalf("a blink message must schedule the next blink")
+	}
+	if f.done || f.cancelled {
+		t.Fatalf("a widget message must not submit or cancel the form")
+	}
+}
+
+func TestHiddenAssetFieldLeavesTheFocusRing(t *testing.T) {
+	f, _ := newCreateForm("p")
+	th := newTheme(true)
+	f.fit(40, 8, th) // too short for the asset row: level 2
+	if f.level != 2 {
+		t.Fatalf("expected level 2 at 40x8, got %d", f.level)
+	}
+	f.setFocus(1)
+	f.setFocus(f.focus + 1)
+	if f.focus != 3 {
+		t.Fatalf("Tab from priority must skip the hidden asset field, got focus %d", f.focus)
+	}
+	f.setFocus(f.focus - 1)
+	if f.focus != 1 {
+		t.Fatalf("Shift-Tab from body must skip the hidden asset field, got focus %d", f.focus)
+	}
+}
