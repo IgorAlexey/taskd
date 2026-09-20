@@ -147,6 +147,8 @@ type ui struct {
 	shownID               string
 	shownBody             string
 	refreshing            atomic.Bool
+	disconnected          atomic.Bool
+	pollInterval          time.Duration
 	// loaded reports whether an answer for the live filter has landed.
 	// Adopting a filter clears it; any answer sets it, including a failed
 	// one, so a filter nobody fetches cannot wedge the table.
@@ -367,6 +369,11 @@ func matchTask(t task, qLower string) bool {
 
 func (u *ui) emptyState() string {
 	switch {
+	case u.disconnected.Load():
+		if u.origin != "" {
+			return "Disconnected from daemon (" + u.origin + "). Reconnecting..."
+		}
+		return "Disconnected from daemon. Reconnecting..."
 	case !u.loaded:
 		return "Loading " + cmp.Or(u.project, "tasks") + "..."
 	case u.query != "":
@@ -539,7 +546,13 @@ func (u *ui) renderStatus() {
 	proj := truncWidth(cmp.Or(u.project, "all"), 20)
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
 	var prefix string
-	if u.origin != "" {
+	if u.disconnected.Load() {
+		if u.origin != "" {
+			prefix = fmt.Sprintf(" %s  [disconnected]  project %s", u.origin, proj)
+		} else {
+			prefix = fmt.Sprintf(" [disconnected]  project %s", proj)
+		}
+	} else if u.origin != "" {
 		prefix = fmt.Sprintf(" %s  %s  project %s  pending %d  leased %d  done %d",
 			u.origin, cmp.Or(u.filter, "all"), proj, u.pending, u.leased, u.done)
 	} else {
@@ -615,6 +628,10 @@ func (u *ui) showBody() {
 			text = strings.Repeat("-", 60) + "\n" + text
 		}
 		id, text = t.ID, metaHeader(t, nowUnix())+text
+		if u.disconnected.Load() {
+			disc := "Disconnected from daemon (" + cmp.Or(u.origin, u.url) + "). Reconnecting..."
+			text = disc + "\n\n" + text
+		}
 	} else {
 		text = u.emptyState()
 	}
@@ -649,30 +666,32 @@ func (u *ui) refresh(project string) {
 func (u *ui) refreshOnce(project string) {
 	defer u.refreshing.Store(false)
 	ts, err := u.fetch(project)
+	if err != nil {
+		u.disconnected.Store(true)
+		u.app.QueueUpdateDraw(func() {
+			u.setMsg(err.Error())
+			if u.project != project {
+				return
+			}
+			u.loaded = true
+			u.showBody()
+			u.renderStatus()
+		})
+		return
+	}
+	u.disconnected.Store(false)
 	ps, perr := u.fetchProjects()
 	st, serr := u.fetchStats(project)
 	u.app.QueueUpdateDraw(func() {
-		// Connectivity is not project-scoped, and neither is the project
-		// list, so both land before the answer itself is judged.
-		switch {
-		case err != nil:
-			u.setMsg(err.Error())
-		case perr != nil:
+		if perr != nil {
 			u.setMsg(perr.Error())
-		}
-		if perr == nil {
+		} else {
 			u.projects = ps
 		}
 		if u.project != project {
 			return
 		}
 		u.loaded = true
-		if err != nil {
-			// The pane still reads "Loading ..." from the switch; the
-			// answer was "no", so repaint it.
-			u.showBody()
-			return
-		}
 		if serr == nil {
 			u.pending, u.leased, u.done = st.Pending, st.Leased, st.Done
 			u.hasServerStats = true
@@ -690,8 +709,14 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 		err := u.call(method, path, body)
 		msg := success
 		ts, fetchErr := u.fetch(project)
-		ps, projErr := u.fetchProjects()
-		st, statsErr := u.fetchStats(project)
+		var ps []string
+		var projErr error
+		var st stats
+		var statsErr error
+		if fetchErr == nil {
+			ps, projErr = u.fetchProjects()
+			st, statsErr = u.fetchStats(project)
+		}
 		u.app.QueueUpdateDraw(func() {
 			for _, cb := range callbacks {
 				cb(err)
@@ -706,6 +731,16 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			default:
 				u.setMsg(msg)
 			}
+			if fetchErr != nil {
+				u.disconnected.Store(true)
+				if project == u.project {
+					u.loaded = true
+					u.showBody()
+					u.renderStatus()
+				}
+				return
+			}
+			u.disconnected.Store(false)
 			if projErr == nil {
 				u.projects = ps
 			}
@@ -720,9 +755,7 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			} else {
 				u.hasServerStats = false
 			}
-			if fetchErr == nil {
-				u.render(ts)
-			}
+			u.render(ts)
 		})
 	}()
 }
@@ -1443,13 +1476,14 @@ func parseFlags(args []string) (config, error) {
 
 func newUI(url, project string, icons bool) *ui {
 	u := &ui{
-		url:     strings.TrimRight(url, "/"),
-		origin:  daemonOrigin(url),
-		project: project,
-		icons:   icons,
-		worker:  defaultWorker(),
-		filter:  "live",
-		app:     tview.NewApplication().EnableMouse(true),
+		url:          strings.TrimRight(url, "/"),
+		origin:       daemonOrigin(url),
+		project:      project,
+		icons:        icons,
+		worker:       defaultWorker(),
+		filter:       "live",
+		pollInterval: time.Second,
+		app:          tview.NewApplication().EnableMouse(true),
 	}
 	u.app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
 		width, _ := screen.Size()
@@ -1486,6 +1520,33 @@ func newUI(url, project string, icons bool) *ui {
 	return u
 }
 
+func (u *ui) poll(ctx context.Context) {
+	interval := u.pollInterval
+	if interval <= 0 {
+		interval = time.Second
+	}
+	backoff := interval
+	maxBackoff := 10 * interval
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		u.refresh(u.proj())
+		if u.disconnected.Load() {
+			backoff = min(backoff*2, maxBackoff)
+		} else {
+			backoff = interval
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(backoff):
+		}
+	}
+}
+
 func (u *ui) quitOnSignal() context.CancelFunc {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	go func() {
@@ -1508,11 +1569,9 @@ func main() {
 	u := newUI(cfg.url, cfg.project, cfg.icons)
 	stop := u.quitOnSignal()
 	defer stop()
-	go func() {
-		for ; ; time.Sleep(time.Second) {
-			u.refresh(u.proj())
-		}
-	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go u.poll(ctx)
 	if err := u.app.SetRoot(u.pages, true).Run(); err != nil {
 		fmt.Println(err)
 	}
