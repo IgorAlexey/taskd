@@ -671,6 +671,9 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 		switch key {
 
 		case "c":
+			if cmd, ok := m.requireWorker(); !ok {
+				return m, cmd, true
+			}
 			if t.Status != "pending" {
 				cmd := m.setMsg("task is not pending")
 				return m, cmd, true
@@ -687,6 +690,9 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 			m.msg = ""
 			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": t.Worker}, "released task "+id7), true
 		case "t":
+			if cmd, ok := m.requireWorker(); !ok {
+				return m, cmd, true
+			}
 			if t.Status != "leased" {
 				cmd := m.setMsg("task is not leased")
 				return m, cmd, true
@@ -959,6 +965,13 @@ func (m *model) setMsg(s string) tea.Cmd {
 	return tea.Tick(3*time.Second, func(time.Time) tea.Msg {
 		return clearMsgMsg{id: id}
 	})
+}
+
+func (m *model) requireWorker() (tea.Cmd, bool) {
+	if m.cfg.worker == "" {
+		return m.setMsg("worker required; set via -worker flag or TASKD_WORKER"), false
+	}
+	return nil, true
 }
 
 func (m *model) setError(s string) tea.Cmd {
