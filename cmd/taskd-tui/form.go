@@ -191,6 +191,15 @@ func (f formModel) cancel() formModel {
 	f.cancelled = true
 	return f
 }
+func (f formModel) activateSave() (formModel, tea.Cmd) {
+	if err := f.validate(); err != "" {
+		f.errText = err
+		return f.refit(), nil
+	}
+	f.errText = ""
+	f.done = true
+	return f, nil
+}
 
 func (f formModel) rows(th theme) []formRow {
 	field := func(n formField, rank int, value, text string) formRow {
@@ -456,13 +465,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				cmd := f.setFocus(fieldBody)
 				return f.refit(), cmd
 			case fieldSave:
-				if err := f.validate(); err != "" {
-					f.errText = err
-					return f.refit(), nil
-				}
-				f.errText = ""
-				f.done = true
-				return f, nil
+				return f.activateSave()
 			case fieldCancel:
 				return f.cancel(), nil
 			}
@@ -482,6 +485,14 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			}
 		case fieldBody:
 			f.body, cmd = f.body.Update(msg)
+		case fieldSave:
+			if msg.Code == tea.KeySpace && msg.Mod == 0 {
+				return f.activateSave()
+			}
+		case fieldCancel:
+			if msg.Code == tea.KeySpace && msg.Mod == 0 {
+				return f.cancel(), nil
+			}
 		}
 		return f.refit(), cmd
 
@@ -708,13 +719,7 @@ func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 					if msg.X >= btn.start && msg.X < btn.end {
 						f.setFocus(btn.field)
 						if btn.field == fieldSave {
-							if err := f.validate(); err != "" {
-								f.errText = err
-								return f.refit(), nil
-							}
-							f.errText = ""
-							f.done = true
-							return f, nil
+							return f.activateSave()
 						}
 						return f.cancel(), nil
 					}
