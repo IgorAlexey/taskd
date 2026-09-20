@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"slices"
 	"strings"
@@ -1034,6 +1036,10 @@ func (m model) renderBody(t task) string {
 	}
 	prim := strings.TrimSpace(string(t.Primitives))
 	if prim != "" && prim != "null" {
+		var buf bytes.Buffer
+		if err := json.Indent(&buf, t.Primitives, "", "  "); err == nil {
+			prim = buf.String()
+		}
 		if rest != "" {
 			rest += "\n\nresult: " + prim
 		} else {
