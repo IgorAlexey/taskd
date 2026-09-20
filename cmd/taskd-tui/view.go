@@ -854,8 +854,6 @@ func (m model) footerItems() [][2]string {
 			{"Tab", "back"},
 			{"z", "zoom"},
 			{"y/Y", "copy"},
-			{"q", "quit"},
-			{"?", "help"},
 		}
 	}
 	return [][2]string{
@@ -866,11 +864,16 @@ func (m model) footerItems() [][2]string {
 		{"w", "worker"},
 		{"n", "new"},
 		{"e", "edit"},
+		{"y/Y", "copy"},
 		{"+/-", "pri"},
 		{"D", "delete"},
-		{"y/Y", "copy"},
 		{"x", "complete"},
 		{"z", "zoom"},
+	}
+}
+
+func (m model) footerPinned() [][2]string {
+	return [][2]string{
 		{"q", "quit"},
 		{"?", "help"},
 	}
@@ -889,6 +892,44 @@ func (m model) footRight() string {
 		posStr += "  paged (g live)"
 	}
 	return m.theme.dim.Render(posStr)
+}
+
+func appendFooterTarget(targets []footerTarget, key string, start, width int) []footerTarget {
+	switch key {
+	case "s":
+		return append(targets, footerTarget{action: "sort", start: start, end: start + width})
+	case "p":
+		return append(targets, footerTarget{action: "project", start: start, end: start + width})
+	case "w":
+		return append(targets, footerTarget{action: "worker", start: start, end: start + width})
+	case "n":
+		return append(targets, footerTarget{action: "create", start: start, end: start + width})
+	case "e":
+		return append(targets, footerTarget{action: "edit", start: start, end: start + width})
+	case "+/-":
+		return append(targets,
+			footerTarget{action: "pri_raise", start: start, end: start + 2},
+			footerTarget{action: "pri_lower", start: start + 2, end: start + width},
+		)
+	case "D":
+		return append(targets, footerTarget{action: "delete", start: start, end: start + width})
+	case "x":
+		return append(targets, footerTarget{action: "complete", start: start, end: start + width})
+	case "y/Y":
+		return append(targets,
+			footerTarget{action: "copy_id", start: start, end: start + 2},
+			footerTarget{action: "copy_body", start: start + 2, end: start + width},
+		)
+	case "z":
+		return append(targets, footerTarget{action: "zoom", start: start, end: start + width})
+	case "q":
+		return append(targets, footerTarget{action: "quit", start: start, end: start + width})
+	case "?":
+		return append(targets, footerTarget{action: "help", start: start, end: start + width})
+	case "Tab":
+		return append(targets, footerTarget{action: "back", start: start, end: start + width})
+	}
+	return targets
 }
 
 func (m model) footLeft(frw int) (string, []footerTarget) {
@@ -914,50 +955,113 @@ func (m model) footLeft(frw int) (string, []footerTarget) {
 		end := start + 11
 		return footLeft, []footerTarget{{action: "clear_search", start: start, end: end}}
 	}
+
+	availW := max(0, w-frw-1)
 	items := m.footerItems()
-	var parts []string
+	pinned := m.footerPinned()
+	allCount := len(items) + len(pinned)
+	if allCount == 0 || availW <= 0 {
+		return "", nil
+	}
+
+	itemWidth := func(it [2]string) int {
+		return ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1])
+	}
+
+	tailW := 0
+	for i, it := range pinned {
+		if i > 0 {
+			tailW += 2
+		}
+		tailW += itemWidth(it)
+	}
+
+	itemsW := 0
+	for i, it := range items {
+		if i > 0 {
+			itemsW += 2
+		}
+		itemsW += itemWidth(it)
+	}
+
+	totalW := itemsW
+	if len(items) > 0 && len(pinned) > 0 {
+		totalW += 2
+	}
+	totalW += tailW
+
+	var sb strings.Builder
 	var targets []footerTarget
 	x := 0
-	for _, it := range items {
-		parts = append(parts, m.theme.accent.Render(it[0])+" "+m.theme.dim.Render(it[1]))
-		wTok := ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1])
-		switch it[0] {
-		case "s":
-			targets = append(targets, footerTarget{action: "sort", start: x, end: x + wTok})
-		case "p":
-			targets = append(targets, footerTarget{action: "project", start: x, end: x + wTok})
-		case "w":
-			targets = append(targets, footerTarget{action: "worker", start: x, end: x + wTok})
-		case "n":
-			targets = append(targets, footerTarget{action: "create", start: x, end: x + wTok})
-		case "e":
-			targets = append(targets, footerTarget{action: "edit", start: x, end: x + wTok})
-		case "+/-":
-			targets = append(targets,
-				footerTarget{action: "pri_raise", start: x, end: x + 2},
-				footerTarget{action: "pri_lower", start: x + 2, end: x + wTok},
-			)
-		case "D":
-			targets = append(targets, footerTarget{action: "delete", start: x, end: x + wTok})
-		case "x":
-			targets = append(targets, footerTarget{action: "complete", start: x, end: x + wTok})
-		case "y/Y":
-			targets = append(targets,
-				footerTarget{action: "copy_id", start: x, end: x + 2},
-				footerTarget{action: "copy_body", start: x + 2, end: x + wTok},
-			)
-		case "z":
-			targets = append(targets, footerTarget{action: "zoom", start: x, end: x + wTok})
-		case "q":
-			targets = append(targets, footerTarget{action: "quit", start: x, end: x + wTok})
-		case "?":
-			targets = append(targets, footerTarget{action: "help", start: x, end: x + wTok})
-		case "Tab":
-			targets = append(targets, footerTarget{action: "back", start: x, end: x + wTok})
+
+	emitItem := func(it [2]string) {
+		if sb.Len() > 0 {
+			sb.WriteString("  ")
 		}
+		sb.WriteString(m.theme.accent.Render(it[0]))
+		sb.WriteString(" ")
+		sb.WriteString(m.theme.dim.Render(it[1]))
+		wTok := itemWidth(it)
+		targets = appendFooterTarget(targets, it[0], x, wTok)
 		x += wTok + 2
 	}
-	return strings.Join(parts, "  "), targets
+
+	if totalW <= availW {
+		for _, it := range items {
+			emitItem(it)
+		}
+		for _, it := range pinned {
+			emitItem(it)
+		}
+		return sb.String(), targets
+	}
+
+	ell := m.glyph.ellipsis
+	ellW := ansi.StringWidth(ell)
+	overhead := 2 + ellW
+	if len(pinned) > 0 {
+		overhead += 2 + tailW
+	}
+
+	used := 0
+	frontCount := 0
+	for _, it := range items {
+		wTok := itemWidth(it)
+		add := wTok
+		if frontCount > 0 {
+			add += 2
+		}
+		if used+add+overhead <= availW {
+			used += add
+			frontCount++
+		} else {
+			break
+		}
+	}
+
+	if frontCount == 0 {
+		if len(pinned) > 0 && tailW <= availW {
+			for _, it := range pinned {
+				emitItem(it)
+			}
+			return sb.String(), targets
+		}
+		return "", nil
+	}
+
+	for _, it := range items[:frontCount] {
+		emitItem(it)
+	}
+
+	sb.WriteString("  ")
+	sb.WriteString(m.theme.dim.Render(ell))
+	x += ellW + 2
+
+	for _, it := range pinned {
+		emitItem(it)
+	}
+
+	return sb.String(), targets
 }
 
 func (m model) footerTargets() []footerTarget {
