@@ -903,3 +903,15 @@ func TestWebUIPersistAutoRefresh(t *testing.T) {
 		t.Fatal("expected localStorage.setItem('taskd-auto-refresh', ...) in web/index.html")
 	}
 }
+
+func TestWebFinishTaskTransitionLoadsWorkers(t *testing.T) {
+	ui := string(uiHTML)
+	re := regexp.MustCompile(`async function finishTaskTransition[\s\S]*?}`)
+	fn := re.FindString(ui)
+	if fn == "" {
+		t.Fatal("finishTaskTransition not found in web/index.html")
+	}
+	if !strings.Contains(fn, "loadWorkers()") {
+		t.Fatal("expected finishTaskTransition to include loadWorkers() in web/index.html")
+	}
+}

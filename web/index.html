@@ -2374,7 +2374,7 @@
       isEditingTask = false;
       shownTaskRaw = '';
       const tid = id || selectedTaskId;
-      const tasks = [loadProjects(), loadStats(), loadTasks()];
+      const tasks = [loadProjects(), loadWorkers(), loadStats(), loadTasks()];
       if (tid) tasks.push(loadTaskDetails(tid));
       await Promise.all(tasks);
     }
