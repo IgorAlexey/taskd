@@ -76,13 +76,23 @@ type (
 	// false when the daemon answered 304 for the list, in which case tasks
 	// is nil and the model keeps its current slice.
 	pollMsg struct {
-		seq      uint64 // the startPoll generation this reply answers
+		seq      uint64    // the startPoll generation this reply answers
+		scope    listScope // the question this reply answers
 		tasks    []task
 		etag     string
 		changed  bool
+		total    int  // the daemon's count for the question
+		more     bool // rows the daemon held back
 		stats    stats
 		projects []string
 		err      error
+	}
+
+	// statsMsg is a counters-only refresh, used while a paged snapshot
+	// holds the task list still.
+	statsMsg struct {
+		stats stats
+		err   error
 	}
 
 	// actMsg is the result of a mutating request (claim, release, patch,
@@ -91,6 +101,10 @@ type (
 		msg string
 		err error
 	}
+
+	// searchMsg fires once typing pauses; a stale generation is dropped,
+	// so a term only reaches the daemon when the operator stops typing.
+	searchMsg struct{ seq uint64 }
 
 	// clearMsgMsg expires the footer message with matching id.
 	clearMsgMsg struct{ id int }
@@ -106,20 +120,26 @@ type model struct {
 	width, height int
 	now           time.Time
 
-	tasks    []task // last full list from the daemon, daemon order
-	shown    []int  // indices into tasks after project, status, query
-	cursor   int    // index into shown; 0 <= cursor < len(shown) or 0
-	offset   int    // first index of shown drawn in the table
-	filter   string // "", "pending", "leased", "done", "buried" (keys 0-4)
-	project  string // "" means all projects
-	query    string // / substring filter, case-insensitive
-	mode     mode
-	etag     string // ETag of m.tasks for m.project
-	polling  bool   // a pollCmd is in flight; cleared by its pollMsg
-	seq      uint64 // generation of the newest poll; older replies are dropped
-	stats    stats
-	hasStats bool // a poll has delivered stats at least once
-	projects []string
+	tasks     []task // last full list from the daemon, daemon order
+	shown     []int  // indices into tasks after project, status, query
+	cursor    int    // index into shown; 0 <= cursor < len(shown) or 0
+	offset    int    // first index of shown drawn in the table
+	filter    string // "", "pending", "leased", "done", "buried" (keys 0-4)
+	project   string // "" means all projects
+	query     string // / substring filter, case-insensitive
+	mode      mode
+	etag      string     // ETag of m.tasks for m.project
+	pages     int        // pages of the daemon cursor to walk; 1 is a live poll
+	total     int        // the daemon's count for the current question
+	more      bool       // the daemon holds rows this list does not
+	endPages  int        // depth a pending G waits for; 0 when none
+	searchSeq uint64     // generation of the newest query keystroke
+	asked     listFilter // the question the newest poll carried
+	polling   bool       // a pollCmd is in flight; cleared by its pollMsg
+	seq       uint64     // generation of the newest poll; older replies are dropped
+	stats     stats
+	hasStats  bool // a poll has delivered stats at least once
+	projects  []string
 
 	connected bool
 	lastErr   string

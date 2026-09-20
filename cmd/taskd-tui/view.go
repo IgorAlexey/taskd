@@ -727,6 +727,12 @@ func (m model) View() tea.View {
 		pos = m.cursor + 1
 	}
 	posStr := fmt.Sprintf("%d/%d", pos, len(m.shown))
+	if m.more && m.total > len(m.tasks) {
+		posStr += fmt.Sprintf("  %d of %d", len(m.tasks), m.total)
+	}
+	if m.pages > 1 {
+		posStr += "  paged (g live)"
+	}
 	footRight := m.theme.dim.Render(posStr)
 
 	var footLeft string
@@ -778,7 +784,10 @@ func (m model) View() tea.View {
 		spaces := w - flw - frw
 		footerLine = footLeft + strings.Repeat(" ", spaces) + footRight
 	} else {
-		footerLine = padLine(footLeft+" "+footRight, w)
+		// The key legend is the part the operator can afford to lose:
+		// the position, and what it says about rows not loaded, is why
+		// the line is there.
+		footerLine = padLine(ansi.Truncate(footLeft, max(0, w-frw-1), "")+" "+footRight, w)
 	}
 
 	// Frame assembly

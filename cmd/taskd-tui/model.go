@@ -25,6 +25,7 @@ func newModel(cfg config, c *client) model {
 		height:  24,
 		project: cfg.project,
 		mode:    modeTable,
+		pages:   1,
 		now:     time.Now(),
 		detail:  vp,
 	}
@@ -52,14 +53,53 @@ func (m model) Init() tea.Cmd {
 	return func() tea.Msg { return tickMsg(time.Now()) }
 }
 
-// startPoll starts a poll unless one is in flight.
-func (m *model) startPoll() tea.Cmd {
-	if m.polling {
+func (m model) listFilter() listFilter {
+	return listFilter{project: m.project, status: m.filter, query: m.query}
+}
+
+const searchDebounce = 150 * time.Millisecond
+
+// typeQuery arms the debounce: the next keystroke would throw an answer
+// away, so the term only goes down the wire once the typing pauses.
+func (m *model) typeQuery() tea.Cmd {
+	m.searchSeq++
+	seq := m.searchSeq
+	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
+		return searchMsg{seq: seq}
+	})
+}
+
+// commitQuery is the other half: Escape and Enter are decisions, not
+// keystrokes, so they drop the pending tick and ask at once. A term the
+// daemon has already answered is not asked again.
+func (m *model) commitQuery() tea.Cmd {
+	m.searchSeq++
+	if m.listFilter() == m.asked {
 		return nil
 	}
+	return m.rescope()
+}
+
+func (m model) listScope() listScope {
+	return listScope{filter: m.listFilter(), pages: m.pages}
+}
+
+// startPoll asks the current question. It always asks: the generation makes
+// the newest answer the only one that counts, so a keypress never has to
+// pretend no poll is in flight to be heard.
+func (m *model) startPoll() tea.Cmd {
 	m.polling = true
+	m.asked = m.listFilter()
 	m.seq++
-	return pollCmd(m.client, m.project, m.filter, m.etag, m.seq)
+	return pollCmd(m.client, m.listScope(), m.etag, m.seq)
+}
+
+// rescope drops what described the old question and asks the new one: the
+// tag and the walk depth belong to the list being replaced.
+func (m *model) rescope() tea.Cmd {
+	m.etag, m.pages = "", 1
+	m.rebuild()
+	return m.startPoll()
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -93,7 +133,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tasks[i].normalize(now)
 		}
 		m.rebuild()
-		poll := m.startPoll()
+		// A walk the operator asked for is theirs to repeat: re-walking
+		// it every tick would cost the daemon a page per second for as
+		// long as they read the tail. The counters still refresh, so
+		// only the task list is held still, and the footer says so.
+		var poll tea.Cmd
+		switch {
+		case m.pages > 1:
+			poll = statsCmd(m.client, m.project)
+		case !m.polling:
+			poll = m.startPoll()
+		}
 		return m, tea.Batch(tickCmd(m.cfg.refresh), poll)
 
 	case pollMsg:
@@ -103,8 +153,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.polling = false
+		if msg.scope.filter != m.listFilter() {
+			// The newest poll, but for a question the operator has
+			// since changed; its rows would answer nothing on screen.
+			return m, nil
+		}
 		if msg.changed {
 			m.etag = msg.etag
+			m.total, m.more = msg.total, msg.more
 			selID := ""
 			if sel, ok := m.selected(); ok {
 				selID = sel.ID
@@ -117,6 +173,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.cursor = i
 						break
 					}
+				}
+			}
+			if m.endPages > 0 && msg.scope.pages >= m.endPages {
+				m.endPages = 0
+				if len(m.shown) > 0 {
+					m.cursor = len(m.shown) - 1
 				}
 			}
 			m.clamp()
@@ -145,6 +207,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		poll := m.startPoll()
 		return m, tea.Batch(cmd, poll)
+
+	case statsMsg:
+		if msg.err != nil {
+			m.connected = false
+			m.lastErr = msg.err.Error()
+			return m, nil
+		}
+		m.connected = true
+		m.lastErr = ""
+		m.stats = msg.stats
+		m.hasStats = true
+		return m, nil
+
+	case searchMsg:
+		if msg.seq != m.searchSeq {
+			return m, nil
+		}
+		return m, m.rescope()
 
 	case clearMsgMsg:
 		if msg.id == m.msgID {
@@ -232,25 +312,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Code == tea.KeyEscape:
 				m.query = ""
 				m.mode = modeTable
-				m.rebuild()
+				return m, m.commitQuery()
 			case msg.Code == tea.KeyEnter:
 				m.mode = modeTable
+				return m, m.commitQuery()
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
 				m.query = ""
-				m.rebuild()
+				return m, m.commitQuery()
 			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'w':
 				m.query = deleteWord(m.query)
-				m.rebuild()
+				return m, m.typeQuery()
 			case msg.Code == tea.KeyBackspace:
 				if len(m.query) > 0 {
 					r := []rune(m.query)
 					m.query = string(r[:len(r)-1])
-					m.rebuild()
+					return m, m.typeQuery()
 				}
 			default:
 				if msg.Text != "" && msg.Mod&^tea.ModShift == 0 {
 					m.query += msg.Text
-					m.rebuild()
+					return m, m.typeQuery()
 				}
 			}
 			return m, nil
@@ -335,12 +416,26 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor = 0
 				m.clamp()
 				m.syncDetail()
+				// The jump to the head is the key the footer names for
+				// leaving a paged snapshot; nothing else throws away
+				// pages the operator paid for.
+				if m.pages > 1 {
+					return m, m.rescope()
+				}
 				return m, nil
 			case msg.Text == "G" || msg.Code == tea.KeyEnd:
 				if len(m.shown) > 0 {
 					m.cursor = len(m.shown) - 1
 					m.clamp()
 					m.syncDetail()
+				}
+				// Each press buys another walk, up to a ceiling a single
+				// answer can carry; the depth it asked for rides along,
+				// and a walk already on the wire owns the next one.
+				if depth := min(m.pages+tasksMaxPages, maxPageDepth); m.more && depth > m.pages && m.endPages == 0 {
+					m.pages, m.endPages = depth, depth
+					m.etag = ""
+					return m, m.startPoll()
 				}
 				return m, nil
 			case (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd') || msg.Code == tea.KeyPgDown:
@@ -390,20 +485,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.project = next
 				}
-				// The tag and the counts describe the previous project's
-				// list; a poll for the new one is a different query, not
-				// duplicate work, so the in-flight guard yields to it.
-				m.etag, m.stats, m.hasStats, m.polling = "", stats{}, false, false
-				m.rebuild()
-				poll := m.startPoll()
-				return m, poll
+				// The tag, the counts and the walk depth describe the
+				// previous project's list; the new one starts live.
+				m.stats, m.hasStats = stats{}, false
+				return m, m.rescope()
 			case msg.Text == "/":
 				m.mode = modeSearch
 				return m, nil
 			case msg.Code == tea.KeyEscape:
 				if m.query != "" {
 					m.query = ""
-					m.rebuild()
+					return m, m.commitQuery()
 				}
 				return m, nil
 			case msg.Code == tea.KeyTab:
@@ -567,29 +659,17 @@ func (m model) setFilter(f string) (model, tea.Cmd) {
 		return m, nil
 	}
 	m.filter = f
-	m.etag, m.polling = "", false
-	m.rebuild()
-	poll := m.startPoll()
-	return m, poll
+	return m, m.rescope()
 }
 
 func (m *model) rebuild() {
 	shown := make([]int, 0, len(m.tasks))
-	q := strings.ToLower(m.query)
 	for i, t := range m.tasks {
 		if m.project != "" && t.Project != m.project {
 			continue
 		}
 		if m.filter != "" && t.Status != m.filter {
 			continue
-		}
-		if q != "" {
-			if !strings.Contains(strings.ToLower(t.Body), q) &&
-				!strings.Contains(strings.ToLower(t.AssetPath), q) &&
-				!strings.Contains(strings.ToLower(t.Worker), q) &&
-				!strings.Contains(strings.ToLower(t.ID), q) {
-				continue
-			}
 		}
 		shown = append(shown, i)
 	}
