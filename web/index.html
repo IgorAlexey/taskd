@@ -41,7 +41,7 @@
 html { background: var(--bg); color: var(--fg); }
 html { font: 18px/1.5 var(--read); font-variant-numeric: lining-nums; }
 html, body { height: 100%; }
-body { margin: 0 auto; max-width: 88rem; padding: 1.25rem 2rem 0; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; overflow: hidden; box-sizing: border-box; }
+body { margin: 0 auto; max-width: 88rem; padding: 1.25rem 2rem 0; display: grid; grid-template-rows: auto auto minmax(0, 1fr); height: 100dvh; overflow: hidden; box-sizing: border-box; }
 table { font-family: var(--work); font-size: var(--work-size); }
 
 /* One control. Buttons, menus and fields share a height, a border, a radius and a face;
@@ -71,6 +71,24 @@ header p { margin: 0; flex: 1 1 24rem; }
 header form { display: flex; align-items: center; gap: 0.6rem; }
 header input { width: 14rem; }
 
+/* icons: one inline sprite, filled, drawn on a 16-unit grid, sized to the text beside them */
+.icon { width: 1em; height: 1em; vertical-align: -0.12em; fill: currentColor; }
+h2 .icon { width: 0.8em; height: 0.8em; margin-right: 0.35rem; vertical-align: -0.04em; }
+
+/* light and dark: two pressed-state icon buttons that share one border */
+#theme { display: inline-flex; border: 1px solid var(--edge); border-radius: 3px; overflow: hidden; }
+#theme button { border: 0; border-radius: 0; height: calc(2rem - 2px); width: 2.2rem; padding: 0; display: inline-grid; place-items: center; }
+#theme button + button { border-left: 1px solid var(--edge); }
+#theme button[aria-pressed="true"] { background: var(--tint); color: var(--link); }
+#theme .icon { width: 1.05rem; height: 1.05rem; }
+
+/* one tab per project; the fire alarm above stays global, everything below is one project */
+nav { display: flex; align-items: end; gap: 0.25rem; font: var(--work-size)/1.2 var(--work); border-bottom: 1px solid var(--rule); overflow-x: auto; }
+nav button { border: 1px solid transparent; border-bottom: 0; border-radius: 3px 3px 0 0; background: none; height: 2.2rem; padding: 0 0.9rem; margin-bottom: -1px; color: var(--quiet); }
+nav button:hover { background: var(--hover); color: var(--fg); }
+nav button[aria-selected="true"] { background: var(--bg); color: var(--fg); border-color: var(--rule); border-bottom: 1px solid var(--bg); }
+nav button.add { padding: 0 0.6rem; }
+
 main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); min-height: 0; }
 #list, #pane { overflow-y: auto; min-height: 0; padding-bottom: 4rem; }
 #list { padding-right: 2.5rem; }
@@ -99,25 +117,23 @@ tbody tr[aria-current] td { background: var(--tint); }
 #pane > * { max-width: 36rem; }
 .body { white-space: pre-wrap; }
 #pane ol { margin: 0 0 1rem; padding-left: 1.3rem; }
-.actions { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
+.actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem 1rem; margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
 .actions p { flex: 1 1 100%; margin: 0.4rem 0 0; }
 form.add textarea, form.reply textarea, form.edit textarea { display: block; width: 100%; min-height: 7rem; resize: vertical; margin-bottom: 0.9rem; }
 form.add textarea { height: 42dvh; }
 form.reply { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid; }
-form.reply .row, .actions { align-items: end; }
-form.reply .row { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; }
-form.reply .row button { margin-left: auto; }
+form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5rem; }
 /* every labelled control in the pane: label above, control below, one row that wraps */
 #pane label { display: block; }
 #pane label > input, #pane label > select { display: block; margin-top: 0.15rem; }
+#pane p.field { margin: 0; }
+#pane p.field .project { display: block; margin-top: 0.15rem; line-height: 2rem; font-family: var(--work); font-size: var(--work-size); }
 #pane label.wait { flex: 1 1 8rem; min-width: 0; }             /* sits beside the other fields and takes the slack */
-#pane form .row::after { content: ""; flex-basis: 100%; height: 0; order: 8; }   /* fields on one line, the action on the next */
-#pane form .row button { order: 9; margin-left: auto; }
 #pane label.wait select { width: 100%; min-width: 0; text-overflow: ellipsis; }
-form.add .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5rem; }
-form.add label { display: block; }
-form.add label > * { display: block; }
-form.add button { margin-left: auto; }
+/* the way every dialog ends: the action on the right, the way out just left of it */
+.buttons { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.9rem; }
+.buttons button[type="submit"] { background: var(--link); border-color: var(--link); color: var(--bg); }
+.buttons button[type="submit"]:hover { filter: brightness(1.1); }
 
 @media (max-width: 820px) {
   body { height: auto; overflow: visible; padding: 1rem 1rem 3rem; display: block; }
@@ -132,14 +148,31 @@ form.add button { margin-left: auto; }
 </head>
 <body>
 
+<!-- Phosphor Icons, Fill weight (MIT, phosphoricons.com), inlined so the page ships in the binary -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm45.66,85.66-56,56a8,8,0,0,1-11.32,0l-24-24a8,8,0,0,1,11.32-11.32L112,148.69l50.34-50.35a8,8,0,0,1,11.32,11.32Z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 256 256"><path d="M236.8,188.09,149.35,36.22h0a24.76,24.76,0,0,0-42.7,0L19.2,188.09a23.51,23.51,0,0,0,0,23.72A24.35,24.35,0,0,0,40.55,224h174.9a24.35,24.35,0,0,0,21.33-12.19A23.51,23.51,0,0,0,236.8,188.09ZM120,104a8,8,0,0,1,16,0v40a8,8,0,0,1-16,0Zm8,88a12,12,0,1,1,12-12A12,12,0,0,1,128,192Z"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 256 256"><path d="M213.85,125.46l-112,120a8,8,0,0,1-13.69-7l14.66-73.33L45.19,143.49a8,8,0,0,1-3-13l112-120a8,8,0,0,1,13.69,7L153.18,90.9l57.63,21.61a8,8,0,0,1,3,12.95Z"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 256 256"><path d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm56,112H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48a8,8,0,0,1,0,16Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 256 256"><path d="M235.54,150.21a104.84,104.84,0,0,1-37,52.91A104,104,0,0,1,32,120,103.09,103.09,0,0,1,52.88,57.48a104.84,104.84,0,0,1,52.91-37,8,8,0,0,1,10,10,88.08,88.08,0,0,0,109.8,109.8,8,8,0,0,1,10,10Z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 256 256"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></symbol>
+</svg>
+
 <header>
   <h1>taskd</h1>
   <p id="status"></p>
   <form id="tools">
     <input type="search" id="q" aria-label="Filter tasks" placeholder="Filter">
     <button type="button" id="new" hidden>New task</button>
+    <span id="theme" role="group" aria-label="Colour scheme">
+      <button type="button" data-theme="light" aria-label="Light" aria-pressed="false"><svg class="icon"><use href="#i-sun"/></svg></button>
+      <button type="button" data-theme="dark" aria-label="Dark" aria-pressed="false"><svg class="icon"><use href="#i-moon"/></svg></button>
+    </span>
   </form>
 </header>
+
+<nav id="tabs" aria-label="Projects"></nav>
 
 <main>
   <div id="list"></div>
@@ -149,8 +182,11 @@ form.add button { margin-left: auto; }
 <script>
 (() => {
   const MIN = 60e3;
+  const NAME = /^[A-Za-z0-9._-]{1,64}$/;
   let tasks = [];
   let sel = null;
+  let project = new URLSearchParams(location.search).get('p') || localStorage.getItem('project') || '';
+  let newProject = '';                     /* a tab opened with + before it has any task */
 
   /* ---------- helpers ---------- */
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -159,8 +195,11 @@ form.add button { margin-left: auto; }
   const get = id => tasks.find(t => t.id === +id);
   const waits = t => (t.after || []).map(get).filter(a => a && a.state !== 'done');
   const order = (a, b) => a.pri - b.pri || a.added - b.added;
-  const ready = () => by('queued').filter(t => !waits(t).length).sort(order);
-  const blocked = () => by('queued').filter(t => waits(t).length).sort(order);
+  const here = t => t.project === project;
+  const ready = ts => ts.filter(t => t.state === 'queued' && !waits(t).length).sort(order);
+  const projects = () => [...new Set([...tasks.map(t => t.project), newProject].filter(Boolean))].sort();
+  const ICON = { stuck: 'alert', claimed: 'bolt', queued: 'clock', done: 'check' };
+  const icon = n => `<svg class="icon" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const ago = ts => {
     if (!ts) return '';
     const m = (Date.now() - ts) / MIN;
@@ -197,18 +236,50 @@ form.add button { margin-left: auto; }
   const COLS = {
     stuck:   ['<th>Task</th><th class="n">Attempts</th><th class="n opt">Added</th>', t => `<td class="n">${t.attempts}</td><td class="n opt">${ago(t.added)}</td>`],
     claimed: ['<th>Task</th><th>Worker</th><th class="n">Lease</th>', t => `<td>${esc(t.worker)}</td><td class="n">${until(t.exp, 3)}</td>`],
-    queued:  ['<th></th><th>Task</th><th class="n opt">Project</th><th class="n">Priority</th>', t => `<td class="n opt">${esc(t.project)}</td><td class="n">${t.pri}</td>`],
-    done:    ['<th>Task</th><th class="n opt">Project</th>', t => `<td class="n opt">${esc(t.project)}</td>`],
+    queued:  ['<th></th><th>Task</th><th class="n">Priority</th>', t => `<td class="n">${t.pri}</td>`],
+    done:    ['<th>Task</th><th class="opt">Worker</th>', t => `<td class="opt">${esc(t.worker)}</td>`],
   };
+
+  /* the one place the active project changes */
+  function setProject(p) {
+    project = p;
+    if (p !== newProject) newProject = '';
+    localStorage.setItem('project', p);
+  }
+  /* the one place the address bar is written: ?p= is the tab, #id is the picked task */
+  function syncURL() {
+    const u = new URL(location);
+    if (project) u.searchParams.set('p', project); else u.searchParams.delete('p');
+    u.hash = sel ? '#' + sel : '';
+    history.replaceState(null, '', u);
+  }
+
+  let stuckBy = {};                        /* project -> stuck count, counted once per render for the tabs and the alarm */
+  function tabs() {
+    const all = projects();
+    $('#tabs').innerHTML = all.map(p => `<button type="button" role="tab" data-project="${esc(p)}" aria-selected="${p === project}">${stuckBy[p] ? `<span class="warn">${icon('alert')}</span> ` : ''}${esc(p)}</button>`).join('') +
+      `<button type="button" class="add" aria-label="New project" title="New project">${icon('plus')}</button>`;
+  }
 
   function list() {
     const q = $('#q').value.trim().toLowerCase();
-    const hit = t => !q || [String(t.id), t.title, t.body, t.project, t.worker, ...(t.thread || [])].some(x => x && String(x).toLowerCase().includes(q));
-    const rdy = ready(), sets = { stuck: by('stuck'), claimed: by('claimed').sort((a, b) => a.exp - b.exp), queued: [...rdy, ...blocked()], done: by('done').sort((a, b) => b.added - a.added || b.id - a.id) };
+    const hit = t => !q || [String(t.id), t.title, t.body, t.worker, ...(t.thread || [])].some(x => x && String(x).toLowerCase().includes(q));
+    /* everything below the tabs is one project; the alarm at the top is not. One walk buckets it. */
+    const sets = { stuck: [], claimed: [], queued: [], blocked: [], done: [] };
+    for (const t of tasks) {
+      if (!here(t)) continue;
+      const bucket = t.state === 'queued' && waits(t).length ? 'blocked' : t.state;
+      if (sets[bucket]) sets[bucket].push(t);        /* a state this page does not know is not a reason to die */
+    }
+    sets.claimed.sort((a, b) => a.exp - b.exp);
+    sets.done.sort((a, b) => b.added - a.added || b.id - a.id);
+    const rdy = sets.queued.sort(order);
+    sets.queued = [...rdy, ...sets.blocked.sort(order)];
+    delete sets.blocked;
     $('#list').innerHTML = Object.entries(sets).map(([state, all]) => {
       const rows = all.filter(hit);
       if (!rows.length) return '';
-      return `<section id="${state}"><h2>${state[0].toUpperCase() + state.slice(1)}</h2><table><thead><tr>${COLS[state][0]}</tr></thead><tbody>` +
+      return `<section id="${state}"><h2>${icon(ICON[state])}${state[0].toUpperCase() + state.slice(1)}</h2><table><thead><tr>${COLS[state][0]}</tr></thead><tbody>` +
         rows.map(t => {
           const w = state === 'queued' ? waits(t) : [];
           const under = state === 'queued' && w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ') : '';
@@ -216,57 +287,66 @@ form.add button { margin-left: auto; }
           `<td class="task"><a href="#${t.id}">${esc(t.title)}</a>${under ? `<span class="why">${esc(under)}</span>` : ''}</td>${COLS[state][1](t)}</tr>`;
         }).join('') +
         `</tbody></table></section>`;
-    }).join('') || '<p style="padding-top:1.1rem">Nothing matches.</p>';
+    }).join('') || `<p style="padding-top:1.1rem">${q ? 'Nothing matches.' : 'Nothing in ' + esc(project) + ' yet.'}</p>`;
 
-    const n = s => by(s).length, s = n('stuck'), is = k => k === 1 ? 'is' : 'are', b = blocked().length;
-    $('#status').innerHTML = (s ? `<a href="#stuck" class="warn">${s} ${is(s)} stuck</a> and ${s === 1 ? 'needs' : 'need'} an answer from you. ` : '') +
+    /* the fire alarm: always every project, never just this tab */
+    const n = s => by(s).length, s = n('stuck'), is = k => k === 1 ? 'is' : 'are', b = tasks.filter(t => t.state === 'queued' && waits(t).length).length;
+    const where = Object.entries(stuckBy).sort().map(([p, k]) => `<a href="#stuck" class="warn" data-project="${esc(p)}">${k} in ${esc(p)}</a>`);
+    $('#status').innerHTML = (s ? `<span class="warn">${s} ${is(s)} stuck</span> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ` : '') +
       `<a href="#claimed">${n('claimed')} ${is(n('claimed'))} claimed</a>, <a href="#queued">${n('queued')} queued</a>${b ? ` (${b} waiting on other tasks)` : ''}, <a href="#done">${n('done')} done</a>.`;
     document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
     tick();
   }
 
   /* ---------- right: the task you picked, or a blank one ---------- */
-  const others = t => tasks.filter(x => x.id !== t.id && ['queued', 'claimed', 'stuck'].includes(x.state) && !(t.after || []).includes(x.id) && !(x.after || []).includes(t.id)).sort((a, b) => (b.project === t.project) - (a.project === t.project));
+  /* only this project may be waited on: a dependency across repositories is a mistake, not a feature */
+  const others = t => tasks.filter(x => x.id !== t.id && x.project === (t.project || project) && ['queued', 'claimed', 'stuck'].includes(x.state) && !(t.after || []).includes(x.id) && !(x.after || []).includes(t.id));
   const waitFor = t => `<label class="wait">Wait for <select name="after"><option value="">nothing</option>${others(t).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('')}</select></label>`;
+  const buttons = (label, cancel = 'Cancel') => `<div class="buttons"><button type="button" data-act="cancel">${cancel}</button><button type="submit">${label}</button></div>`;
 
   function pane() {
     const t = get(sel), el = $('#pane');
     document.body.classList.toggle('reading', !!t);
     $('#new').hidden = !t;
     if (!t) {
-      if ($('form.add', el) && $$('textarea', el).some(a => a.value)) return;
+      const kept = $('form.add', el);
+      if (kept && kept.body.value) {              /* a half-written task follows you to the new tab; its "Wait for" pick does not,
+                                                     since that would be exactly the cross-repository link we refuse */
+        $('.project', kept).textContent = project;
+        $('label.wait', kept).outerHTML = waitFor({ after: [], id: 0 });
+        return;
+      }
       el.dataset.key = '';
       el.innerHTML = `<h2>New task</h2><form class="add">
         <textarea name="body" required aria-label="Task" placeholder="The first line is the title.&#10;&#10;The rest is what the worker will read."></textarea>
-        <div class="row"><label>Project <input name="project" value="taskd" size="8" required></label>
+        <div class="row"><p class="field">Project <span class="project">${esc(project)}</span></p>
           <label>Priority <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select></label>
-          ${waitFor({ after: [], id: 0 })}
-          <button>Add to the queue</button></div></form>`;
+          ${waitFor({ after: [], id: 0 })}</div>${buttons('Add to the queue', 'Clear')}</form>`;
       return;
     }
     const key = [t.id, t.state, (t.thread || []).length, t.pri, (t.after || []).length, (t.body || '').length].join();
     if (el.dataset.key === key && $$('textarea', el).some(a => a.value)) return tick();
     el.dataset.key = key;
 
-    const w = waits(t), pos = ready().indexOf(t) + 1;
+    const w = waits(t);
     const state = {
       stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
       claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
       queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="#${a.id}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
-                              : `Number ${pos} in the queue.`,
+                              : `Number ${ready(tasks.filter(x => x.project === t.project)).indexOf(t) + 1} in the queue.`,
       done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
     }[t.state]();
     const editable = t.state === 'stuck' || t.state === 'queued';
     const acts = {
       stuck:   `<form class="reply"><textarea name="reply" required aria-label="Reply" placeholder="Answer the question, or say what should change. The next worker reads the whole thread."></textarea>
-                <div class="row">${waitFor(t)}<button>Reply and requeue</button></div></form>
+                <div class="row">${waitFor(t)}</div>${buttons('Reply and requeue')}</form>
                 <div class="actions"><button data-act="drop">Drop</button></div>`,
       claimed: `<div class="actions"><button data-act="revoke">Revoke</button><p>Revoking ends this attempt now. The task comes to you as stuck so you can say what should change.</p></div>`,
       queued:  `<div class="actions"><label>Priority <select data-act="pri">${[1, 2, 3, 4, 5].map(p => `<option ${p === t.pri ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
                 ${waitFor(t).replace('name="after"', 'data-act="after"')}<button data-act="drop">Drop</button></div>`,
       done:    '',
     }[t.state];
-    el.innerHTML = `<h2>${esc(t.title)}</h2><p>${state}</p>${t.body ? `<p class="body">${esc(t.body)}</p>` : `<p class="body"></p>`}` +
+    el.innerHTML = `<h2>${esc(t.title)}</h2><p>${icon(ICON[t.state])} ${state}</p>${t.body ? `<p class="body">${esc(t.body)}</p>` : `<p class="body"></p>`}` +
       (editable ? `<p><button data-act="edit">Edit the task text</button></p>` : '') +
       (t.thread && t.thread.length ? `<h3>Thread</h3><ol>${t.thread.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : '') +
       `<p>Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>${acts}`;
@@ -289,13 +369,19 @@ form.add button { margin-left: auto; }
     }
   }
 
-  const render = () => { list(); pane(); };
+  const render = () => {
+    stuckBy = {};
+    for (const t of tasks) if (t.state === 'stuck') stuckBy[t.project] = (stuckBy[t.project] || 0) + 1;
+    tabs(); list(); pane();
+  };
 
   function select(id) {
     id = id ? +id : null;
     if (id && sel === id) return;
     sel = id;
-    history.replaceState(null, '', id ? '#' + id : location.pathname);
+    const picked = id && get(id);
+    if (picked && picked.project !== project) { setProject(picked.project); $('#q').value = ''; }   /* the pane and the list agree on the project */
+    syncURL();
     $('#pane').innerHTML = '';
     $('#pane').dataset.key = '';
     render();
@@ -344,6 +430,11 @@ form.add button { margin-left: auto; }
       if (!res.ok) return;
       const raw = await res.json();
       tasks = raw.map(mapTask);
+      if (tasks.some(t => t.project === newProject)) newProject = '';   /* the + tab has a task now; the data carries it */
+      const all = projects(), was = project;
+      if (!all.includes(project)) { setProject(all[0] || 'taskd'); if (!all.length) newProject = 'taskd'; }   /* a bookmark to a project that is gone, or a fresh database */
+      if (sel && get(sel) && get(sel).project !== project) setProject(get(sel).project);   /* a link to a task lands on its project */
+      if (project !== was) syncURL();
       render();
       if (sel) {
         const t = get(sel);
@@ -359,7 +450,10 @@ form.add button { margin-left: auto; }
   });
   $('#status').addEventListener('click', e => {
     const a = e.target.closest('a');
-    if (a) { e.preventDefault(); $(a.getAttribute('href'))?.scrollIntoView({ block: 'start' }); }
+    if (!a) return;
+    e.preventDefault();
+    if (a.dataset.project && a.dataset.project !== project) { setProject(a.dataset.project); sel = null; $('#q').value = ''; syncURL(); render(); }
+    $(a.getAttribute('href'))?.scrollIntoView({ block: 'start' });
   });
   $('#new').addEventListener('click', () => {
     select(null);
@@ -368,12 +462,52 @@ form.add button { margin-left: auto; }
   $('#q').addEventListener('input', list);
   $('#tools').addEventListener('submit', e => e.preventDefault());
 
+  $('#tabs').addEventListener('click', e => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.classList.contains('add')) {
+      const name = (prompt('New project name (letters, digits, . _ -)') || '').trim();
+      if (!name) return;
+      if (!NAME.test(name)) return alert('A project name is letters, digits, dots, dashes and underscores, up to 64 of them.');
+      newProject = name;
+      setProject(name);
+    } else {
+      setProject(b.dataset.project);               /* walking away from an empty + tab closes it */
+    }
+    sel = null;
+    $('#q').value = '';
+    syncURL();
+    render();
+  });
+
+  /* light or dark: the choice is kept; with nothing chosen the page follows the system */
+  const applyTheme = () => {
+    const t = localStorage.getItem('theme') || '';
+    document.documentElement.style.colorScheme = t || '';
+    $$('#theme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === (t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')))));
+  };
+  $('#theme').addEventListener('click', e => {
+    const b = e.target.closest('button[data-theme]');
+    if (!b) return;
+    localStorage.setItem('theme', b.dataset.theme);
+    applyTheme();
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  applyTheme();
+
   $('#pane').addEventListener('click', async e => {
     const link = e.target.closest('a[href^="#"]');
     if (link) { e.preventDefault(); return select(link.getAttribute('href').slice(1)); }
     const b = e.target.closest('button[data-act]');
     if (!b) return;
     const t = get(sel), act = b.dataset.act;
+    if (act === 'cancel') {
+      const f = b.closest('form');
+      if (f.matches('.add')) { f.reset(); $('#pane p.warn')?.remove(); return f.body.focus(); }
+      if (f.matches('.reply')) { f.reset(); return; }
+      $('#pane').dataset.key = '';               /* .edit: throw the draft away and show the text again */
+      return pane();
+    }
     if (!t) return;
     if (act === 'drop') {
       if (!confirm(`Drop “${t.title}”? It leaves the queue.`)) return;
@@ -414,7 +548,7 @@ form.add button { margin-left: auto; }
       const p = $('.body', $('#pane'));
       const f = document.createElement('form');
       f.className = 'edit';
-      f.innerHTML = `<textarea name="text" aria-label="Task text" required></textarea><button>Save</button>`;
+      f.innerHTML = `<textarea name="text" aria-label="Task text" required></textarea>${buttons('Save')}`;
       f.text.value = t.body;
       if (p) p.replaceWith(f);
       b.parentElement.remove();
@@ -528,7 +662,6 @@ form.add button { margin-left: auto; }
       return load();
     }
     const body = v.get('body').trim();
-    const project = v.get('project').trim();
     const priority = +v.get('pri');
     const after = v.get('after') ? [+v.get('after')] : [];
     const res = await fetch('/tasks', {
