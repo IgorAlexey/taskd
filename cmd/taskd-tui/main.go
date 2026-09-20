@@ -174,7 +174,7 @@ func parseFlags(args []string) (config, error) {
 				v := true
 				light = &v
 			}
-		case "url":
+		case "u", "url":
 			if !hasVal {
 				if i+1 >= len(args) {
 					return cfg, usagef("flag needs an argument: %s", token)
@@ -183,7 +183,7 @@ func parseFlags(args []string) (config, error) {
 				val = args[i]
 			}
 			rawURL = val
-		case "project":
+		case "p", "project":
 			if !hasVal {
 				if i+1 >= len(args) {
 					return cfg, usagef("flag needs an argument: %s", token)
@@ -192,7 +192,7 @@ func parseFlags(args []string) (config, error) {
 				val = args[i]
 			}
 			cfg.project = val
-		case "worker":
+		case "w", "worker":
 			if !hasVal {
 				if i+1 >= len(args) {
 					return cfg, usagef("flag needs an argument: %s", token)
@@ -287,9 +287,9 @@ func printUsage(w io.Writer) {
 Terminal user interface for the taskd task queue.
 
 Options:
-  -url <url>          taskd daemon URL (default: http://localhost:8080)
-  -project <name>     filter tasks by project
-  -worker <name>      worker identifier for claiming tasks
+  -u, -url <url>      taskd daemon URL (default: http://localhost:8080)
+  -p, -project <name> filter tasks by project
+  -w, -worker <name>  worker identifier for claiming tasks
   -q, -query <query>  filter tasks by search query
   -status <status>    filter tasks by status: all, pending, leased, done, buried, live
   -ascii              use ASCII characters instead of Nerd Font icons
