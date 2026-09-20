@@ -1144,6 +1144,18 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			u.query = deleteWord(u.query)
 			u.render(u.all)
 			return nil
+		case tcell.KeyDown, tcell.KeyCtrlN:
+			if len(u.shown) > 0 {
+				r := u.selectedRow()
+				u.table.Select(min(len(u.shown), r+1), 0)
+			}
+			return nil
+		case tcell.KeyUp, tcell.KeyCtrlP:
+			if len(u.shown) > 0 {
+				r := u.selectedRow()
+				u.table.Select(max(1, r-1), 0)
+			}
+			return nil
 		case tcell.KeyRune:
 			if ev.Rune() != 0 {
 				u.query += string(ev.Rune())

@@ -196,3 +196,103 @@ func TestSearchEnterAccepts(t *testing.T) {
 		t.Fatalf("expected all tasks restored after Escape, got %d", len(u.shown))
 	}
 }
+
+func TestSearchNavigationKeys(t *testing.T) {
+	u := newUI("http://localhost:8080", "", false)
+	all := []task{
+		{ID: "task-1", Body: "alpha first"},
+		{ID: "task-2", Body: "alpha second"},
+		{ID: "task-3", Body: "alpha third"},
+		{ID: "task-4", Body: "beta other"},
+	}
+	u.render(all)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '/', 0))
+	if !u.searching {
+		t.Fatal("expected searching to be active")
+	}
+
+	for _, r := range "alpha" {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, r, 0))
+	}
+	if len(u.shown) != 3 {
+		t.Fatalf("expected 3 tasks matching 'alpha', got %d", len(u.shown))
+	}
+	if r := u.selectedRow(); r != 1 {
+		t.Fatalf("expected initial selected row 1, got %d", r)
+	}
+
+	ret := u.keys(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	if ret != nil {
+		t.Fatalf("expected nil from KeyDown, got %v", ret)
+	}
+	if r := u.selectedRow(); r != 2 {
+		t.Fatalf("expected row 2 after KeyDown, got %d", r)
+	}
+	if sel, ok := u.selected(); !ok || sel.ID != "task-2" {
+		t.Fatalf("expected task-2 selected, got %+v", sel)
+	}
+	if !u.searching {
+		t.Fatal("expected searching to remain active after KeyDown")
+	}
+
+	ret = u.keys(tcell.NewEventKey(tcell.KeyCtrlN, 0, 0))
+	if ret != nil {
+		t.Fatalf("expected nil from KeyCtrlN, got %v", ret)
+	}
+	if r := u.selectedRow(); r != 3 {
+		t.Fatalf("expected row 3 after KeyCtrlN, got %d", r)
+	}
+	if sel, ok := u.selected(); !ok || sel.ID != "task-3" {
+		t.Fatalf("expected task-3 selected, got %+v", sel)
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyDown, 0, 0))
+	if r := u.selectedRow(); r != 3 {
+		t.Fatalf("expected row 3 clamped at bottom, got %d", r)
+	}
+
+	ret = u.keys(tcell.NewEventKey(tcell.KeyUp, 0, 0))
+	if ret != nil {
+		t.Fatalf("expected nil from KeyUp, got %v", ret)
+	}
+	if r := u.selectedRow(); r != 2 {
+		t.Fatalf("expected row 2 after KeyUp, got %d", r)
+	}
+	if sel, ok := u.selected(); !ok || sel.ID != "task-2" {
+		t.Fatalf("expected task-2 selected, got %+v", sel)
+	}
+	if !u.searching {
+		t.Fatal("expected searching to remain active after KeyUp")
+	}
+
+	ret = u.keys(tcell.NewEventKey(tcell.KeyCtrlP, 0, 0))
+	if ret != nil {
+		t.Fatalf("expected nil from KeyCtrlP, got %v", ret)
+	}
+	if r := u.selectedRow(); r != 1 {
+		t.Fatalf("expected row 1 after KeyCtrlP, got %d", r)
+	}
+	if sel, ok := u.selected(); !ok || sel.ID != "task-1" {
+		t.Fatalf("expected task-1 selected, got %+v", sel)
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyUp, 0, 0))
+	if r := u.selectedRow(); r != 1 {
+		t.Fatalf("expected row 1 clamped at top, got %d", r)
+	}
+
+	u.shown = nil
+	if ret := u.keys(tcell.NewEventKey(tcell.KeyDown, 0, 0)); ret != nil {
+		t.Fatalf("expected nil on empty shown for KeyDown, got %v", ret)
+	}
+	if ret := u.keys(tcell.NewEventKey(tcell.KeyUp, 0, 0)); ret != nil {
+		t.Fatalf("expected nil on empty shown for KeyUp, got %v", ret)
+	}
+	if ret := u.keys(tcell.NewEventKey(tcell.KeyCtrlN, 0, 0)); ret != nil {
+		t.Fatalf("expected nil on empty shown for KeyCtrlN, got %v", ret)
+	}
+	if ret := u.keys(tcell.NewEventKey(tcell.KeyCtrlP, 0, 0)); ret != nil {
+		t.Fatalf("expected nil on empty shown for KeyCtrlP, got %v", ret)
+	}
+}
