@@ -417,7 +417,7 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 			return f.cancel(), nil
 		}
 
-		if msg.Code == 's' && msg.Mod&tea.ModCtrl != 0 {
+		if (msg.Code == 's' || msg.Code == tea.KeyEnter) && msg.Mod&tea.ModCtrl != 0 {
 			if err := f.validate(); err != "" {
 				f.errText = err
 				return f.refit(), nil
