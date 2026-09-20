@@ -249,10 +249,10 @@ func TestWebUITaskSubmitErrorMapping(t *testing.T) {
 		wantError string
 		wantField string
 	}{
-		{`{"project":"bad/proj","body":"test"}`, http.StatusBadRequest, "invalid project", "project"},
+		{`{"project":"bad/proj","body":"test"}`, http.StatusBadRequest, `invalid project "bad/proj": must contain only [a-zA-Z0-9._-]`, "project"},
 		{`{"body":"test"}`, http.StatusBadRequest, "missing project", "project"},
 		{`{"project":"p","body":"test","priority":-1}`, http.StatusBadRequest, "invalid priority -1, must be 0 or greater", "priority"},
-		{`{"project":"p","body":"test","id":"bad id!"}`, http.StatusBadRequest, "invalid id", "id"},
+		{`{"project":"p","body":"test","id":"bad id!"}`, http.StatusBadRequest, `invalid id "bad id!": must contain only [a-zA-Z0-9._-]`, "id"},
 		{`{"project":"p"}`, http.StatusBadRequest, "missing asset_path or body", "body"},
 		{`{"project":"p","body":"   "}`, http.StatusBadRequest, "invalid body", "body"},
 	}

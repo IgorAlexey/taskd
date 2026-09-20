@@ -249,7 +249,7 @@ func TestPatchValidationFieldErrors(t *testing.T) {
 		wantField string
 	}{
 		{"invalid body", `{"body":"   "}`, "invalid body", "body"},
-		{"invalid project", `{"project":"bad proj"}`, "invalid project", "project"},
+		{"invalid project", `{"project":"bad proj"}`, `invalid project "bad proj": must contain only [a-zA-Z0-9._-]`, "project"},
 	}
 
 	for _, tc := range cases {
@@ -321,5 +321,29 @@ func TestWorkerValidation(t *testing.T) {
 				t.Fatalf("got error = %q, want %q", apiErr.Error, tc.wantError)
 			}
 		})
+	}
+}
+func TestValidationProjectCharacters(t *testing.T) {
+	cases := []struct {
+		fn   func() (string, bool)
+		want string
+	}{
+		{
+			fn:   func() (string, bool) { return checkProject("p 1") },
+			want: `invalid project "p 1": must contain only [a-zA-Z0-9._-]`,
+		},
+		{
+			fn:   func() (string, bool) { return checkTaskID("bad id") },
+			want: `invalid id "bad id": must contain only [a-zA-Z0-9._-]`,
+		},
+	}
+	for _, tc := range cases {
+		msg, ok := tc.fn()
+		if ok {
+			t.Fatal("expected validation failure")
+		}
+		if msg != tc.want {
+			t.Fatalf("got %q, want %q", msg, tc.want)
+		}
 	}
 }

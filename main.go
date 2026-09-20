@@ -1350,6 +1350,8 @@ const maxTaskIDLen = 128
 const maxProjectLen = 64
 const maxAuthorLen = 128
 
+const validNameChars = "[a-zA-Z0-9._-]"
+
 func validNameByte(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
 }
@@ -1375,7 +1377,7 @@ func checkTaskID(id string) (string, bool) {
 	}
 	for i := range len(id) {
 		if !validNameByte(id[i]) {
-			return "invalid id", false
+			return fmt.Sprintf("invalid id %q: must contain only %s", id, validNameChars), false
 		}
 	}
 	return "", true
@@ -1398,7 +1400,7 @@ func checkProject(p string) (string, bool) {
 	}
 	for i := range len(p) {
 		if !validNameByte(p[i]) {
-			return "invalid project", false
+			return fmt.Sprintf("invalid project %q: must contain only %s", p, validNameChars), false
 		}
 	}
 	return "", true

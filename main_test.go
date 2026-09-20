@@ -569,8 +569,9 @@ func TestClaimProjectValidation(t *testing.T) {
 	if err := json.Unmarshal(raw, &errResp); err != nil {
 		t.Fatalf("unmarshal error failed: %v", err)
 	}
-	if got := errResp["error"]; got != "invalid project" {
-		t.Fatalf("expected error %q, got %q", "invalid project", got)
+	want := `invalid project "bad project name with spaces": must contain only [a-zA-Z0-9._-]`
+	if got := errResp["error"]; got != want {
+		t.Fatalf("expected error %q, got %q", want, got)
 	}
 
 	emptyPayload := `{"worker":"w1","project":""}`
@@ -888,7 +889,7 @@ func TestTasksAndStatsRejectInvalidProject(t *testing.T) {
 		wantErr string
 	}{
 		{"?project=", "project cannot be empty"},
-		{"?project=bad*name", "invalid project"},
+		{"?project=bad*name", "invalid project \"bad*name\": must contain only [a-zA-Z0-9._-]"},
 	}
 
 	for _, endpoint := range []string{"/tasks", "/stats"} {
