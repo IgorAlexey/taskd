@@ -573,7 +573,8 @@
             <div class="field">
               <label for="form-project">Project *</label>
               <span class="field-error" id="form-project-error"></span>
-              <input type="text" id="form-project" required aria-required="true" placeholder="e.g. default" aria-invalid="false" aria-describedby="form-project-error">
+              <input type="text" id="form-project" list="form-project-list" required aria-required="true" placeholder="e.g. default" aria-invalid="false" aria-describedby="form-project-error">
+              <datalist id="form-project-list"></datalist>
             </div>
             <div class="field">
               <label for="form-priority">Priority (1 is top, blank for default)</label>
@@ -922,25 +923,37 @@
       try {
         const projects = await fetchJSON('/projects');
         const select = document.getElementById('filter-project');
-        if (!select) return;
-        let current = select.value;
-        select.innerHTML = '<option value="">(all)</option>';
-        if (Array.isArray(projects)) {
-          for (const p of projects) {
-            const opt = document.createElement('option');
-            opt.value = p;
-            opt.textContent = p;
-            select.appendChild(opt);
+        if (select) {
+          let current = select.value;
+          select.innerHTML = '<option value="">(all)</option>';
+          if (Array.isArray(projects)) {
+            for (const p of projects) {
+              const opt = document.createElement('option');
+              opt.value = p;
+              opt.textContent = p;
+              select.appendChild(opt);
+            }
+          }
+          if (pendingProject) {
+            current = pendingProject;
+            pendingProject = '';
+            setFilter(select, current);
+            syncURL(false);
+            syncFilterProjectToForm();
+          } else {
+            setFilter(select, current);
           }
         }
-        if (pendingProject) {
-          current = pendingProject;
-          pendingProject = '';
-          setFilter(select, current);
-          syncURL(false);
-          syncFilterProjectToForm();
-        } else {
-          setFilter(select, current);
+        const datalist = document.getElementById('form-project-list');
+        if (datalist) {
+          datalist.innerHTML = '';
+          if (Array.isArray(projects)) {
+            for (const p of projects) {
+              const opt = document.createElement('option');
+              opt.value = p;
+              datalist.appendChild(opt);
+            }
+          }
         }
       } catch (e) {
         if (pendingProject) {
