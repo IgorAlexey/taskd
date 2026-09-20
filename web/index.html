@@ -1409,6 +1409,7 @@
             <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
             <button type="button" id="touch-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Touch Lease</button>
             <button type="button" id="release-task-btn">Release Task</button>
+            <button type="button" id="bury-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Bury Task</button>
           ` : ''}
           ${t.status === 'pending' ? `
             <button type="button" id="claim-task-btn" class="primary">Claim Task</button>
@@ -1431,6 +1432,8 @@
       if (touchBtn) touchBtn.onclick = () => touchTask(t.id, t.worker);
       const relBtn = document.getElementById('release-task-btn');
       if (relBtn) relBtn.onclick = () => releaseTask(t.id, t.worker);
+      const buryBtn = document.getElementById('bury-task-btn');
+      if (buryBtn) buryBtn.onclick = () => buryTask(t.id, t.worker);
       const claimBtn = document.getElementById('claim-task-btn');
       if (claimBtn) claimBtn.onclick = () => claimTask(t.id);
       const closeBtn = document.getElementById('close-task-btn');
@@ -1529,6 +1532,22 @@
       if (!id || !worker) return;
       await withButton('release-task-btn', async () => {
         await fetchJSON('/tasks/' + encodeURIComponent(id) + '/release', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ worker: worker })
+        });
+        await finishTaskTransition(id);
+      });
+    }
+
+    async function buryTask(id, worker) {
+      if (!id) return;
+      if (!worker) {
+        showError('Cannot bury task: missing worker');
+        return;
+      }
+      await withButton('bury-task-btn', async () => {
+        await fetchJSON('/tasks/' + encodeURIComponent(id) + '/bury', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ worker: worker })
