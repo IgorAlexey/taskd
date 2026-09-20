@@ -139,6 +139,8 @@ type ui struct {
 	width          int
 	all            []task
 	shown          []task
+	inScope        int
+	passFilter     int
 	projects       []string
 	stats          stats
 	hasServerStats bool
@@ -387,16 +389,16 @@ func (u *ui) emptyState() string {
 		return "Disconnected from daemon. Reconnecting..."
 	case !u.loaded:
 		return "Loading " + cmp.Or(u.project, "tasks") + "..."
-	case u.query != "":
+	case u.passFilter > 0:
 		return "No tasks match query. Press 'Esc' to clear."
-	case u.workerFilter != "" && u.filter != "":
+	case u.inScope > 0 && u.workerFilter != "":
 		return "No " + u.filter + " tasks for worker " + u.workerFilter + ". Press '0' to clear filter, 'w' to cycle worker."
+	case u.inScope > 0 && u.project != "":
+		return "No tasks match filter. Press '0' to clear filter, 'p' to cycle project."
+	case u.inScope > 0:
+		return "No " + u.filter + " tasks. Press '0' to show all."
 	case u.workerFilter != "":
 		return "No tasks for worker " + u.workerFilter + ". Press 'w' to cycle worker."
-	case u.filter != "" && u.project != "":
-		return "No tasks match filter. Press '0' to clear filter, 'p' to cycle project."
-	case u.filter != "":
-		return "No " + u.filter + " tasks. Press '0' to show all."
 	case u.project != "":
 		return "No tasks in " + u.project + ". Press 'p' to cycle project."
 	}
@@ -408,6 +410,7 @@ const maxMetaWidth = 16
 func (u *ui) render(all []task) {
 	keep, _ := u.selected()
 	u.all, u.shown = all, u.shown[:0]
+	u.inScope, u.passFilter = 0, 0
 	if !u.hasServerStats || u.statsProject != u.project {
 		u.stats = stats{}
 		for i := range all {
@@ -436,6 +439,7 @@ func (u *ui) render(all []task) {
 		if u.project != "" && t.Project != u.project {
 			continue
 		}
+		u.inScope++
 		var matchFilter bool
 		switch u.filter {
 		case "live":
@@ -445,7 +449,11 @@ func (u *ui) render(all []task) {
 		default:
 			matchFilter = t.Status == u.filter
 		}
-		if matchFilter && matchTask(t, qLower) {
+		if !matchFilter {
+			continue
+		}
+		u.passFilter++
+		if matchTask(t, qLower) {
 			u.shown = append(u.shown, t)
 		}
 	}

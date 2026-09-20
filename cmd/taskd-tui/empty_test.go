@@ -21,7 +21,7 @@ func TestEmptyStateMessage(t *testing.T) {
 		// ts[:1] is pending only, so the done filter matches nothing.
 		{"status filter", "done", "", ts[:1], []string{"No done tasks", "'0'"}},
 		{"project filter", "", "proj-x", ts, []string{"No tasks in proj-x", "'p'"}},
-		{"both filters", "pending", "proj-x", ts, []string{"No tasks match filter", "'0'", "'p'"}},
+		{"both filters", "leased", "proj-b", ts, []string{"No tasks match filter", "'0'", "'p'"}},
 	} {
 		u.filter, u.project = tc.filter, tc.project
 		u.loaded = true
@@ -49,5 +49,35 @@ func TestEmptyStateMessage(t *testing.T) {
 	}
 	if got := u.table.GetRowCount(); got != len(u.shown)+1 {
 		t.Fatalf("rows = %d, want %d", got, len(u.shown)+1)
+	}
+}
+
+func TestEmptyStateUnderDefaultFilter(t *testing.T) {
+	u := newUI("http://127.0.0.1:1", "", false, "")
+	if u.filter != "live" {
+		t.Fatalf("shipped default filter = %q, want \"live\"", u.filter)
+	}
+	u.loaded = true
+	done := []task{{ID: "ddddddd4", Status: "done", Body: "finished"}}
+	pending := []task{{ID: "eeeeeee5", Status: "pending", Body: "waiting"}}
+
+	for _, tc := range []struct {
+		name, query string
+		in          []task
+		want        string
+	}{
+		{"nothing at all", "", nil, "No tasks yet. Press 'n' to create a task."},
+		{"filter hides the queue", "", done, "No live tasks. Press '0' to show all."},
+		{"filter hides what the query would", "zz", done, "No live tasks. Press '0' to show all."},
+		{"query hides what the filter kept", "zz", pending, "No tasks match query. Press 'Esc' to clear."},
+	} {
+		u.query = tc.query
+		u.render(tc.in)
+		if len(u.shown) != 0 {
+			t.Fatalf("%s: expected nothing shown, got %d", tc.name, len(u.shown))
+		}
+		if got := u.body.GetText(true); !strings.Contains(got, tc.want) {
+			t.Fatalf("%s: placeholder %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }

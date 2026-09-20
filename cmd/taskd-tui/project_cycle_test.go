@@ -43,7 +43,7 @@ func TestCycleToEmptyProjectShowsEmptyState(t *testing.T) {
 
 	cycleProject(u)
 	eventually(t, func() bool {
-		return bodyText(u) == "No tasks match filter. Press '0' to clear filter, 'p' to cycle project."
+		return bodyText(u) == "No tasks in proj-empty. Press 'p' to cycle project."
 	})
 }
 
