@@ -988,6 +988,16 @@ func (m model) corpusCount() int {
 }
 
 func (m model) emptyState() string {
+	if !m.connected {
+		url := m.cfg.url
+		if url == "" {
+			url = "(no URL configured)"
+		}
+		if m.lastErr != "" {
+			return fmt.Sprintf("Disconnected from %s: %s", url, m.lastErr)
+		}
+		return fmt.Sprintf("Disconnected from %s", url)
+	}
 	if m.project != "" && !slices.Contains(m.projects, m.project) {
 		return fmt.Sprintf("No tasks in project %s. Press 'p' to cycle project.", m.project)
 	}
