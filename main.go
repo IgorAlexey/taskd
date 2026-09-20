@@ -962,6 +962,25 @@ func etagMatches(header, etag string) bool {
 	return false
 }
 
+func mainDBName(db *sql.DB) string {
+	rows, err := db.Query("PRAGMA database_list")
+	if err != nil {
+		return ""
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq int
+		var name string
+		var file sql.NullString
+		if err := rows.Scan(&seq, &name, &file); err == nil && name == "main" {
+			if file.Valid && file.String != "" {
+				return filepath.Base(file.String)
+			}
+			return ""
+		}
+	}
+	return ""
+}
 func newHandler(db *store, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, 0, "")
 }
@@ -1035,12 +1054,14 @@ FROM tasks`
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]int{
-			"pending": pending,
-			"leased":  leased,
-			"done":    done,
-			"buried":  buried,
-			"total":   total,
+		json.NewEncoder(w).Encode(map[string]any{
+			"pending":       pending,
+			"leased":        leased,
+			"done":          done,
+			"buried":        buried,
+			"total":         total,
+			"lease_seconds": lease,
+			"db":            mainDBName(db.ro),
 		})
 	}
 	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {

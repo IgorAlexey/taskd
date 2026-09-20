@@ -3751,9 +3751,15 @@ func TestStats(t *testing.T) {
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("expected 200 OK from GET /stats, got %d", resp.StatusCode)
 		}
-		var st map[string]int
-		if err := json.NewDecoder(resp.Body).Decode(&st); err != nil {
+		var raw map[string]any
+		if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
 			t.Fatalf("decode stats failed: %v", err)
+		}
+		st := make(map[string]int)
+		for k, v := range raw {
+			if n, ok := v.(float64); ok {
+				st[k] = int(n)
+			}
 		}
 		return st
 	}
@@ -5764,9 +5770,15 @@ func TestBuryAndKick(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get stats expected 200, got %d", resp.StatusCode)
 	}
-	var stats map[string]int
-	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+	var rawStats map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&rawStats); err != nil {
 		t.Fatalf("decode stats failed: %v", err)
+	}
+	stats := make(map[string]int)
+	for k, v := range rawStats {
+		if n, ok := v.(float64); ok {
+			stats[k] = int(n)
+		}
 	}
 	if stats["pending"] != 0 {
 		t.Fatalf("expected pending == 0 in stats, got %+v", stats)
@@ -6145,6 +6157,60 @@ func TestIfNoneMatchList(t *testing.T) {
 	} {
 		if got := etagMatches(tc.header, `"abc"`); got != tc.want {
 			t.Errorf("etagMatches(%q) = %v, want %v", tc.header, got, tc.want)
+		}
+	}
+}
+
+func TestStatsIncludesLeaseAndDB(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "t.db")
+	db, err := openDB(dbPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 1234))
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/stats")
+	if err != nil {
+		t.Fatalf("GET /stats failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK from GET /stats, got %d", resp.StatusCode)
+	}
+
+	var stats map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode stats failed: %v", err)
+	}
+
+	leaseVal, ok := stats["lease_seconds"]
+	if !ok {
+		t.Fatalf("missing lease_seconds in stats: %+v", stats)
+	}
+	switch v := leaseVal.(type) {
+	case float64:
+		if int(v) != 1234 {
+			t.Fatalf("expected lease_seconds == 1234, got %v", v)
+		}
+	case int:
+		if v != 1234 {
+			t.Fatalf("expected lease_seconds == 1234, got %v", v)
+		}
+	default:
+		t.Fatalf("unexpected type for lease_seconds: %T (%v)", leaseVal, leaseVal)
+	}
+
+	dbVal, ok := stats["db"].(string)
+	if !ok || dbVal != "t.db" {
+		t.Fatalf("expected db == %q, got %v", "t.db", stats["db"])
+	}
+
+	for _, key := range []string{"pending", "leased", "done", "buried", "total"} {
+		if _, ok := stats[key]; !ok {
+			t.Fatalf("missing expected count key %q in stats: %+v", key, stats)
 		}
 	}
 }
