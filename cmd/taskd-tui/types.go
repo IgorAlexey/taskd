@@ -191,23 +191,34 @@ func (p paneLayout) inDetail(y int) bool {
 	return p.detailRows > 0 && y >= p.detailTop && y < p.detailTop+p.detailRows
 }
 
+func (p paneLayout) detailViewportTop() int {
+	return p.detailTop + detailHeaderRows
+}
+
+func (p paneLayout) detailViewportRows() int {
+	if p.detailRows <= detailHeaderRows {
+		return 0
+	}
+	return p.detailRows - detailHeaderRows
+}
+
 type scrollbarLayout struct {
 	hasScrollbar bool
 	thumbStart   int
 	thumbSize    int
 }
 
-func tableScrollbar(total, offset, tRows int) scrollbarLayout {
-	if total <= tRows || tRows <= 0 {
+func calcScrollbar(total, offset, visible int) scrollbarLayout {
+	if total <= visible || visible <= 0 {
 		return scrollbarLayout{}
 	}
-	thumbSize := tRows * tRows / total
+	thumbSize := visible * visible / total
 	if thumbSize < 1 {
 		thumbSize = 1
 	}
-	thumbStart := offset * tRows / total
-	if thumbStart+thumbSize > tRows {
-		thumbStart = tRows - thumbSize
+	thumbStart := offset * visible / total
+	if thumbStart+thumbSize > visible {
+		thumbStart = visible - thumbSize
 	}
 	if thumbStart < 0 {
 		thumbStart = 0
@@ -228,6 +239,7 @@ const (
 	gapRows            = 2 // blank line above the table and above the detail rule
 	minDetail          = 8
 	minTable           = 3
+	detailHeaderRows   = 3
 	detailIndentSpaces = " "
 	detailIndent       = len(detailIndentSpaces)
 	scrollbarWidth     = 1

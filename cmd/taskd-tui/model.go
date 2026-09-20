@@ -391,7 +391,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 			panes := m.panes()
 			if panes.inTable(msg.Y) {
-				sb := tableScrollbar(len(m.shown), m.offset, panes.tableRows)
+				sb := calcScrollbar(len(m.shown), m.offset, panes.tableRows)
 				if msg.X == m.width-1 && sb.hasScrollbar {
 					clickRow := msg.Y - panes.tableTop
 					step := panes.tableRows / 2
@@ -433,6 +433,25 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if panes.inDetail(msg.Y) {
 				if m.mode == modeTable {
 					m.mode = modeDetail
+				}
+				if msg.X == m.width-1 {
+					vpMax := panes.detailViewportRows()
+					clickRow := msg.Y - panes.detailViewportTop()
+					if clickRow >= 0 && clickRow < vpMax {
+						sb := calcScrollbar(m.detail.TotalLineCount(), m.detail.YOffset(), vpMax)
+						if sb.hasScrollbar {
+							step := vpMax / 2
+							if step < 1 {
+								step = 1
+							}
+							if clickRow < sb.thumbStart {
+								m.detail.ScrollUp(step)
+							} else if clickRow >= sb.thumbStart+sb.thumbSize {
+								m.detail.ScrollDown(step)
+							}
+							return m, nil
+						}
+					}
 				}
 			}
 		}
@@ -1102,7 +1121,7 @@ func deleteWord(s string) string {
 	return ""
 }
 func (m model) detailViewportHeight() int {
-	vh := m.detailRows() - 3
+	vh := m.panes().detailViewportRows()
 	if vh < 1 {
 		return 1
 	}

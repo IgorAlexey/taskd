@@ -283,7 +283,7 @@ func TestClickScrollbarTrack(t *testing.T) {
 		t.Fatalf("expected shown (%d) > tableRows (%d)", len(m.shown), tRows)
 	}
 
-	sb := tableScrollbar(len(m.shown), m.offset, tRows)
+	sb := calcScrollbar(len(m.shown), m.offset, tRows)
 	if !sb.hasScrollbar {
 		t.Fatalf("expected scrollbar for 40 tasks in %d rows", tRows)
 	}
@@ -320,7 +320,7 @@ func TestClickScrollbarTrack(t *testing.T) {
 		t.Fatalf("expected offset %d after second click below thumb, got %d", 2*step, m.offset)
 	}
 
-	sbAfterDown := tableScrollbar(len(m.shown), m.offset, tRows)
+	sbAfterDown := calcScrollbar(len(m.shown), m.offset, tRows)
 	if sbAfterDown.thumbStart <= sb.thumbStart {
 		t.Fatalf("expected thumb to advance down, was %d, now %d", sb.thumbStart, sbAfterDown.thumbStart)
 	}
@@ -340,7 +340,7 @@ func TestClickScrollbarTrack(t *testing.T) {
 	m.offset = 16
 	m.cursor = 16
 	m.clamp()
-	sbMid := tableScrollbar(len(m.shown), m.offset, tRows)
+	sbMid := calcScrollbar(len(m.shown), m.offset, tRows)
 	thumbCenterY := panes.tableTop + sbMid.thumbStart + sbMid.thumbSize/2
 	res, _ = m.Update(tea.MouseClickMsg{
 		X:      m.width - 1,
@@ -351,7 +351,7 @@ func TestClickScrollbarTrack(t *testing.T) {
 	if m.offset != 16 {
 		t.Fatalf("expected offset 16 to remain unchanged on thumb click, got %d", m.offset)
 	}
-	sbCenter := tableScrollbar(len(m.shown), m.offset, tRows)
+	sbCenter := calcScrollbar(len(m.shown), m.offset, tRows)
 	clickRow := thumbCenterY - panes.tableTop
 	if clickRow < sbCenter.thumbStart || clickRow >= sbCenter.thumbStart+sbCenter.thumbSize {
 		t.Fatalf("thumb ran away from click: clickRow %d not in [%d, %d)",
@@ -381,6 +381,112 @@ func TestClickScrollbarTrack(t *testing.T) {
 		if shortModel.cursor != 2 {
 			t.Fatalf("expected row 2 selected when no scrollbar, got cursor %d", shortModel.cursor)
 		}
+	}
+}
+func TestClickDetailScrollbarTrack(t *testing.T) {
+	m := setupTestModel()
+	m.tasks[0].Body = strings.Repeat("detail line for scrollbar test\n", 60)
+	m.syncDetail()
+
+	panes := m.panes()
+	vpMax := panes.detailViewportRows()
+	if vpMax <= 0 {
+		t.Fatalf("expected detail viewport height > 0, got %d", vpMax)
+	}
+
+	sb := calcScrollbar(m.detail.TotalLineCount(), m.detail.YOffset(), vpMax)
+	if !sb.hasScrollbar {
+		t.Fatalf("expected scrollbar for 60 lines in %d viewport rows", vpMax)
+	}
+
+	step := vpMax / 2
+	if step < 1 {
+		step = 1
+	}
+
+	clickBelowY := panes.detailViewportTop() + sb.thumbStart + sb.thumbSize + 1
+	if clickBelowY >= panes.detailTop+panes.detailRows {
+		clickBelowY = panes.detailTop + panes.detailRows - 1
+	}
+
+	res, _ := m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      clickBelowY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+
+	if m.mode != modeDetail {
+		t.Fatalf("expected modeDetail after scrollbar click, got %v", m.mode)
+	}
+
+	if m.detail.YOffset() != step {
+		t.Fatalf("expected detail YOffset %d after clicking below thumb, got %d", step, m.detail.YOffset())
+	}
+
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      clickBelowY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+
+	if m.detail.YOffset() != 2*step {
+		t.Fatalf("expected detail YOffset %d after second click below thumb, got %d", 2*step, m.detail.YOffset())
+	}
+
+	sbAfterDown := calcScrollbar(m.detail.TotalLineCount(), m.detail.YOffset(), vpMax)
+	if sbAfterDown.thumbStart <= sb.thumbStart {
+		t.Fatalf("expected thumb to advance down, was %d, now %d", sb.thumbStart, sbAfterDown.thumbStart)
+	}
+
+	headerClickY := panes.detailTop + 1
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      headerClickY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+	if m.detail.YOffset() != 2*step {
+		t.Fatalf("expected clicking header row to not scroll, got offset %d", m.detail.YOffset())
+	}
+
+	clickAboveY := panes.detailViewportTop() + sbAfterDown.thumbStart - 1
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      clickAboveY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+
+	if m.detail.YOffset() != step {
+		t.Fatalf("expected detail YOffset %d after clicking above thumb, got %d", step, m.detail.YOffset())
+	}
+
+	sbCurrent := calcScrollbar(m.detail.TotalLineCount(), m.detail.YOffset(), vpMax)
+	thumbCenterY := panes.detailViewportTop() + sbCurrent.thumbStart + sbCurrent.thumbSize/2
+	res, _ = m.Update(tea.MouseClickMsg{
+		X:      m.width - 1,
+		Y:      thumbCenterY,
+		Button: tea.MouseLeft,
+	})
+	m = res.(model)
+	if m.detail.YOffset() != step {
+		t.Fatalf("expected detail YOffset %d to remain unchanged on thumb click, got %d", step, m.detail.YOffset())
+	}
+
+	shortModel := setupTestModel()
+	shortModel.tasks[0].Body = "short line"
+	shortModel.syncDetail()
+	shortPanes := shortModel.panes()
+	res, _ = shortModel.Update(tea.MouseClickMsg{
+		X:      shortModel.width - 1,
+		Y:      shortPanes.detailViewportTop() + 1,
+		Button: tea.MouseLeft,
+	})
+	shortModel = res.(model)
+	if shortModel.detail.YOffset() != 0 {
+		t.Fatalf("expected YOffset 0 when no scrollbar, got %d", shortModel.detail.YOffset())
 	}
 }
 

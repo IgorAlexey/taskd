@@ -378,7 +378,7 @@ func (m model) View() tea.View {
 				}
 			}
 		}
-		sb := tableScrollbar(len(m.shown), m.offset, tRows)
+		sb := calcScrollbar(len(m.shown), m.offset, tRows)
 		hasScrollbar := sb.hasScrollbar
 		cols := budgetColumns(w, maxScope, maxWorker, maxClaims, hasScrollbar)
 		wScope, wClaims, wWorker := cols.scope, cols.claims, cols.worker
@@ -641,12 +641,13 @@ func (m model) View() tea.View {
 			detailLines = append(detailLines, strings.Repeat(" ", w))
 		}
 	} else {
-		vpMax := dRows - 3
+		vpMax := dRows - detailHeaderRows
 		if vpMax < 0 {
 			vpMax = 0
 		}
 		totalLines := m.detail.TotalLineCount()
-		hasDetailScroll := totalLines > vpMax
+		sb := calcScrollbar(totalLines, m.detail.YOffset(), vpMax)
+		hasDetailScroll := sb.hasScrollbar
 
 		id7 := curTask.ID
 		idRest := ""
@@ -742,25 +743,6 @@ func (m model) View() tea.View {
 			vpLines = strings.Split(vpContent, "\n")
 		}
 
-		var thumbSize, thumbStart int
-		maxOffset := totalLines - vpMax
-		if hasDetailScroll && vpMax > 0 && maxOffset > 0 {
-			thumbSize = vpMax * vpMax / totalLines
-			if thumbSize < 1 {
-				thumbSize = 1
-			}
-			if thumbSize >= vpMax {
-				thumbSize = vpMax - 1
-			}
-			thumbStart = m.detail.YOffset() * (vpMax - thumbSize) / maxOffset
-			if thumbStart+thumbSize > vpMax {
-				thumbStart = vpMax - thumbSize
-			}
-			if thumbStart < 0 {
-				thumbStart = 0
-			}
-		}
-
 		for r := range vpMax {
 			var line string
 			if r < len(vpLines) {
@@ -768,7 +750,7 @@ func (m model) View() tea.View {
 			}
 			if hasDetailScroll {
 				var scrollCell string
-				if r >= thumbStart && r < thumbStart+thumbSize {
+				if r >= sb.thumbStart && r < sb.thumbStart+sb.thumbSize {
 					scrollCell = m.theme.accent.Render(m.glyph.thumb)
 				} else {
 					scrollCell = m.theme.dim.Render(m.glyph.track)
