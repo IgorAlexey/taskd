@@ -380,12 +380,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if msg.X >= bounds.proj[0] && msg.X < bounds.proj[1] {
 					m.mode = modeTable
-					return m.cycleProject()
+					return m.cycleProject(1)
 				}
 				if msg.X >= bounds.worker[0] && msg.X < bounds.worker[1] {
 					m.mode = modeTable
-					m.worker = cycleWorker(m.worker, m.workers, 1)
-					return m, m.rescope()
+					return m.cycleWorker(1)
 				}
 				return m, nil
 			}
@@ -601,13 +600,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "4":
 				return m.setFilter("buried")
 			case msg.Text == "p":
-				return m.cycleProject()
+				return m.cycleProject(1)
+			case msg.Text == "P":
+				return m.cycleProject(-1)
 			case msg.Text == "w":
-				m.worker = cycleWorker(m.worker, m.workers, 1)
-				return m, m.rescope()
+				return m.cycleWorker(1)
 			case msg.Text == "W":
-				m.worker = cycleWorker(m.worker, m.workers, -1)
-				return m, m.rescope()
+				return m.cycleWorker(-1)
 			case msg.Text == "/":
 				m.mode = modeSearch
 				return m, nil
@@ -622,6 +621,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				if m.filter != "" {
 					return m.setFilter("")
+				}
+				if m.project != "" {
+					return m.setProject("")
+				}
+				if m.worker != "" {
+					return m.setWorker("")
 				}
 				return m, nil
 			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEnter:
@@ -770,28 +775,32 @@ func (m model) setFilter(f string) (model, tea.Cmd) {
 	m.filter = f
 	return m, m.rescope()
 }
-func (m model) cycleProject() (model, tea.Cmd) {
-	if len(m.projects) == 0 {
-		m.project = ""
-	} else if m.project == "" {
-		m.project = m.projects[0]
-	} else {
-		next := ""
-		for i, p := range m.projects {
-			if p == m.project {
-				if i+1 < len(m.projects) {
-					next = m.projects[i+1]
-				} else {
-					next = ""
-				}
-				break
-			}
-		}
-		m.project = next
+
+func (m model) setProject(p string) (model, tea.Cmd) {
+	if m.project == p {
+		return m, nil
 	}
+	m.project = p
 	m.stats, m.hasStats = stats{}, false
 	return m, m.rescope()
 }
+
+func (m model) setWorker(w string) (model, tea.Cmd) {
+	if m.worker == w {
+		return m, nil
+	}
+	m.worker = w
+	return m, m.rescope()
+}
+
+func (m model) cycleProject(delta int) (model, tea.Cmd) {
+	return m.setProject(cycleScope(m.project, m.projects, delta))
+}
+
+func (m model) cycleWorker(delta int) (model, tea.Cmd) {
+	return m.setWorker(cycleScope(m.worker, m.workers, delta))
+}
+
 func (m model) panes() paneLayout {
 	tr, dr := m.layout()
 	tableTop := headerRows + tabRows + 1 + colHeadRows
@@ -1142,13 +1151,12 @@ func (m model) detailViewportWidth() int {
 	}
 	return vw
 }
-
-func cycleWorker(current string, workers []string, delta int) string {
-	if len(workers) == 0 {
+func cycleScope(current string, items []string, delta int) string {
+	if len(items) == 0 {
 		return ""
 	}
-	idx := slices.Index(workers, current) + 1
-	n := len(workers) + 1
+	idx := slices.Index(items, current) + 1
+	n := len(items) + 1
 	idx = (idx + delta) % n
 	if idx < 0 {
 		idx += n
@@ -1156,7 +1164,7 @@ func cycleWorker(current string, workers []string, delta int) string {
 	if idx == 0 {
 		return ""
 	}
-	return workers[idx-1]
+	return items[idx-1]
 }
 func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 	targets := m.footerTargets()
@@ -1205,10 +1213,9 @@ func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
 			case "back":
 				return m.actionBack()
 			case "project":
-				return m.cycleProject()
+				return m.cycleProject(1)
 			case "worker":
-				m.worker = cycleWorker(m.worker, m.workers, 1)
-				return m, m.rescope()
+				return m.cycleWorker(1)
 			}
 		}
 	}

@@ -782,7 +782,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[g/G]", "first/last"},
 		{"[ctrl-d/u]", "half page"},
 		{"[PgUp/Dn]", "page"},
-		{"[p]", "project"},
+		{"[p/P]", "project"},
 		{"[w/W]", "worker"},
 		{"[/]", "search"},
 		{"[Tab]", "detail"},

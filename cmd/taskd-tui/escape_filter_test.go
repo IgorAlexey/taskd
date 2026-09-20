@@ -37,3 +37,73 @@ func TestEscapeClearsStatusFilterOnEmptyMatch(t *testing.T) {
 		t.Fatalf("expected queue restored, got shown: %v", m.shown)
 	}
 }
+
+func TestCycleProjectBackward(t *testing.T) {
+	m := newModel(config{icons: false, refresh: time.Hour}, nil)
+	m.width = 120
+	m.height = 24
+	m.mode = modeTable
+	m.projects = []string{"alpha", "beta", "gamma"}
+	m.project = ""
+
+	up, _ := m.Update(tea.KeyPressMsg{Text: "P"})
+	m = up.(model)
+	if m.project != "gamma" {
+		t.Fatalf("expected 'P' from empty to wrap to last project 'gamma', got %q", m.project)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "P"})
+	m = up.(model)
+	if m.project != "beta" {
+		t.Fatalf("expected 'P' to cycle to 'beta', got %q", m.project)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "P"})
+	m = up.(model)
+	if m.project != "alpha" {
+		t.Fatalf("expected 'P' to cycle to 'alpha', got %q", m.project)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "P"})
+	m = up.(model)
+	if m.project != "" {
+		t.Fatalf("expected 'P' from 'alpha' to cycle to all projects '', got %q", m.project)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "p"})
+	m = up.(model)
+	if m.project != "alpha" {
+		t.Fatalf("expected 'p' from '' to cycle forward to 'alpha', got %q", m.project)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = up.(model)
+	if m.project != "" {
+		t.Fatalf("expected Escape to clear project filter when query is empty, got %q", m.project)
+	}
+
+	m.project = "alpha"
+	m.query = "needle"
+	up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = up.(model)
+	if m.query != "" {
+		t.Fatalf("expected Escape to clear query first, got %q", m.query)
+	}
+	if m.project != "alpha" {
+		t.Fatalf("expected project to remain unchanged when query was cleared, got %q", m.project)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = up.(model)
+	if m.project != "" {
+		t.Fatalf("expected second Escape to clear project filter, got %q", m.project)
+	}
+
+	m.worker = "w1"
+	m.workers = []string{"w1"}
+	up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEscape})
+	m = up.(model)
+	if m.worker != "" {
+		t.Fatalf("expected Escape to clear worker filter, got %q", m.worker)
+	}
+}
