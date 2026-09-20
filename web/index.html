@@ -489,14 +489,72 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  #purge-modal {
+  #purge-modal, #shortcuts-modal {
     border: none;
     background: transparent;
     padding: 16px;
-    max-width: 480px;
+    max-width: 520px;
     width: 100%;
   }
-  #purge-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
+  #purge-modal::backdrop, #shortcuts-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
+  kbd {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 1px 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text);
+  }
+  footer.app-footer {
+    margin-top: 24px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .shortcut-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: center;
+  }
+  .shortcut-legend .shortcut-btn {
+    background: none;
+    border: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .shortcut-legend .shortcut-btn:hover {
+    color: var(--text);
+  }
+  .shortcuts-section h3 {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 6px;
+  }
+  .shortcut-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  .shortcut-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+  }
+  .shortcut-row span {
+    color: var(--text-muted);
+  }
   .modal-panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -884,6 +942,14 @@
     </aside>
   </div>
   </main>
+  <footer class="app-footer">
+    <div class="shortcut-legend cluster">
+      <button type="button" class="shortcut-btn" onclick="openShortcutsModal()" aria-label="Open keyboard shortcuts help"><kbd>?</kbd> Shortcuts</button>
+      <span><kbd>/</kbd> Search</span>
+      <span><kbd>r</kbd> Refresh</span>
+      <span><kbd>↑</kbd><kbd>↓</kbd> Table navigation</span>
+    </div>
+  </footer>
 
   <dialog id="body-overlay" aria-labelledby="body-overlay-title">
     <div class="body-overlay-panel">
@@ -906,6 +972,50 @@
       <div class="modal-actions cluster">
         <button type="button" id="purge-cancel-btn" onclick="closePurgeModal()">Cancel</button>
         <button type="button" id="purge-confirm-btn" class="purge-confirm-btn danger" onclick="confirmPurge()" aria-busy="false">Purge</button>
+      </div>
+    </div>
+  </dialog>
+  <dialog id="shortcuts-modal" class="modal" aria-labelledby="shortcuts-modal-title" data-state="closed">
+    <div class="modal-panel">
+      <div class="modal-header">
+        <h2 id="shortcuts-modal-title">Keyboard Shortcuts</h2>
+        <button type="button" id="shortcuts-modal-close" class="modal-close-btn" onclick="closeShortcutsModal()" aria-label="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body stack-sm">
+        <section class="shortcuts-section">
+          <h3>Table navigation</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><kbd>↑</kbd> / <kbd>k</kbd> , <kbd>↓</kbd> / <kbd>j</kbd> <span>Select previous / next task (ArrowUp/ArrowDown)</span></div>
+            <div class="shortcut-row"><kbd>Home</kbd> / <kbd>End</kbd> <span>Jump to first / last task</span></div>
+            <div class="shortcut-row"><kbd>PgUp</kbd> / <kbd>PgDn</kbd> <span>Jump 10 tasks up / down</span></div>
+            <div class="shortcut-row"><kbd>Enter</kbd> <span>Select task and focus details pane</span></div>
+            <div class="shortcut-row"><kbd>Enter</kbd> / <kbd>Space</kbd> <span>Sort selected column header</span></div>
+          </div>
+        </section>
+        <section class="shortcuts-section">
+          <h3>Search</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><kbd>/</kbd> <span>Focus search filter</span></div>
+            <div class="shortcut-row"><kbd>Esc</kbd> <span>Clear search filter and blur</span></div>
+          </div>
+        </section>
+        <section class="shortcuts-section">
+          <h3>Form submit</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><kbd>Ctrl+Enter</kbd> / <kbd>Cmd+Enter</kbd> <span>Submit task, save edit, or add note</span></div>
+            <div class="shortcut-row"><kbd>Esc</kbd> <span>Cancel task edit or close dialog</span></div>
+          </div>
+        </section>
+        <section class="shortcuts-section">
+          <h3>General</h3>
+          <div class="shortcut-list">
+            <div class="shortcut-row"><kbd>r</kbd> <span>Refresh queue</span></div>
+            <div class="shortcut-row"><kbd>?</kbd> <span>Show keyboard shortcuts</span></div>
+          </div>
+        </section>
+      </div>
+      <div class="modal-actions cluster">
+        <button type="button" id="shortcuts-close-btn" onclick="closeShortcutsModal()">Close</button>
       </div>
     </div>
   </dialog>
@@ -2401,6 +2511,40 @@
         if (btn && typeof btn.focus === 'function') btn.focus();
       });
     }
+    function openShortcutsModal() {
+      const dlg = document.getElementById('shortcuts-modal');
+      if (!dlg) return;
+      dlg.setAttribute('data-state', 'open');
+      if (typeof dlg.showModal === 'function') {
+        if (!dlg.open) dlg.showModal();
+      } else {
+        dlg.open = true;
+        dlg.hidden = false;
+      }
+    }
+
+    function closeShortcutsModal() {
+      const dlg = document.getElementById('shortcuts-modal');
+      if (!dlg) return;
+      if (typeof dlg.close === 'function') {
+        if (dlg.open) dlg.close();
+      } else {
+        dlg.open = false;
+        dlg.hidden = true;
+        dlg.dispatchEvent(new Event('close'));
+      }
+    }
+
+    function setupShortcutsModal() {
+      const dlg = document.getElementById('shortcuts-modal');
+      if (!dlg) return;
+      dlg.addEventListener('click', (e) => {
+        if (e.target === dlg) closeShortcutsModal();
+      });
+      dlg.addEventListener('close', () => {
+        dlg.setAttribute('data-state', 'closed');
+      });
+    }
 
     async function clearSelectedTask() {
       selectedTaskId = null;
@@ -2934,6 +3078,18 @@
         if (e.defaultPrevented) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
         if (isInputTarget(e.target) || isInputTarget(document.activeElement)) return;
+        if (e.key === '?') {
+          const dlg = document.getElementById('shortcuts-modal');
+          if (dlg && dlg.open) {
+            e.preventDefault();
+            closeShortcutsModal();
+            return;
+          }
+          if (document.querySelector && document.querySelector('dialog[open]')) return;
+          e.preventDefault();
+          openShortcutsModal();
+          return;
+        }
         if (document.querySelector && document.querySelector('dialog[open]')) return;
         if (e.key === '/') {
           const el = document.getElementById('filter-search');
@@ -2980,6 +3136,7 @@
       setupGlobalShortcuts();
       setupBodyOverlay();
       setupPurgeModal();
+      setupShortcutsModal();
       setupSubmitForm();
       setupTableSorting();
       applyURLState();
