@@ -116,11 +116,16 @@ func openDBConn(path string, readOnly bool) (*sql.DB, error) {
 		q.Set("mode", "ro")
 	}
 	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_pragma", fmt.Sprintf("journal_size_limit(%d)", walJournalSizeLimit))
 	u.RawQuery = q.Encode()
 	return sql.Open("sqlite", u.String())
 }
 
-const maxReaders = 8
+const (
+	maxReaders                = 8
+	walJournalSizeLimit       = 67108864
+	defaultCheckpointInterval = 2 * time.Second
+)
 
 type store struct {
 	rw *sql.DB
@@ -2063,11 +2068,46 @@ func parseFlags(args []string) (config, error) {
 	return cfg, nil
 }
 
+var errCheckpointBusy = errors.New("wal checkpoint busy")
+
+func checkpointWAL(ctx context.Context, db *sql.DB) error {
+	var busy, log, ckpt int
+	if err := db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &log, &ckpt); err != nil {
+		return err
+	}
+	if busy != 0 {
+		return errCheckpointBusy
+	}
+	return nil
+}
+
+func runCheckpointer(ctx context.Context, db *sql.DB, interval time.Duration, onTick func()) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := checkpointWAL(ctx, db); err != nil && !errors.Is(err, errCheckpointBusy) && !errors.Is(err, context.Canceled) {
+				log.Printf("checkpoint error: %v", err)
+			}
+			if onTick != nil {
+				onTick()
+			}
+		}
+	}
+}
+
 func runServer(ctx context.Context, l net.Listener, db *store, lease, maxClaims int, corsOrigin string) error {
 	srv := &http.Server{
 		Handler:           newHandlerWithCORS(db, lease, maxClaims, corsOrigin),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	serverCtx, cancelServer := context.WithCancel(ctx)
+	defer cancelServer()
+	go runCheckpointer(serverCtx, db.rw, defaultCheckpointInterval, nil)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -2085,6 +2125,9 @@ func runServer(ctx context.Context, l net.Listener, db *store, lease, maxClaims 
 		defer cancel()
 		if err := srv.Shutdown(shutdownCtx); err != nil {
 			log.Printf("shutdown error: %v", err)
+		}
+		if err := checkpointWAL(context.Background(), db.rw); err != nil {
+			log.Printf("shutdown checkpoint error: %v", err)
 		}
 		return <-errCh
 	}
