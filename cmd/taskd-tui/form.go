@@ -53,7 +53,7 @@ func newCreateForm(project string, width int) formModel {
 	f.body.Placeholder = "first line is the title"
 	f.body.ShowLineNumbers = false
 
-	f.resize(width, 24)
+	f.resize(width)
 
 	if project == "" {
 		f.setFocus(0)
@@ -96,14 +96,14 @@ func newEditForm(t task, width int) formModel {
 	f.body.ShowLineNumbers = false
 	f.body.SetValue(t.Body)
 
-	f.resize(width, 24)
+	f.resize(width)
 
 	f.setFocus(3)
 
 	return f
 }
 
-func (f *formModel) resize(width, height int) {
+func (f *formModel) resize(width int) {
 	boxWidth := max(60, min(width-4, 90))
 	if width > 0 && boxWidth > width {
 		boxWidth = width
@@ -114,24 +114,44 @@ func (f *formModel) resize(width, height int) {
 	f.priority.SetWidth(inputW)
 	f.asset.SetWidth(inputW)
 	f.body.SetWidth(inner)
-	bodyH, _ := formBodyHeight(height, f.errText != "")
-	f.body.SetHeight(bodyH)
 }
 
-// formBodyHeight fits the form to the terminal: the textarea takes what
-// is left after the fixed rows, and when even one row does not fit the
-// two blank separators and the hint line go (compact), never the button.
-func formBodyHeight(height int, hasErr bool) (bodyH int, compact bool) {
-	fixed := 12 // border 2, title, blank, 3 fields, body label, blank, save, blank, hint
-	if hasErr {
-		fixed++
+// bodySlot marks where the textarea goes in the form's line list.
+const bodySlot = "\x00body\x00"
+
+// lines is the form's rows at a given level of compaction: 0 keeps the
+// separators and hint, 1 drops them, 2 also drops the title and body
+// label. The error sits above the button so neither is the first to go.
+func (f formModel) lines(level int, th theme) []string {
+	var l []string
+	if level < 2 {
+		l = append(l, th.accent.Render(f.title))
 	}
-	spare := height - fixed
-	if spare < 1 {
-		compact = true
-		spare += 3
+	if level == 0 {
+		l = append(l, "")
 	}
-	return max(1, min(12, spare)), compact
+	l = append(l, th.dim.Render("project:  ")+f.project.View())
+	l = append(l, th.dim.Render("priority: ")+f.priority.View())
+	l = append(l, th.dim.Render("asset:    ")+f.asset.View())
+	if level < 2 {
+		l = append(l, th.dim.Render("body:"))
+	}
+	l = append(l, bodySlot)
+	if level == 0 {
+		l = append(l, "")
+	}
+	if f.errText != "" {
+		l = append(l, th.err.Render(f.errText))
+	}
+	if f.focus == 4 {
+		l = append(l, th.accentPill.Render("[ save ]"))
+	} else {
+		l = append(l, th.dim.Render("[ save ]"))
+	}
+	if level == 0 {
+		l = append(l, "", th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
+	}
+	return l
 }
 
 func (f *formModel) setFocus(target int) tea.Cmd {
@@ -331,40 +351,29 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 }
 
 func (f formModel) View(width, height int, th theme) string {
-	f.resize(width, height)
+	f.resize(width)
 
 	boxWidth := max(60, min(width-4, 90))
 	if width > 0 && boxWidth > width {
 		boxWidth = width
 	}
 
-	_, compact := formBodyHeight(height, f.errText != "")
+	// Build the rows first, then give the textarea what the terminal has
+	// left after them and the border; compact when even one row is short.
 	var lines []string
-	lines = append(lines, th.accent.Render(f.title))
-	if !compact {
-		lines = append(lines, "")
+	bodyH := 0
+	for level := 0; level <= 2; level++ {
+		lines = f.lines(level, th)
+		bodyH = height - 2 - (len(lines) - 1)
+		if bodyH >= 1 {
+			break
+		}
 	}
-	lines = append(lines, th.dim.Render("project:  ")+f.project.View())
-	lines = append(lines, th.dim.Render("priority: ")+f.priority.View())
-	lines = append(lines, th.dim.Render("asset:    ")+f.asset.View())
-	lines = append(lines, th.dim.Render("body:"))
-	lines = append(lines, f.body.View())
-	if !compact {
-		lines = append(lines, "")
-	}
-
-	if f.focus == 4 {
-		lines = append(lines, th.accentPill.Render("[ save ]"))
-	} else {
-		lines = append(lines, th.dim.Render("[ save ]"))
-	}
-
-	if f.errText != "" {
-		lines = append(lines, th.err.Render(f.errText))
-	}
-	if !compact {
-		lines = append(lines, "")
-		lines = append(lines, th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
+	f.body.SetHeight(max(1, min(12, bodyH)))
+	for i, l := range lines {
+		if l == bodySlot {
+			lines[i] = f.body.View()
+		}
 	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
@@ -448,34 +457,32 @@ func helpView(width, height int, th theme) string {
 	}
 
 	var rows []string
-	rows = append(rows, th.accent.Render("Keyboard Shortcuts"))
-	rows = append(rows, "")
-
+	rows = append(rows, th.accent.Render("Keyboard Shortcuts"), "")
 	for i := 0; i < len(col1) && i < len(col2); i++ {
 		k1 := th.accent.Render(padRightVisual(col1[i].key, 13))
 		d1 := th.dim.Render(padRightVisual(col1[i].desc, 10))
-
 		k2 := th.accent.Render(padRightVisual(col2[i].key, 4))
 		d2 := th.dim.Render(col2[i].desc)
-
-		row := k1 + " " + d1 + "  " + k2 + " " + d2
-		rows = append(rows, row)
+		rows = append(rows, k1+" "+d1+"  "+k2+" "+d2)
 	}
+	rows = append(rows, "", th.dim.Render("Press ? or Esc to close"))
 
-	rows = append(rows, "")
-	rows = append(rows, th.dim.Render("Press ? or Esc to close"))
-
+	// Fit the content to the terminal before drawing the border: rows
+	// go from the bottom, the closing hint last, so the box stays whole.
+	// The width comes from the full table so a cut never reflows it.
+	boxWidth := min(lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...))+4, max(10, width-4))
+	inner := max(1, height-2)
+	if len(rows) > inner {
+		hint := rows[len(rows)-1]
+		rows = append(rows[:max(0, inner-1)], hint)
+	}
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
-
-	maxW := max(20, width-4)
-	maxH := max(3, height)
 
 	boxStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).
 		BorderForeground(th.accent.GetForeground()).
 		Padding(0, 1).
-		MaxWidth(maxW).
-		MaxHeight(maxH)
+		Width(boxWidth)
 
 	return boxStyle.Render(content)
 }

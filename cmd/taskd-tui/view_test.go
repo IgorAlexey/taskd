@@ -332,6 +332,7 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 			m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
 			m.mode = md
 			m.form = newCreateForm("p", 100)
+			m.form.errText = "project cannot be blank"
 			m.confirm = confirmModel{text: "Delete?", button: "delete"}
 			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 			if len(lines) != h {
@@ -340,10 +341,16 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 			if md == modeTable && !strings.Contains(lines[h-1], "q quit") {
 				t.Fatalf("height %d lost the footer: %q", h, lines[h-1])
 			}
-			// Title, three fields, body label, one body row, save and
-			// the border need ten rows; from there the button must show.
-			if md == modeForm && h >= 10 && !strings.Contains(strings.Join(lines, "\n"), "[ save ]") {
-				t.Fatalf("height %d form hides the save button", h)
+			// Border, three fields, one body row, the error and the
+			// button need eight rows; from there both must be on screen.
+			if md == modeForm && h >= 8 {
+				all := strings.Join(lines, "\n")
+				if !strings.Contains(all, "[ save ]") || !strings.Contains(all, "project cannot be blank") {
+					t.Fatalf("height %d form hides the button or the error:\n%s", h, all)
+				}
+			}
+			if md == modeHelp && h >= 5 && !strings.Contains(strings.Join(lines, "\n"), "Esc to close") {
+				t.Fatalf("height %d help hides the closing hint", h)
 			}
 		}
 	}

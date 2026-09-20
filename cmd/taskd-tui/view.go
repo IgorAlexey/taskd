@@ -143,19 +143,16 @@ func (m model) View() tea.View {
 		h = 24
 	}
 
-	overlay, isOverlay := "", true
+	center := func(box string) tea.View {
+		return frame(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box), h)
+	}
 	switch m.mode {
 	case modeForm:
-		overlay = m.form.View(w, h, m.theme)
+		return center(m.form.View(w, h, m.theme))
 	case modeConfirm:
-		overlay = m.confirm.View(w, h, m.theme)
+		return center(m.confirm.View(w, h, m.theme))
 	case modeHelp:
-		overlay = helpView(w, h, m.theme)
-	default:
-		isOverlay = false
-	}
-	if isOverlay {
-		return frame(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay), h)
+		return center(helpView(w, h, m.theme))
 	}
 
 	tRows, dRows := m.layout()
