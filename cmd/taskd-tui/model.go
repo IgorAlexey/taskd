@@ -416,10 +416,19 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.note.errText = msg.err.Error()
 				return m, nil
 			}
+			taskID := m.note.taskID
+			noteText := strings.TrimSpace(m.note.input.Value())
+			newNote := taskNote{
+				Author:    m.note.author,
+				Text:      noteText,
+				CreatedAt: time.Now().Unix(),
+			}
+			m.notesCache[taskID] = append(m.notesCache[taskID], newNote)
 			m.mode = m.note.prev
 			if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
 				m.mode = modeTable
 			}
+			m.syncDetail()
 		}
 		var cmd tea.Cmd
 		if msg.err != nil {
@@ -777,7 +786,14 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "z":
 				return m.actionToggleZoom()
 			case msg.Text == "r":
+				if sel, ok := m.selected(); ok {
+					delete(m.notesCache, sel.ID)
+				}
 				poll := m.startPoll()
+				fetch := m.fetchNotes()
+				if fetch != nil {
+					return m, tea.Batch(poll, fetch)
+				}
 				return m, poll
 			case msg.Text == "?":
 				return m.actionHelp()

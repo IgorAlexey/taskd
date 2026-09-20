@@ -391,3 +391,65 @@ func TestNoteFormSeqResetOnError(t *testing.T) {
 		t.Fatalf("expected input value updated to %q, got %q", "initial note!", got)
 	}
 }
+
+func TestNoteAddedRefreshesDetail(t *testing.T) {
+	t1 := task{
+		ID:        "task-refresh",
+		Project:   "test",
+		Status:    "pending",
+		Priority:  1,
+		Body:      "Task body text",
+		CreatedAt: 1700000000,
+	}
+
+	m := newModel(config{worker: "tester"}, nil)
+	m.width = 100
+	m.height = 30
+	m.tasks = []task{t1}
+	m.rebuildShown()
+	m.cursor = 0
+	m.notesCache["task-refresh"] = []taskNote{
+		{Author: "alice", Text: "existing cached note"},
+	}
+	m.syncDetail()
+
+	if !strings.Contains(m.detail.GetContent(), "existing cached note") {
+		t.Fatalf("expected initial detail to show cached note, got: %s", m.detail.GetContent())
+	}
+
+	up, _ := m.Update(tea.KeyPressMsg{Text: "a"})
+	m = up.(model)
+	m.note.input.SetValue("newly submitted note")
+
+	up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = up.(model)
+	if cmd == nil {
+		t.Fatal("expected non-nil cmd from enter")
+	}
+
+	up, _ = m.Update(formActMsg{seq: m.formSeq, msg: "note added"})
+	m = up.(model)
+
+	content := ansi.Strip(m.detail.GetContent())
+	if !strings.Contains(content, "newly submitted note") {
+		t.Errorf("expected detail content to contain newly submitted note, got:\n%s", content)
+	}
+
+	notes := m.notesCache["task-refresh"]
+	found := false
+	for _, n := range notes {
+		if n.Text == "newly submitted note" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected notesCache to include newly submitted note, got: %+v", notes)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "r"})
+	m = up.(model)
+	if _, cached := m.notesCache["task-refresh"]; cached {
+		t.Errorf("expected r refresh to invalidate selected task notesCache")
+	}
+}
