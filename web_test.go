@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -826,5 +827,34 @@ func TestWebUISubmitFieldValidation(t *testing.T) {
 	}
 	if a := pick("valid"); a.Posted != 1 || a.ProjectError != "" || a.IDError != "" {
 		t.Errorf("valid: expected one clean POST /tasks, got %+v", a)
+	}
+}
+
+func TestWebUICenteredPage(t *testing.T) {
+	ui := string(uiHTML)
+
+	rule := regexp.MustCompile(`(?s)\n\s*body\s*\{(.*?)\}`).FindStringSubmatch(ui)
+	if rule == nil {
+		t.Fatal("expected a body rule in web/index.html")
+	}
+	decls := rule[1]
+
+	m := regexp.MustCompile(`max-inline-size: *([0-9.]+)rem`).FindStringSubmatch(decls)
+	if m == nil {
+		t.Fatalf("expected max-inline-size in rem on body, got %q", decls)
+	}
+	size, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		t.Fatalf("bad max-inline-size %q: %v", m[1], err)
+	}
+	px := size * 16
+	if px < 1100 || px > 1400 {
+		t.Errorf("max-inline-size %srem is %.0fpx: the queue pane wants 1100-1400px total with the 380px details pane beside it", m[1], px)
+	}
+	if !regexp.MustCompile(`margin-inline: *auto`).MatchString(decls) {
+		t.Errorf("expected margin-inline: auto on body, got %q", decls)
+	}
+	if !regexp.MustCompile(`padding(-inline)?: *[1-9]`).MatchString(decls) {
+		t.Errorf("expected body to keep a horizontal gutter, got %q", decls)
 	}
 }
