@@ -133,10 +133,10 @@ func TestWebUIExpiredLeaseActions(t *testing.T) {
 	if !strings.Contains(ui, `id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}`) {
 		t.Error("edit-task-btn should check isActivelyLeased(t)")
 	}
-	if strings.Contains(ui, `id="delete-task-btn" class="danger"${t.status === 'leased'`) {
+	if strings.Contains(ui, `id="delete-task-btn" data-variant="warning"${t.status === 'leased'`) {
 		t.Error("delete-task-btn should not unconditionally disable on leased status")
 	}
-	if !strings.Contains(ui, `id="delete-task-btn" class="danger"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}`) {
+	if !strings.Contains(ui, `id="delete-task-btn" data-variant="warning"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}`) {
 		t.Error("delete-task-btn should check isActivelyLeased(t)")
 	}
 	if strings.Contains(ui, "if (!id || status === 'leased') return") {
@@ -380,7 +380,6 @@ func TestWebUIDetailsPaneFocusOnSelection(t *testing.T) {
 		t.Errorf("expected arrow navigation to focus adjacent row, got %v", got.ArrowFocus)
 	}
 }
-
 func TestWebUIFieldHintsAndCharacterCount(t *testing.T) {
 	ui := string(uiHTML)
 	hints := []string{
@@ -428,5 +427,27 @@ func TestWebUIServe(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+func TestWebUIButtonVariants(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `button[data-variant="warning"]`) {
+		t.Error("expected button[data-variant=\"warning\"] in web/index.html")
+	}
+	if !strings.Contains(ui, `button[data-variant="secondary"]`) {
+		t.Error("expected button[data-variant=\"secondary\"] in web/index.html")
+	}
+	if !strings.Contains(ui, `button[data-variant="primary"]`) {
+		t.Error("expected button[data-variant=\"primary\"] in web/index.html")
+	}
+	if !strings.Contains(ui, `id="submit-task-btn" data-variant="primary"`) {
+		t.Error("expected submit-task-btn to have data-variant=\"primary\"")
+	}
+	if !strings.Contains(ui, `id="refresh-btn" data-variant="secondary"`) {
+		t.Error("expected refresh-btn to have data-variant=\"secondary\"")
+	}
+	if !strings.Contains(ui, `id="delete-task-btn" data-variant="warning"`) {
+		t.Error("expected delete-task-btn to have data-variant=\"warning\"")
 	}
 }

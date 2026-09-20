@@ -169,17 +169,26 @@
   }
   button:hover { background: #30363d; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  button.primary {
+  button[data-variant="primary"] {
     background: var(--done);
     border-color: rgba(240,246,252,0.1);
     color: #ffffff;
   }
-  button.primary:hover { background: #2ea043; }
-  button.danger {
+  button[data-variant="primary"]:hover { background: #2ea043; }
+  button[data-variant="secondary"] {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-muted);
+  }
+  button[data-variant="secondary"]:hover {
+    background: var(--surface);
+    color: var(--text);
+  }
+  button[data-variant="warning"] {
     color: var(--danger);
     border-color: rgba(248, 81, 73, 0.4);
   }
-  button.danger:hover {
+  button[data-variant="warning"]:hover {
     background: rgba(248, 81, 73, 0.15);
   }
   .copy-btn {
@@ -663,7 +672,7 @@
       <label for="auto-refresh" class="text-sm text-muted">
         <input type="checkbox" id="auto-refresh" checked> Auto-refresh
       </label>
-      <button id="refresh-btn" onclick="loadAll()">Refresh</button>
+      <button id="refresh-btn" data-variant="secondary" onclick="loadAll()">Refresh</button>
     </div>
   </header>
 
@@ -804,7 +813,7 @@
               <span class="field-error" id="form-id-error" hidden></span>
               <input type="text" id="form-id" aria-invalid="false" aria-describedby="form-id-hint form-id-error">
             </div>
-            <button type="submit" id="submit-task-btn" class="primary w-full" aria-busy="false">Submit Task</button>
+            <button type="submit" id="submit-task-btn" data-variant="primary" class="w-full" aria-busy="false">Submit Task</button>
           </form>
         </div>
       </section>
@@ -1737,8 +1746,8 @@
           </div>
           ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
           <div class="cluster task-actions">
-            <button type="button" id="save-task-btn" class="primary" onclick="saveTaskEdit()">Save</button>
-            <button type="button" id="cancel-task-btn" onclick="cancelTaskEdit()">Cancel</button>
+            <button type="button" id="save-task-btn" data-variant="primary" onclick="saveTaskEdit()">Save</button>
+            <button type="button" id="cancel-task-btn" data-variant="secondary" onclick="cancelTaskEdit()">Cancel</button>
           </div>
         `;
         const prioInput = document.getElementById('edit-task-priority');
@@ -1814,19 +1823,19 @@
         <div class="task-actions">
           ${t.status !== 'done' ? `<button type="button" id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}>Edit Task</button>` : ''}
           ${t.status === 'leased' ? `
-            <button type="button" id="complete-task-btn" class="primary">Complete Task</button>
+            <button type="button" id="complete-task-btn" data-variant="primary">Complete Task</button>
             <button type="button" id="touch-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Touch Lease</button>
             <button type="button" id="release-task-btn">Release Task</button>
-            <button type="button" id="bury-task-btn"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Bury Task</button>
+            <button type="button" id="bury-task-btn" data-variant="warning"${!t.worker ? ' disabled aria-disabled="true" title="No active worker on leased task"' : ''}>Bury Task</button>
           ` : ''}
           ${t.status === 'pending' ? `
-            <button type="button" id="claim-task-btn" class="primary">Claim Task</button>
+            <button type="button" id="claim-task-btn" data-variant="primary">Claim Task</button>
             <button type="button" id="close-task-btn">Close Task</button>
           ` : ''}
           ${t.status === 'buried' ? `
-            <button type="button" id="kick-task-btn" class="primary">Kick Task</button>
+            <button type="button" id="kick-task-btn" data-variant="primary">Kick Task</button>
           ` : ''}
-          <button type="button" id="delete-task-btn" class="danger"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}>Delete Task</button>
+          <button type="button" id="delete-task-btn" data-variant="warning"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}>Delete Task</button>
         </div>
         <div class="field notes-section">
           <div class="field-header">
@@ -1844,7 +1853,7 @@
               <label for="note-text" class="field-label">Note</label>
               <textarea id="note-text" required rows="2"></textarea>
             </div>
-            <button type="submit" id="add-note-btn" class="primary">Add Note</button>
+            <button type="submit" id="add-note-btn" data-variant="primary">Add Note</button>
           </form>
         </div>
       `;
