@@ -163,6 +163,17 @@
   .skip-link:focus {
     clip-path: none;
   }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
   button {
     cursor: pointer;
     background: var(--surface-raised);
@@ -889,6 +900,7 @@
       </div>
       <div id="queue" tabindex="-1" class="overflow-x-auto">
         <table>
+          <caption class="sr-only">Task queue</caption>
           <thead id="task-table-head">
             <tr>
               <th scope="col" class="sortable" tabindex="0" data-col="id">ID</th>
