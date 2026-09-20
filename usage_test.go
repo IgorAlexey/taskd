@@ -67,3 +67,15 @@ func TestRuntimeErrorExitsOne(t *testing.T) {
 		t.Fatalf("runtime error should carry no usage hint, got %q", stderr.String())
 	}
 }
+
+func TestCLIUsageHelpShowsLifecycle(t *testing.T) {
+	var buf bytes.Buffer
+	printUsage(&buf)
+	usage := buf.String()
+
+	for _, token := range []string{"/tasks/claim", "/done", `{"worker":`} {
+		if !strings.Contains(usage, token) {
+			t.Fatalf("usage output missing %q:\n%s", token, usage)
+		}
+	}
+}

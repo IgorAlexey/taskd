@@ -22,7 +22,7 @@ priority gets 3. Ties are broken by insertion order.
 
 ## Quickstart
 
-Build and start the daemon, enqueue a task, and claim it:
+Build and start the daemon, enqueue a task, claim it, and complete it:
 
 ```sh
 # Build the binary
@@ -40,6 +40,11 @@ curl -s -XPOST http://localhost:8080/tasks -H 'Content-Type: application/json' -
 curl -s -XPOST http://localhost:8080/tasks/claim -H 'Content-Type: application/json' -d '{"worker":"me","project":"demo"}'
 # Output:
 # {"id":"b248c17131a98e3739387b4f7002e8b4","asset_path":"","status":"leased","worker":"me","lease_expires":1789818122,"priority":3,"body":"my first task","primitives":null,"project":"demo","claim_count":1}
+
+# Complete the task
+curl -s -i -XPOST http://localhost:8080/tasks/b248c17131a98e3739387b4f7002e8b4/done -H 'Content-Type: application/json' -d '{"worker":"me"}'
+# Output:
+# HTTP/1.1 204 No Content
 ```
 
 The `-db` flag defaults to `taskd.db` relative to the current working directory;

@@ -1959,16 +1959,16 @@ func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `
 HTTP Endpoints:
   GET    /tasks              list tasks
-  POST   /tasks              create a task
-  POST   /tasks/claim        claim next pending task
+  POST   /tasks              create a task (requires project, body/asset_path)
+  POST   /tasks/claim        claim next pending task (requires worker)
   GET    /tasks/{id}         get task details
-  PATCH  /tasks/{id}         update task body or priority
-  POST   /tasks/{id}/claim   claim a specific task
-  POST   /tasks/{id}/done    complete task with primitives
+  PATCH  /tasks/{id}         update task (requires body, priority, or project)
+  POST   /tasks/{id}/claim   claim a specific task (requires worker)
+  POST   /tasks/{id}/done    complete task with primitives (requires worker)
   POST   /tasks/{id}/close   close task without result
-  POST   /tasks/{id}/touch   extend lease, returns new expiration
-  POST   /tasks/{id}/release release leased task back to pending
-  POST   /tasks/{id}/bury    park a blocked task
+  POST   /tasks/{id}/touch   extend lease, return expiration (requires worker)
+  POST   /tasks/{id}/release release task back to pending (requires worker)
+  POST   /tasks/{id}/bury    park a blocked task (requires worker)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task
   GET    /projects           list active projects
@@ -1982,6 +1982,12 @@ Examples:
   taskd -lease 600                           use 10 minute task lease duration
   taskd -max-claims 3                        bury a task after 3 claims
   taskd -backup backup.db                    backup database to file and exit
+
+  # Task lifecycle (create, claim, complete):
+  T=${T:-http://localhost:8080}
+  curl -s -XPOST $T/tasks -d '{"id":"t1","body":"hello","project":"demo"}'
+  curl -s -XPOST $T/tasks/claim -d '{"worker":"me","project":"demo"}'
+  curl -s -i -XPOST $T/tasks/t1/done -d '{"worker":"me"}'
 `)
 }
 
