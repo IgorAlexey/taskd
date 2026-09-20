@@ -39,6 +39,7 @@ type config struct {
 	url     string
 	project string
 	worker  string
+	query   string
 	icons   bool
 	refresh time.Duration
 	version bool

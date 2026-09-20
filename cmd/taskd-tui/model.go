@@ -35,6 +35,7 @@ func newModel(cfg config, c *client) model {
 		pages:   1,
 		now:     time.Now(),
 		detail:  vp,
+		query:   cfg.query,
 	}
 	m.detail.SetWidth(m.detailViewportWidth())
 	m.detail.SetHeight(m.detailViewportHeight())

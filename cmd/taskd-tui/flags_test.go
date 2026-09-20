@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestTUIFlagErrors(t *testing.T) {
@@ -238,6 +240,124 @@ func TestFlagsInvalidProject(t *testing.T) {
 		}
 		if cfg.project != "override-valid" {
 			t.Fatalf("project = %q, want override-valid", cfg.project)
+		}
+	})
+}
+
+func TestQueryFlagAndEnv(t *testing.T) {
+	t.Setenv("TASKD_PROJECT", "")
+	t.Setenv("TASKD_QUERY", "")
+
+	t.Run("short flag", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-q", "alpha"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.query != "alpha" {
+			t.Fatalf("cfg.query = %q, want alpha", cfg.query)
+		}
+		m := newModel(cfg, nil)
+		if m.query != "alpha" {
+			t.Fatalf("m.query = %q, want alpha", m.query)
+		}
+	})
+
+	t.Run("long flag", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-query", "alpha"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.query != "alpha" {
+			t.Fatalf("cfg.query = %q, want alpha", cfg.query)
+		}
+	})
+
+	t.Run("flag with equal", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"--query=alpha"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.query != "alpha" {
+			t.Fatalf("cfg.query = %q, want alpha", cfg.query)
+		}
+	})
+
+	t.Run("env variable", func(t *testing.T) {
+		t.Setenv("TASKD_QUERY", "alpha")
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.query != "alpha" {
+			t.Fatalf("cfg.query = %q, want alpha", cfg.query)
+		}
+		m := newModel(cfg, nil)
+		if m.query != "alpha" {
+			t.Fatalf("m.query = %q, want alpha", m.query)
+		}
+	})
+
+	t.Run("flag overrides env", func(t *testing.T) {
+		t.Setenv("TASKD_QUERY", "env-value")
+		cfg, err := parseFlags([]string{"-q", "alpha"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if cfg.query != "alpha" {
+			t.Fatalf("cfg.query = %q, want alpha", cfg.query)
+		}
+	})
+
+	t.Run("missing value", func(t *testing.T) {
+		_, err := parseFlags([]string{"-q"})
+		if err == nil {
+			t.Fatal("expected error for missing -q value, got nil")
+		}
+		_, errLong := parseFlags([]string{"--query"})
+		if errLong == nil {
+			t.Fatal("expected error for missing --query value, got nil")
+		}
+	})
+
+	t.Run("displays filtered task list on startup", func(t *testing.T) {
+		cfg, err := parseFlags([]string{"-q", "alpha"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		m := newModel(cfg, nil)
+		m.width = 80
+		m.height = 24
+		m.mode = modeTable
+		m.tasks = []task{
+			{ID: "1", Status: "pending", Body: "alpha task"},
+		}
+		m.rebuildShown()
+		rendered := ansi.Strip(m.View().Content)
+		if !strings.Contains(rendered, `filter "alpha" [Esc clear]`) {
+			t.Fatalf("view missing filter indicator:\n%s", rendered)
+		}
+		if !strings.Contains(rendered, "alpha task") {
+			t.Fatalf("view missing 'alpha task':\n%s", rendered)
+		}
+		lf := m.listFilter()
+		if lf.query != "alpha" {
+			t.Fatalf("listFilter().query = %q, want alpha", lf.query)
+		}
+	})
+
+	t.Run("documented in usage", func(t *testing.T) {
+		var buf bytes.Buffer
+		printUsage(&buf)
+		usage := buf.String()
+		if !strings.Contains(usage, "-q") || !strings.Contains(usage, "-query") {
+			t.Fatalf("usage missing -q/-query under Options:\n%s", usage)
+		}
+		idxEnv := strings.Index(usage, "Environment variables:")
+		if idxEnv == -1 {
+			t.Fatal("usage missing Environment variables section")
+		}
+		if !strings.Contains(usage[idxEnv:], "TASKD_QUERY") {
+			t.Fatalf("usage missing TASKD_QUERY under Environment variables:\n%s", usage)
 		}
 	})
 }

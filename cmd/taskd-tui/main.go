@@ -77,6 +77,7 @@ func parseFlags(args []string) (config, error) {
 		defaultURL = "http://localhost:8080"
 	}
 	defaultProject := os.Getenv("TASKD_PROJECT")
+	defaultQuery := os.Getenv("TASKD_QUERY")
 	envAscii := strings.ToLower(strings.TrimSpace(os.Getenv("TASKD_ASCII")))
 	defaultAscii := envAscii == "1" || envAscii == "true"
 
@@ -95,6 +96,7 @@ func parseFlags(args []string) (config, error) {
 	}
 	cfg.project = defaultProject
 	cfg.worker = defaultWorker()
+	cfg.query = defaultQuery
 
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -158,6 +160,15 @@ func parseFlags(args []string) (config, error) {
 				val = args[i]
 			}
 			cfg.worker = val
+		case "q", "query":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			cfg.query = val
 		case "refresh":
 			if !hasVal {
 				if i+1 >= len(args) {
@@ -222,6 +233,7 @@ Options:
   -url <url>          taskd daemon URL (default: http://localhost:8080)
   -project <name>     filter tasks by project
   -worker <name>      worker identifier for claiming tasks
+  -q, -query <query>  filter tasks by search query
   -ascii              use ASCII characters instead of Nerd Font icons
   -refresh <dur>      polling interval, min 250ms (default: 1s)
   -s, -sort <col>     initial sort column: priority, status, project, worker, lease
@@ -232,6 +244,7 @@ Environment variables:
   TASKD_URL           taskd daemon URL
   TASKD_PROJECT       default project filter
   TASKD_WORKER        worker identifier for claiming tasks
+  TASKD_QUERY         default search query filter
   TASKD_ASCII         set to 1 or true to enable ASCII mode
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)
 
