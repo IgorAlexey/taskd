@@ -1318,6 +1318,30 @@ type leaseEnvelope struct {
 	Status       string `json:"status"`
 	Project      string `json:"-"`
 }
+type taskCreateReq struct {
+	ID        string `json:"id"`
+	AssetPath string `json:"asset_path"`
+	Body      string `json:"body"`
+	Priority  *int   `json:"priority"`
+	Project   string `json:"project"`
+}
+
+type fieldError struct {
+	msg   string
+	field string
+}
+
+func (e fieldError) Error() string {
+	return e.msg
+}
+
+type validatedTask struct {
+	id        string
+	assetPath string
+	body      string
+	priority  int
+	project   string
+}
 
 const maxTaskIDLen = 128
 const maxProjectLen = 64
@@ -1637,69 +1661,138 @@ FROM tasks`
 			Version: version.Version, MaxClaims: db.maxClaims,
 		})
 	}
-	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {
-		var req struct {
-			ID        string `json:"id"`
-			AssetPath string `json:"asset_path"`
-			Body      string `json:"body"`
-			Priority  *int   `json:"priority"`
-			Project   string `json:"project"`
-		}
-		if !decodeJSON(w, r, &req) {
-			return
-		}
-		req.AssetPath = strings.TrimSpace(req.AssetPath)
-		req.Project = strings.TrimSpace(req.Project)
+	validateTask := func(req taskCreateReq) (validatedTask, error) {
+		assetPath := strings.TrimSpace(req.AssetPath)
+		project := strings.TrimSpace(req.Project)
 		if req.Body != "" && strings.TrimSpace(req.Body) == "" {
-			writeFieldError(w, http.StatusBadRequest, "invalid body", "body")
-			return
+			return validatedTask{}, fieldError{msg: "invalid body", field: "body"}
 		}
-		if req.AssetPath == "" && req.Body == "" {
-			writeFieldError(w, http.StatusBadRequest, "missing asset_path or body", "body")
-			return
+		if assetPath == "" && req.Body == "" {
+			return validatedTask{}, fieldError{msg: "missing asset_path or body", field: "body"}
 		}
-		if req.Project == "" {
-			writeFieldError(w, http.StatusBadRequest, "missing project", "project")
-			return
+		if project == "" {
+			return validatedTask{}, fieldError{msg: "missing project", field: "project"}
 		}
-		if msg, ok := checkProject(req.Project); !ok {
-			writeFieldError(w, http.StatusBadRequest, msg, "project")
-			return
+		if msg, ok := checkProject(project); !ok {
+			return validatedTask{}, fieldError{msg: msg, field: "project"}
 		}
 		priority := defaultPriority
 		if req.Priority != nil {
 			if *req.Priority < 0 {
-				writeFieldError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority), "priority")
-				return
+				return validatedTask{}, fieldError{msg: fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority), field: "priority"}
 			}
 			priority = *req.Priority
 		}
-		if req.ID == "" {
+		id := req.ID
+		if id == "" {
 			var b [16]byte
 			if _, err := rand.Read(b[:]); err != nil {
+				return validatedTask{}, err
+			}
+			id = hex.EncodeToString(b[:])
+		} else if msg, ok := checkTaskID(id); !ok {
+			return validatedTask{}, fieldError{msg: msg, field: "id"}
+		}
+		return validatedTask{
+			id:        id,
+			assetPath: assetPath,
+			body:      req.Body,
+			priority:  priority,
+			project:   project,
+		}, nil
+	}
+
+	createTaskHandler := func(w http.ResponseWriter, r *http.Request) {
+		var raw json.RawMessage
+		if !decodeJSON(w, r, &raw) {
+			return
+		}
+		trimmed := bytes.TrimSpace(raw)
+		isBatch := len(trimmed) > 0 && trimmed[0] == '['
+
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+
+		var reqs []taskCreateReq
+		if isBatch {
+			if err := dec.Decode(&reqs); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+				return
+			}
+		} else {
+			var single taskCreateReq
+			if err := dec.Decode(&single); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
+				return
+			}
+			reqs = []taskCreateReq{single}
+		}
+
+		tasks := make([]validatedTask, len(reqs))
+		for i, req := range reqs {
+			v, err := validateTask(req)
+			if err != nil {
+				var fe fieldError
+				if errors.As(err, &fe) {
+					writeFieldError(w, http.StatusBadRequest, fe.msg, fe.field)
+					return
+				}
 				internalError(w, err)
 				return
 			}
-			req.ID = hex.EncodeToString(b[:])
-		} else if msg, ok := checkTaskID(req.ID); !ok {
-			writeFieldError(w, http.StatusBadRequest, msg, "id")
-			return
+			tasks[i] = v
 		}
-		_, err := db.rw.Exec("INSERT INTO tasks (id, asset_path, body, priority, project, created_at) VALUES (?, ?, ?, ?, ?, unixepoch())", req.ID, req.AssetPath, req.Body, priority, req.Project)
+
+		tx, err := db.rw.Begin()
 		if err != nil {
-			var se *sqlite.Error
-			if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
-				writeFieldError(w, http.StatusConflict, "duplicate id", "id")
-				return
-			}
 			internalError(w, err)
 			return
 		}
-		db.notifyPending(req.Project)
+		defer tx.Rollback()
+
+		stmt, err := tx.Prepare("INSERT INTO tasks (id, asset_path, body, priority, project, created_at) VALUES (?, ?, ?, ?, ?, unixepoch())")
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer stmt.Close()
+
+		for _, t := range tasks {
+			_, err := stmt.Exec(t.id, t.assetPath, t.body, t.priority, t.project)
+			if err != nil {
+				var se *sqlite.Error
+				if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
+					writeFieldError(w, http.StatusConflict, "duplicate id", "id")
+					return
+				}
+				internalError(w, err)
+				return
+			}
+		}
+
+		if err := tx.Commit(); err != nil {
+			internalError(w, err)
+			return
+		}
+
+		for _, t := range tasks {
+			db.notifyPending(t.project)
+		}
+
 		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Location", "/tasks/"+req.ID)
+		if !isBatch {
+			w.Header().Set("Location", "/tasks/"+tasks[0].id)
+		}
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"id": req.ID})
+		if isBatch {
+			resp := make([]map[string]string, len(tasks))
+			for i, t := range tasks {
+				resp[i] = map[string]string{"id": t.id}
+			}
+			json.NewEncoder(w).Encode(resp)
+		} else {
+			json.NewEncoder(w).Encode(map[string]string{"id": tasks[0].id})
+		}
 	}
 
 	claimHandler := func(w http.ResponseWriter, r *http.Request) {
