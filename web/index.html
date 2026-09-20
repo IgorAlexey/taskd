@@ -612,6 +612,7 @@
     let refreshInFlight = false;
     const REFRESH_MS = 3000;
     const RETRY_MAX_MS = 30000;
+    const FETCH_TIMEOUT_MS = 10000;
     let offline = false;
     let retryDelay = REFRESH_MS;
     let retryAt = 0;
@@ -872,12 +873,23 @@
 
     async function fetchRaw(url, opts) {
       let res;
+      let timer = null;
       try {
-        res = await fetch(url, opts);
+        let signal;
+        if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+          signal = AbortSignal.timeout(FETCH_TIMEOUT_MS);
+        } else if (typeof AbortController !== 'undefined') {
+          const c = new AbortController();
+          timer = setTimeout(() => c.abort(), FETCH_TIMEOUT_MS);
+          signal = c.signal;
+        }
+        res = await fetch(url, signal ? { signal, ...opts } : opts);
       } catch (err) {
         err.transport = true;
         setOffline(err.message);
         throw err;
+      } finally {
+        if (timer) clearTimeout(timer);
       }
       setOnline();
       return res;
