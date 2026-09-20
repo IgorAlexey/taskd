@@ -346,3 +346,48 @@ func TestNotes(t *testing.T) {
 		}
 	})
 }
+
+func TestNoteFormSeqResetOnError(t *testing.T) {
+	m := newModel(config{worker: "charlie", icons: false}, nil)
+	m.width = 100
+	m.height = 30
+	m.tasks = []task{{ID: "task-1", Status: "pending", Body: "sample task"}}
+	m.rebuildShown()
+	m.cursor = 0
+	m.syncDetail()
+
+	up, _ := m.Update(tea.KeyPressMsg{Text: "a"})
+	m = up.(model)
+	if m.mode != modeNote {
+		t.Fatalf("expected modeNote, got %v", m.mode)
+	}
+	m.note.input.SetValue("initial note")
+
+	up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	m = up.(model)
+	if cmd == nil {
+		t.Fatal("expected cmd from enter")
+	}
+	if m.formSeq == 0 {
+		t.Fatal("expected non-zero formSeq while submission is in-flight")
+	}
+
+	up, _ = m.Update(formActMsg{seq: m.formSeq, err: errors.New("daemon connection refused")})
+	m = up.(model)
+
+	if m.mode != modeNote {
+		t.Fatalf("expected modeNote on submit error, got %v", m.mode)
+	}
+	if m.formSeq != 0 {
+		t.Fatalf("expected formSeq == 0 after error, got %d", m.formSeq)
+	}
+	if !strings.Contains(m.note.errText, "daemon connection refused") {
+		t.Fatalf("expected errText set, got %q", m.note.errText)
+	}
+
+	up, _ = m.Update(tea.KeyPressMsg{Text: "!"})
+	m = up.(model)
+	if got := m.note.input.Value(); got != "initial note!" {
+		t.Fatalf("expected input value updated to %q, got %q", "initial note!", got)
+	}
+}
