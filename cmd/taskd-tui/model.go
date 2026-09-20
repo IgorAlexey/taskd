@@ -706,19 +706,17 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.startPoll()
 				}
 				return m, nil
-			case (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd') || msg.Code == tea.KeyPgDown:
-				step := m.tableRows() / 2
-				if step < 1 {
-					step = 1
-				}
-				m.move(step)
+			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'd':
+				m.move(max(1, m.tableRows()/2))
 				return m, nil
-			case (msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u') || msg.Code == tea.KeyPgUp:
-				step := m.tableRows() / 2
-				if step < 1 {
-					step = 1
-				}
-				m.move(-step)
+			case msg.Code == tea.KeyPgDown:
+				m.move(max(1, m.tableRows()))
+				return m, nil
+			case msg.Mod&tea.ModCtrl != 0 && msg.Code == 'u':
+				m.move(-max(1, m.tableRows()/2))
+				return m, nil
+			case msg.Code == tea.KeyPgUp:
+				m.move(-max(1, m.tableRows()))
 				return m, nil
 			case msg.Text == "0":
 				return m.setFilter("")
