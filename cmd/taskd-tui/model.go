@@ -796,7 +796,11 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 				cmd := m.setMsg("cannot delete actively leased task")
 				return m, cmd, true
 			}
-			m.confirmTask("Delete", "deleted", "DELETE", "/tasks/"+t.ID, t, nil)
+			path := "/tasks/" + t.ID
+			if t.Status == "done" {
+				path += "?force=1"
+			}
+			m.confirmTask("Delete", "deleted", "DELETE", path, t, nil)
 			return m, nil, true
 		case "x":
 			if t.Status == "done" {
