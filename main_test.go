@@ -1631,7 +1631,7 @@ func TestGetTask(t *testing.T) {
 
 func TestValidatePositiveLease(t *testing.T) {
 	for _, val := range []string{"0", "-5"} {
-		_, err := parseFlags([]string{"-lease", val})
+		_, err := parseFlags([]string{"-lease", val}, io.Discard, io.Discard)
 		if err == nil {
 			t.Fatalf("expected -lease %s to fail, but got nil error", val)
 		}
@@ -1640,7 +1640,7 @@ func TestValidatePositiveLease(t *testing.T) {
 		}
 	}
 
-	cfg, err := parseFlags([]string{"-lease", "60"})
+	cfg, err := parseFlags([]string{"-lease", "60"}, io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error for valid lease: %v", err)
 	}
@@ -1651,7 +1651,7 @@ func TestValidatePositiveLease(t *testing.T) {
 
 func TestValidateEmptyDBAndAddr(t *testing.T) {
 	for _, val := range []string{"", " ", "\t", " \n "} {
-		_, err := parseFlags([]string{"-db", val})
+		_, err := parseFlags([]string{"-db", val}, io.Discard, io.Discard)
 		if err == nil {
 			t.Fatalf("expected -db %q to fail, but got nil error", val)
 		}
@@ -1659,7 +1659,7 @@ func TestValidateEmptyDBAndAddr(t *testing.T) {
 			t.Fatalf("expected error for -db %q to be 'database path cannot be empty', got: %v", val, err)
 		}
 
-		_, err = parseFlags([]string{"-addr", val})
+		_, err = parseFlags([]string{"-addr", val}, io.Discard, io.Discard)
 		if err == nil {
 			t.Fatalf("expected -addr %q to fail, but got nil error", val)
 		}
@@ -1668,7 +1668,7 @@ func TestValidateEmptyDBAndAddr(t *testing.T) {
 		}
 	}
 
-	cfg, err := parseFlags([]string{"-db", "  custom.db  ", "-addr", "  :9090  "})
+	cfg, err := parseFlags([]string{"-db", "  custom.db  ", "-addr", "  :9090  "}, io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("unexpected error for valid flags: %v", err)
 	}
@@ -1682,7 +1682,7 @@ func TestValidateEmptyDBAndAddr(t *testing.T) {
 
 func TestCLIUsageAndUnexpectedArgs(t *testing.T) {
 	var buf bytes.Buffer
-	_, err := parseFlags([]string{"-h"}, &buf)
+	_, err := parseFlags([]string{"-h"}, &buf, io.Discard)
 	if !errors.Is(err, flag.ErrHelp) {
 		t.Fatalf("expected ErrHelp for -h, got: %v", err)
 	}
@@ -1695,14 +1695,14 @@ func TestCLIUsageAndUnexpectedArgs(t *testing.T) {
 	}
 
 	for _, flagArg := range []string{"-help", "--help"} {
-		_, err := parseFlags([]string{flagArg}, io.Discard)
+		_, err := parseFlags([]string{flagArg}, io.Discard, io.Discard)
 		if !errors.Is(err, flag.ErrHelp) {
 			t.Fatalf("expected ErrHelp for %q, got: %v", flagArg, err)
 		}
 	}
 
 	for _, extra := range []string{"unexpected-arg", "start", ":8080", "help"} {
-		_, err := parseFlags([]string{extra}, io.Discard)
+		_, err := parseFlags([]string{extra}, io.Discard, io.Discard)
 		if err == nil {
 			t.Fatalf("expected error for unexpected arg %q, got nil", extra)
 		}
@@ -1712,13 +1712,54 @@ func TestCLIUsageAndUnexpectedArgs(t *testing.T) {
 	}
 
 	for _, extra := range []string{"unexpected-arg", "start"} {
-		_, err := parseFlags([]string{"-addr", ":9090", extra}, io.Discard)
+		_, err := parseFlags([]string{"-addr", ":9090", extra}, io.Discard, io.Discard)
 		if err == nil {
 			t.Fatalf("expected error for trailing unexpected arg %q, got nil", extra)
 		}
 		if !strings.Contains(err.Error(), "unexpected argument") {
 			t.Fatalf("expected 'unexpected argument' in error for %q, got: %v", extra, err)
 		}
+	}
+}
+
+func TestCLIHelpGoesToStdout(t *testing.T) {
+	for _, arg := range []string{"-h", "-help", "--help"} {
+		var stdout, stderr bytes.Buffer
+		_, err := parseFlags([]string{arg}, &stdout, &stderr)
+		if !errors.Is(err, flag.ErrHelp) {
+			t.Fatalf("expected ErrHelp for %q, got: %v", arg, err)
+		}
+		if !strings.Contains(stdout.String(), "HTTP Endpoints") {
+			t.Fatalf("%q: expected usage on stdout, got: %q", arg, stdout.String())
+		}
+		if stderr.Len() > 0 {
+			t.Fatalf("%q: expected empty stderr, got: %q", arg, stderr.String())
+		}
+	}
+}
+
+func TestCLIFlagErrorsGoToStderr(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if _, err := parseFlags([]string{"-unknown"}, &stdout, &stderr); err == nil {
+		t.Fatalf("expected error for -unknown, got nil")
+	}
+	if stdout.Len() > 0 {
+		t.Fatalf("expected empty stdout for -unknown, got: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "not defined") {
+		t.Fatalf("expected 'not defined' on stderr, got: %q", stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if _, err := parseFlags([]string{"unexpected-arg"}, &stdout, &stderr); err == nil {
+		t.Fatalf("expected error for positional arg, got nil")
+	}
+	if stdout.Len() > 0 {
+		t.Fatalf("expected empty stdout for positional arg, got: %q", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "HTTP Endpoints") {
+		t.Fatalf("expected usage on stderr for positional arg, got: %q", stderr.String())
 	}
 }
 
@@ -3944,7 +3985,7 @@ func TestCORS(t *testing.T) {
 	}
 	defer db.Close()
 
-	cfgDef, err := parseFlags(nil)
+	cfgDef, err := parseFlags(nil, io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("default parseFlags failed: %v", err)
 	}
@@ -3952,7 +3993,7 @@ func TestCORS(t *testing.T) {
 		t.Fatalf("expected empty default cors-origin, got %q", cfgDef.corsOrigin)
 	}
 
-	cfgNamed, err := parseFlags([]string{"-cors-origin", "https://allowed.example"})
+	cfgNamed, err := parseFlags([]string{"-cors-origin", "https://allowed.example"}, io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("parseFlags with -cors-origin failed: %v", err)
 	}
@@ -4965,7 +5006,7 @@ func TestBackupOnline(t *testing.T) {
 	}
 
 	cliBackupPath := filepath.Join(dir, "backup-cli.db")
-	cfg, err := parseFlags([]string{"-db", dbPath, "-backup", cliBackupPath})
+	cfg, err := parseFlags([]string{"-db", dbPath, "-backup", cliBackupPath}, io.Discard, io.Discard)
 	if err != nil {
 		t.Fatalf("parseFlags failed: %v", err)
 	}

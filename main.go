@@ -1660,14 +1660,10 @@ Examples:
 `)
 }
 
-func parseFlags(args []string, out ...io.Writer) (config, error) {
+func parseFlags(args []string, stdout, stderr io.Writer) (config, error) {
 	var cfg config
 	fs := flag.NewFlagSet("taskd", flag.ContinueOnError)
-	var w io.Writer = os.Stderr
-	if len(out) > 0 && out[0] != nil {
-		w = out[0]
-		fs.SetOutput(w)
-	}
+	fs.SetOutput(stderr)
 	fs.Usage = func() {}
 	fs.StringVar(&cfg.dbPath, "db", "taskd.db", "database path")
 	fs.StringVar(&cfg.addr, "addr", ":8080", "listen address")
@@ -1676,18 +1672,14 @@ func parseFlags(args []string, out ...io.Writer) (config, error) {
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", "", "allowed CORS origin")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			target := io.Writer(os.Stdout)
-			if len(out) > 0 && out[0] != nil {
-				target = out[0]
-			}
-			printUsage(fs, target)
+			printUsage(fs, stdout)
 		} else {
-			printUsage(fs, w)
+			printUsage(fs, stderr)
 		}
 		return cfg, err
 	}
 	if len(fs.Args()) > 0 {
-		printUsage(fs, w)
+		printUsage(fs, stderr)
 		return cfg, fmt.Errorf("unexpected argument: %s", fs.Args()[0])
 	}
 	cfg.dbPath = strings.TrimSpace(cfg.dbPath)
@@ -1783,7 +1775,7 @@ func backupDB(db *sql.DB, path string) error {
 }
 
 func run(args []string) error {
-	cfg, err := parseFlags(args)
+	cfg, err := parseFlags(args, os.Stdout, os.Stderr)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
