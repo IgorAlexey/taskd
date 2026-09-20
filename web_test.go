@@ -1039,3 +1039,30 @@ func TestWebUITaskEditCtrlS(t *testing.T) {
 		}
 	}
 }
+func TestWebUIResetFilters(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="reset-filters-btn"`) {
+		t.Fatal("expected #reset-filters-btn in web/index.html")
+	}
+	if !strings.Contains(ui, `onclick="resetFilters()"`) {
+		t.Fatal("expected onclick=\"resetFilters()\" in web/index.html")
+	}
+	if !strings.Contains(ui, `hidden>Reset Filters</button>`) {
+		t.Fatal("expected Reset Filters button with hidden attribute in web/index.html")
+	}
+	if !strings.Contains(ui, "function resetFilters()") {
+		t.Fatal("expected function resetFilters() in web/index.html")
+	}
+	if !strings.Contains(ui, "function hasActiveFilters()") {
+		t.Fatal("expected function hasActiveFilters() in web/index.html")
+	}
+	if !strings.Contains(ui, "function updateResetFiltersButton()") {
+		t.Fatal("expected function updateResetFiltersButton() in web/index.html")
+	}
+	if !strings.Contains(ui, "btn.hidden = !hasActiveFilters()") {
+		t.Fatal("expected updateResetFiltersButton to toggle hidden based on active filters")
+	}
+	if !strings.Contains(ui, "syncURL(false)") {
+		t.Fatal("expected resetFilters to synchronize URL")
+	}
+}

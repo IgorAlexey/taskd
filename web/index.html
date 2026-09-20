@@ -885,6 +885,7 @@
         <label for="filter-search" class="text-muted text-sm">Search tasks:</label>
         <input type="text" id="filter-search" aria-label="Search tasks" oninput="onSearchInput()" class="input-sm">
         <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" class="btn-sm">Clear</button>
+        <button type="button" id="reset-filters-btn" onclick="resetFilters()" aria-label="Reset filters" class="btn-sm" hidden>Reset Filters</button>
       </div>
       <div id="queue" tabindex="-1" class="overflow-x-auto">
         <table>
@@ -1102,6 +1103,7 @@
     let selectedTaskId = null;
     let refreshTimer = null;
     let refreshInFlight = false;
+    let searchDebounceTimer = null;
     const REFRESH_MS = 3000;
     const RETRY_MAX_MS = 30000;
     const FETCH_TIMEOUT_MS = 10000;
@@ -1389,6 +1391,7 @@
       if (!selectedTaskId) resetTaskDetails();
       else loadTaskDetails(selectedTaskId);
       syncFilterProjectToForm();
+      updateResetFiltersButton();
     }
 
     function onFilterChange() {
@@ -1403,12 +1406,55 @@
       syncURL(false);
       syncFilterProjectToForm();
       updateKickBuriedButton();
+      updateResetFiltersButton();
       loadTasks();
       loadStats();
     }
     function filterByStatus(status) {
       setStatusFilter(status);
       onFilterChange();
+    }
+
+    function hasActiveFilters() {
+      const projEl = document.getElementById('filter-project');
+      const project = pendingProject || (projEl ? projEl.value : '');
+      const status = getStatusFilter();
+      const prioEl = document.getElementById('filter-priority');
+      const priority = cleanPriority(prioEl ? prioEl.value : '');
+      const worker = getWorkerFilter();
+      const assetEl = document.getElementById('filter-asset-path');
+      const asset_path = assetEl ? assetEl.value.trim() : '';
+      const searchEl = document.getElementById('filter-search');
+      const q = searchEl ? searchEl.value.trim() : '';
+      return Boolean(project || status || priority || worker !== null || asset_path || q);
+    }
+
+    function updateResetFiltersButton() {
+      const btn = document.getElementById('reset-filters-btn');
+      if (btn) btn.hidden = !hasActiveFilters();
+    }
+
+    function resetFilters() {
+      const projEl = document.getElementById('filter-project');
+      if (projEl) projEl.value = '';
+      pendingProject = '';
+      setStatusFilter('');
+      const prioEl = document.getElementById('filter-priority');
+      if (prioEl) prioEl.value = '';
+      const workerEl = document.getElementById('filter-worker');
+      if (workerEl) workerEl.selectedIndex = 0;
+      const assetEl = document.getElementById('filter-asset-path');
+      if (assetEl) assetEl.value = '';
+      const searchEl = document.getElementById('filter-search');
+      if (searchEl) searchEl.value = '';
+      if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+      currentPage = 1;
+      syncFilterProjectToForm();
+      updateKickBuriedButton();
+      updateResetFiltersButton();
+      syncURL(false);
+      loadTasks();
+      loadStats();
     }
 
     function logFailure(msg, err) {
@@ -3397,8 +3443,8 @@
       }
     }
 
-    let searchDebounceTimer = null;
     function onSearchInput() {
+      updateResetFiltersButton();
       if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
       searchDebounceTimer = setTimeout(() => {
         currentPage = 1;
@@ -3412,6 +3458,7 @@
       if (el) {
         el.value = '';
         if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+        updateResetFiltersButton();
         currentPage = 1;
         syncURL(false);
         loadTasks();
