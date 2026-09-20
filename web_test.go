@@ -674,3 +674,19 @@ func TestWebUIEditTaskPrefill(t *testing.T) {
 		t.Errorf("expected body %q, got %q", "Fix the widget layout", got.Body)
 	}
 }
+
+func TestWebUICopyPrimitivesButton(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="copy-primitives-btn"`) {
+		t.Fatal("expected #copy-primitives-btn in web/index.html")
+	}
+	if !strings.Contains(ui, `id="detail-task-prim-row"`) {
+		t.Fatal("expected #detail-task-prim-row in web/index.html")
+	}
+	if !strings.Contains(ui, `copyToClipboard(primStr, copyPrimBtn, 'primitives')`) {
+		t.Fatal("expected copyToClipboard call for primitives in web/index.html")
+	}
+	if !strings.Contains(ui, `primRow.hidden = false`) {
+		t.Fatal("expected primRow visibility toggled in web/index.html")
+	}
+}

@@ -1966,7 +1966,15 @@
             <label for="edit-task-body" class="field-label">Body</label>
             <textarea id="edit-task-body"></textarea>
           </div>
-          <div class="field" id="edit-task-prim-row" hidden><span class="field-label">Primitives</span><pre id="edit-task-prim"></pre></div>
+          <div class="field" id="edit-task-prim-row" hidden>
+            <div class="field-header">
+              <span class="field-label">Primitives</span>
+              <span class="field-actions">
+                <button type="button" id="copy-primitives-btn" class="copy-btn">Copy</button>
+              </span>
+            </div>
+            <pre id="edit-task-prim"></pre>
+          </div>
           <div class="cluster task-actions">
             <button type="button" id="save-task-btn" data-variant="primary" onclick="saveTaskEdit()">Save</button>
             <button type="button" id="cancel-task-btn" data-variant="secondary" onclick="cancelTaskEdit()">Cancel</button>
@@ -2026,6 +2034,8 @@
         }
         const copyBtn = document.getElementById('copy-id-btn');
         if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
+        const copyPrimBtn = document.getElementById('copy-primitives-btn');
+        if (copyPrimBtn) copyPrimBtn.onclick = () => copyToClipboard(primStr, copyPrimBtn, 'primitives');
         return;
       }
       pane.innerHTML = `
@@ -2067,7 +2077,15 @@
           </div>
           <pre id="detail-task-body"></pre>
         </div>
-        <div class="field" id="detail-task-prim-row" hidden><span class="field-label">Primitives</span><pre id="detail-task-prim"></pre></div>
+        <div class="field" id="detail-task-prim-row" hidden>
+          <div class="field-header">
+            <span class="field-label">Primitives</span>
+            <span class="field-actions">
+              <button type="button" id="copy-primitives-btn" class="copy-btn">Copy</button>
+            </span>
+          </div>
+          <pre id="detail-task-prim"></pre>
+        </div>
         <div class="task-actions">
           ${t.status !== 'done' ? `<button type="button" id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}>Edit Task</button>` : ''}
           ${t.status === 'leased' ? `
@@ -2162,6 +2180,8 @@
       if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
       const copyBodyBtn = document.getElementById('copy-body-btn');
       if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
+      const copyPrimBtn = document.getElementById('copy-primitives-btn');
+      if (copyPrimBtn) copyPrimBtn.onclick = () => copyToClipboard(primStr, copyPrimBtn, 'primitives');
       const expandBtn = document.getElementById('expand-body-btn');
       if (expandBtn) expandBtn.onclick = () => expandBody(t.body || '');
       const dlg = document.getElementById('body-overlay');
