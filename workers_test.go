@@ -22,12 +22,12 @@ func TestWorkersProjectFilter(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	now := time.Now().Unix()
-	_, err = db.rw.Exec(`INSERT INTO tasks (id, project, status, body, worker, lease_expires, created_at) VALUES
-		('t1', 'foo', 'leased', 'b1', 'w1', ?, ?),
-		('t2', 'foo', 'done',   'b2', 'w2', NULL, ?),
-		('t3', 'foo', 'leased', 'b3', 'w3', ?, ?),
-		('t4', 'bar', 'leased', 'b4', 'w4', ?, ?),
-		('t5', 'bar', 'done',   'b5', 'w5', NULL, ?)`,
+	_, err = db.rw.Exec(`INSERT INTO tasks (project, status, body, worker, lease_expires, created_at) VALUES
+		('foo', 'leased', 'b1', 'w1', ?, ?),
+		('foo', 'done',   'b2', 'w2', NULL, ?),
+		('foo', 'leased', 'b3', 'w3', ?, ?),
+		('bar', 'leased', 'b4', 'w4', ?, ?),
+		('bar', 'done',   'b5', 'w5', NULL, ?)`,
 		now+300, now,
 		now,
 		now-300, now,
@@ -110,12 +110,12 @@ func TestWorkersFilterStatus(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	now := time.Now().Unix()
-	_, err = db.rw.Exec(`INSERT INTO tasks (id, project, status, body, worker, lease_expires, created_at) VALUES
-		('t1', 'foo', 'leased', 'b1', 'w1', ?, ?),
-		('t2', 'foo', 'done',   'b2', 'w2', NULL, ?),
-		('t3', 'foo', 'leased', 'b3', 'w3', ?, ?),
-		('t4', 'bar', 'leased', 'b4', 'w4', ?, ?),
-		('t5', 'bar', 'done',   'b5', 'w5', NULL, ?)`,
+	_, err = db.rw.Exec(`INSERT INTO tasks (project, status, body, worker, lease_expires, created_at) VALUES
+		('foo', 'leased', 'b1', 'w1', ?, ?),
+		('foo', 'done',   'b2', 'w2', NULL, ?),
+		('foo', 'leased', 'b3', 'w3', ?, ?),
+		('bar', 'leased', 'b4', 'w4', ?, ?),
+		('bar', 'done',   'b5', 'w5', NULL, ?)`,
 		now+300, now,
 		now,
 		now-300, now,

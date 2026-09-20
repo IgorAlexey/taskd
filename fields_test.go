@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"testing"
 )
 
@@ -22,15 +23,21 @@ func TestGetTaskFields(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	createPayload := `{"id":"task-f1","project":"proj1","body":"line 1 summary\nline 2 details"}`
+	createPayload := `{"project":"proj1","body":"line 1 summary\nline 2 details"}`
 	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(createPayload))
 	if err != nil {
 		t.Fatalf("POST /tasks failed: %v", err)
 	}
-	resp.Body.Close()
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /tasks status %d", resp.StatusCode)
 	}
+	var created map[string]int64
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create failed: %v", err)
+	}
+	resp.Body.Close()
+	taskID := created["id"]
+	taskIDStr := strconv.FormatInt(taskID, 10)
 
 	claimPayload := `{"worker":"w1","project":"proj1"}`
 	resp, err = http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewBufferString(claimPayload))
@@ -42,9 +49,9 @@ func TestGetTaskFields(t *testing.T) {
 		t.Fatalf("claim status %d", resp.StatusCode)
 	}
 
-	resp, err = http.Get(srv.URL + "/tasks/task-f1?fields=id,status")
+	resp, err = http.Get(srv.URL + "/tasks/" + taskIDStr + "?fields=id,status")
 	if err != nil {
-		t.Fatalf("GET /tasks/task-f1?fields=id,status failed: %v", err)
+		t.Fatalf("GET /tasks/"+taskIDStr+"?fields=id,status failed: %v", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -66,14 +73,14 @@ func TestGetTaskFields(t *testing.T) {
 	if !reflect.DeepEqual(keys, expectedKeys) {
 		t.Fatalf("expected keys %v, got %v", expectedKeys, keys)
 	}
-	if m["id"] != "task-f1" {
-		t.Fatalf("expected id task-f1, got %v", m["id"])
+	if m["id"] != float64(taskID) {
+		t.Fatalf("expected id %d, got %v", taskID, m["id"])
 	}
 	if m["status"] != "leased" {
 		t.Fatalf("expected status leased, got %v", m["status"])
 	}
 
-	resp, err = http.Get(srv.URL + "/tasks/task-f1?columns=id,summary")
+	resp, err = http.Get(srv.URL + "/tasks/" + taskIDStr + "?columns=id,summary")
 	if err != nil {
 		t.Fatalf("GET with columns failed: %v", err)
 	}
@@ -88,16 +95,16 @@ func TestGetTaskFields(t *testing.T) {
 	if mSummary["summary"] != "line 1 summary" {
 		t.Fatalf("expected summary 'line 1 summary', got %v", mSummary["summary"])
 	}
-	if len(mSummary) != 2 || mSummary["id"] != "task-f1" {
+	if len(mSummary) != 2 || mSummary["id"] != float64(taskID) {
 		t.Fatalf("unexpected keys for columns alias: %v", mSummary)
 	}
 	badFieldURLs := []string{
-		srv.URL + "/tasks/task-f1?fields=id,invalid_field",
-		srv.URL + "/tasks/task-f1?fields=unknown",
-		srv.URL + "/tasks/task-f1?fields=notes",
-		srv.URL + "/tasks/task-f1?fields=",
-		srv.URL + "/tasks/task-f1?fields=   ",
-		srv.URL + "/tasks/task-f1?columns=invalid",
+		srv.URL + "/tasks/" + taskIDStr + "?fields=id,invalid_field",
+		srv.URL + "/tasks/" + taskIDStr + "?fields=unknown",
+		srv.URL + "/tasks/" + taskIDStr + "?fields=notes",
+		srv.URL + "/tasks/" + taskIDStr + "?fields=",
+		srv.URL + "/tasks/" + taskIDStr + "?fields=   ",
+		srv.URL + "/tasks/" + taskIDStr + "?columns=invalid",
 	}
 	for _, badURL := range badFieldURLs {
 		badResp, err := http.Get(badURL)
@@ -110,7 +117,7 @@ func TestGetTaskFields(t *testing.T) {
 		}
 	}
 
-	respUnknown, err := http.Get(srv.URL + "/tasks/task-f1?unknown=1")
+	respUnknown, err := http.Get(srv.URL + "/tasks/" + taskIDStr + "?unknown=1")
 	if err != nil {
 		t.Fatalf("GET unknown param failed: %v", err)
 	}

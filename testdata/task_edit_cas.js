@@ -41,7 +41,7 @@ const fetchStub = async (url, opts) => {
 const api = new Function(
   'document', 'location', 'history', 'window', 'fetch', 'console',
   'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'AbortSignal',
-  script + '\ncurrentTask = { id: "t1", version: 3, project: "proj", priority: 1, body: "task body" };\nreturn { saveTaskEdit };'
+  script + '\ncurrentTask = { id: 1, version: 3, project: "proj", priority: 1, body: "task body" };\nreturn { saveTaskEdit };'
 )(
   document, { pathname: '/ui', search: '', hash: '' },
   { pushState() {}, replaceState() {} }, { addEventListener() {} },

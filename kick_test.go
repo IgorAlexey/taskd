@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -24,8 +25,8 @@ func TestBulkKick(t *testing.T) {
 
 	for i := 0; i < 15; i++ {
 		_, err := db.rw.Exec(
-			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'test', 'buried', ?, 3, 2, 'w1', ?)",
-			"test-"+string(rune('a'+i)), "task", int64(1000+i),
+			"INSERT INTO tasks (project, status, body, priority, claim_count, worker, created_at) VALUES ('test', 'buried', ?, 3, 2, 'w1', ?)",
+			"task", int64(1000+i),
 		)
 		if err != nil {
 			t.Fatalf("insert test task %d failed: %v", i, err)
@@ -34,8 +35,8 @@ func TestBulkKick(t *testing.T) {
 
 	for i := 0; i < 3; i++ {
 		_, err := db.rw.Exec(
-			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'other', 'buried', ?, 3, 1, 'w2', ?)",
-			"other-"+string(rune('a'+i)), "task", int64(2000+i),
+			"INSERT INTO tasks (project, status, body, priority, claim_count, worker, created_at) VALUES ('other', 'buried', ?, 3, 1, 'w2', ?)",
+			"task", int64(2000+i),
 		)
 		if err != nil {
 			t.Fatalf("insert other task %d failed: %v", i, err)
@@ -192,8 +193,8 @@ func TestBulkKickWakesWaiters(t *testing.T) {
 
 	for i := 1; i <= 2; i++ {
 		_, err := db.rw.Exec(
-			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'wake-proj', 'buried', 'task', 3, 1, 'w1', ?)",
-			"wake-"+string(rune('0'+i)), int64(3000+i),
+			"INSERT INTO tasks (project, status, body, priority, claim_count, worker, created_at) VALUES ('wake-proj', 'buried', 'task', 3, 1, 'w1', ?)",
+			int64(3000+i),
 		)
 		if err != nil {
 			t.Fatalf("insert buried task failed: %v", err)
@@ -201,7 +202,7 @@ func TestBulkKickWakesWaiters(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	claimed := make(chan string, 2)
+	claimed := make(chan int64, 2)
 
 	for i := 1; i <= 2; i++ {
 		wg.Add(1)
@@ -218,9 +219,9 @@ func TestBulkKickWakesWaiters(t *testing.T) {
 				return
 			}
 			var item struct {
-				ID string `json:"id"`
+				ID int64 `json:"id"`
 			}
-			if err := json.NewDecoder(resp.Body).Decode(&item); err == nil && item.ID != "" {
+			if err := json.NewDecoder(resp.Body).Decode(&item); err == nil && item.ID > 0 {
 				claimed <- item.ID
 			}
 		}(workerName)
@@ -274,7 +275,7 @@ func TestBulkKickResetsPrimitives(t *testing.T) {
 	defer resp.Body.Close()
 
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created task: %v", err)
@@ -288,7 +289,7 @@ func TestBulkKickResetsPrimitives(t *testing.T) {
 	claimResp.Body.Close()
 
 	buryPayload := []byte(`{"worker":"w1","primitives":{"error":"oom"}}`)
-	buryResp, err := http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryPayload))
+	buryResp, err := http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryPayload))
 	if err != nil {
 		t.Fatalf("POST /tasks/{id}/bury failed: %v", err)
 	}
@@ -314,7 +315,7 @@ func TestBulkKickResetsPrimitives(t *testing.T) {
 		t.Fatalf("expected kicked 1, got %d", kickResult.Kicked)
 	}
 
-	getResp, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	getResp, err := http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("GET /tasks/{id} failed: %v", err)
 	}
@@ -342,7 +343,7 @@ func TestBulkKickResetsPrimitives(t *testing.T) {
 	claimResp2.Body.Close()
 
 	limitBuryPayload := []byte(`{"worker":"w1","primitives":{"error":"oom2"}}`)
-	buryResp2, err := http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(limitBuryPayload))
+	buryResp2, err := http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(limitBuryPayload))
 	if err != nil {
 		t.Fatalf("POST /tasks/{id}/bury 2 failed: %v", err)
 	}
@@ -354,7 +355,7 @@ func TestBulkKickResetsPrimitives(t *testing.T) {
 	}
 	defer kickLimitResp.Body.Close()
 
-	getResp2, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	getResp2, err := http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("GET /tasks/{id} 2 failed: %v", err)
 	}

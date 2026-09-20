@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -25,7 +26,7 @@ func TestBuryAcceptsLapsedLeaseWhileUnclaimed(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -49,7 +50,7 @@ func TestBuryAcceptsLapsedLeaseWhileUnclaimed(t *testing.T) {
 	}
 
 	buryBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil {
 		t.Fatalf("bury task failed: %v", err)
 	}
@@ -58,14 +59,14 @@ func TestBuryAcceptsLapsedLeaseWhileUnclaimed(t *testing.T) {
 		t.Fatalf("bury status = %d, want 204", resp.StatusCode)
 	}
 
-	respGet, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	respGet, err := http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
 	defer respGet.Body.Close()
 
 	var item struct {
-		ID           string `json:"id"`
+		ID           int64  `json:"id"`
 		Status       string `json:"status"`
 		Worker       string `json:"worker"`
 		LeaseExpires int64  `json:"lease_expires"`
@@ -100,7 +101,7 @@ func TestBuryAfterTakeoverNamesTheHolder(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -124,7 +125,7 @@ func TestBuryAfterTakeoverNamesTheHolder(t *testing.T) {
 	}
 
 	claim2Body, _ := json.Marshal(map[string]string{"worker": "w2"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/claim", "application/json", bytes.NewReader(claim2Body))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/claim", srv.URL, created.ID), "application/json", bytes.NewReader(claim2Body))
 	if err != nil {
 		t.Fatalf("claim 2 failed: %v", err)
 	}
@@ -135,7 +136,7 @@ func TestBuryAfterTakeoverNamesTheHolder(t *testing.T) {
 	resp.Body.Close()
 
 	buryBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil {
 		t.Fatalf("bury failed: %v", err)
 	}
@@ -172,7 +173,7 @@ func TestBuryWithMatchingClaimCountOnLapsedLease(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -204,7 +205,7 @@ func TestBuryWithMatchingClaimCountOnLapsedLease(t *testing.T) {
 		ClaimCount: &claimCount,
 	}
 	buryBody, _ := json.Marshal(buryReq)
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil {
 		t.Fatalf("bury task failed: %v", err)
 	}
@@ -230,7 +231,7 @@ func TestBuryFromSupersededGenerationIsRefused(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -254,7 +255,7 @@ func TestBuryFromSupersededGenerationIsRefused(t *testing.T) {
 	}
 
 	claim2Body, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/claim", "application/json", bytes.NewReader(claim2Body))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/claim", srv.URL, created.ID), "application/json", bytes.NewReader(claim2Body))
 	if err != nil {
 		t.Fatalf("claim 2 failed: %v", err)
 	}
@@ -273,7 +274,7 @@ func TestBuryFromSupersededGenerationIsRefused(t *testing.T) {
 		ClaimCount: &claimCount,
 	}
 	buryBody, _ := json.Marshal(buryReq)
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil {
 		t.Fatalf("bury failed: %v", err)
 	}
@@ -310,7 +311,7 @@ func TestBuryPrimitives(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -329,7 +330,7 @@ func TestBuryPrimitives(t *testing.T) {
 		"worker":     "w1",
 		"primitives": map[string]string{"error": "compiler crash"},
 	})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil {
 		t.Fatalf("bury task failed: %v", err)
 	}
@@ -338,7 +339,7 @@ func TestBuryPrimitives(t *testing.T) {
 		t.Fatalf("bury status = %d, want 204", resp.StatusCode)
 	}
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
@@ -361,7 +362,7 @@ func TestBuryPrimitives(t *testing.T) {
 		t.Fatalf("primitives = %s, want compiler crash", string(item.Primitives))
 	}
 
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/kick", "application/json", nil)
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/kick", srv.URL, created.ID), "application/json", nil)
 	if err != nil {
 		t.Fatalf("kick task failed: %v", err)
 	}
@@ -370,7 +371,7 @@ func TestBuryPrimitives(t *testing.T) {
 		t.Fatalf("kick status = %d, want 204", resp.StatusCode)
 	}
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get kicked task failed: %v", err)
 	}
@@ -393,7 +394,7 @@ func TestBuryPrimitives(t *testing.T) {
 	resp.Body.Close()
 
 	buryNoPrim, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryNoPrim))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryNoPrim))
 	if err != nil {
 		t.Fatalf("bury without primitives failed: %v", err)
 	}
@@ -402,7 +403,7 @@ func TestBuryPrimitives(t *testing.T) {
 		t.Fatalf("bury status = %d, want 204", resp.StatusCode)
 	}
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get reburied task failed: %v", err)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -111,48 +112,6 @@ func TestValidationErrorsDetailed(t *testing.T) {
 		}
 	})
 
-	t.Run("post reserved id claim", func(t *testing.T) {
-		payload := `{"project":"p","body":"b","id":"claim"}`
-		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(payload))
-		if err != nil {
-			t.Fatalf("POST failed: %v", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", resp.StatusCode)
-		}
-		var apiErr apiError
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			t.Fatalf("decode failed: %v", err)
-		}
-		if !strings.Contains(apiErr.Error, "reserved") {
-			t.Fatalf("expected error saying id is reserved, got %q", apiErr.Error)
-		}
-	})
-
-	t.Run("post overlength id names 128", func(t *testing.T) {
-		longID := strings.Repeat("a", 129)
-		payload := `{"project":"p","body":"b","id":"` + longID + `"}`
-		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(payload))
-		if err != nil {
-			t.Fatalf("POST failed: %v", err)
-		}
-		defer resp.Body.Close()
-		if resp.StatusCode != http.StatusBadRequest {
-			t.Fatalf("status = %d, want 400", resp.StatusCode)
-		}
-		var apiErr apiError
-		if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
-			t.Fatalf("decode failed: %v", err)
-		}
-		if !strings.Contains(apiErr.Error, "128") {
-			t.Fatalf("expected error naming 128, got %q", apiErr.Error)
-		}
-		if strings.Contains(apiErr.Error, longID) {
-			t.Fatalf("error must not echo unbounded overlength id")
-		}
-	})
-
 	t.Run("post overlength project names 64", func(t *testing.T) {
 		longProj := strings.Repeat("p", 65)
 		payload := `{"project":"` + longProj + `","body":"b"}`
@@ -236,7 +195,7 @@ func TestPatchValidationFieldErrors(t *testing.T) {
 	}
 	defer createResp.Body.Close()
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created task failed: %v", err)
@@ -254,7 +213,7 @@ func TestPatchValidationFieldErrors(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+created.ID, strings.NewReader(tc.payload))
+			req, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID), strings.NewReader(tc.payload))
 			if err != nil {
 				t.Fatalf("new request failed: %v", err)
 			}
@@ -332,10 +291,6 @@ func TestValidationProjectCharacters(t *testing.T) {
 			fn:   func() (string, bool) { return checkProject("p 1") },
 			want: `invalid project "p 1": must contain only [a-zA-Z0-9._-]`,
 		},
-		{
-			fn:   func() (string, bool) { return checkTaskID("bad id") },
-			want: `invalid id "bad id": must contain only [a-zA-Z0-9._-]`,
-		},
 	}
 	for _, tc := range cases {
 		msg, ok := tc.fn()
@@ -345,5 +300,101 @@ func TestValidationProjectCharacters(t *testing.T) {
 		if msg != tc.want {
 			t.Fatalf("got %q, want %q", msg, tc.want)
 		}
+	}
+}
+
+func TestCreateRejectsClientID(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	cases := []struct {
+		name        string
+		contentType string
+		payload     string
+	}{
+		{
+			name:        "JSON with text id",
+			contentType: "application/json",
+			payload:     `{"id":"custom-id","project":"p","body":"test"}`,
+		},
+		{
+			name:        "JSON with number id",
+			contentType: "application/json",
+			payload:     `{"id":123,"project":"p","body":"test"}`,
+		},
+		{
+			name:        "JSON batch with id",
+			contentType: "application/json",
+			payload:     `[{"project":"p","body":"test1"},{"id":"custom-id","project":"p","body":"test2"}]`,
+		},
+		{
+			name:        "Form with id",
+			contentType: "application/x-www-form-urlencoded",
+			payload:     "project=p&body=test&id=custom-id",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Post(srv.URL+"/tasks", tc.contentType, strings.NewReader(tc.payload))
+			if err != nil {
+				t.Fatalf("POST /tasks failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+			var apiErr apiError
+			if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+				t.Fatalf("decode failed: %v", err)
+			}
+			if apiErr.Error != "id is assigned by the server" || apiErr.Field != "id" {
+				t.Fatalf("got error=%q field=%q, want error=%q field=%q", apiErr.Error, apiErr.Field, "id is assigned by the server", "id")
+			}
+		})
+	}
+}
+
+func TestPathIDNotFound(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	paths := []string{
+		"/tasks/abc",
+		"/tasks/0",
+		"/tasks/-1",
+		"/tasks/99999",
+	}
+
+	for _, p := range paths {
+		t.Run(p, func(t *testing.T) {
+			resp, err := http.Get(srv.URL + p)
+			if err != nil {
+				t.Fatalf("GET %s failed: %v", p, err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusNotFound {
+				t.Fatalf("GET %s status = %d, want 404", p, resp.StatusCode)
+			}
+			var apiErr apiError
+			if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+				t.Fatalf("decode failed: %v", err)
+			}
+			if apiErr.Error != "task not found" {
+				t.Fatalf("GET %s error = %q, want 'task not found'", p, apiErr.Error)
+			}
+		})
 	}
 }

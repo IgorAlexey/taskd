@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -23,24 +24,23 @@ func TestPurgeDoneTasks(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	t.Cleanup(srv.Close)
 
-	create := func(id, project, status string) {
+	create := func(id int64, project, status string) {
 		t.Helper()
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (id, project, status, body, priority, created_at) VALUES (?, ?, ?, ?, 3, unixepoch())",
-			id, project, status, "task "+id,
+			id, project, status, fmt.Sprintf("task %d", id),
 		)
 		if err != nil {
-			t.Fatalf("insert task %s failed: %v", id, err)
+			t.Fatalf("insert task %d failed: %v", id, err)
 		}
 	}
 
-	create("d1", "p1", "done")
-	create("d2", "p1", "done")
-	create("d3", "p2", "done")
-	create("p1", "p1", "pending")
-	create("l1", "p1", "leased")
-	create("b1", "p1", "buried")
-
+	create(1, "p1", "done")
+	create(2, "p1", "done")
+	create(3, "p2", "done")
+	create(4, "p1", "pending")
+	create(5, "p1", "leased")
+	create(6, "p1", "buried")
 	resp, err := http.Post(srv.URL+"/tasks/purge?project=p1", "application/json", bytes.NewReader(nil))
 	if err != nil {
 		t.Fatalf("POST /tasks/purge failed: %v", err)
@@ -62,7 +62,7 @@ func TestPurgeDoneTasks(t *testing.T) {
 	}
 
 	var count int
-	if err := db.ro.QueryRow("SELECT count(*) FROM tasks WHERE id IN ('d1', 'd2')").Scan(&count); err != nil {
+	if err := db.ro.QueryRow("SELECT count(*) FROM tasks WHERE id IN (1, 2)").Scan(&count); err != nil {
 		t.Fatalf("count query failed: %v", err)
 	}
 	if count != 0 {
@@ -240,20 +240,20 @@ func TestPurgeJSONBody(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	t.Cleanup(srv.Close)
 
-	create := func(id, project, status string) {
+	create := func(id int64, project, status string) {
 		t.Helper()
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (id, project, status, body, priority, created_at) VALUES (?, ?, ?, ?, 3, unixepoch())",
-			id, project, status, "task "+id,
+			id, project, status, fmt.Sprintf("task %d", id),
 		)
 		if err != nil {
-			t.Fatalf("insert task %s failed: %v", id, err)
+			t.Fatalf("insert task %d failed: %v", id, err)
 		}
 	}
 
-	create("d1", "p1", "done")
-	create("d2", "p1", "done")
-	create("d3", "p2", "done")
+	create(1, "p1", "done")
+	create(2, "p1", "done")
+	create(3, "p2", "done")
 
 	reqBody := `{"project":"p1"}`
 	resp, err := http.Post(srv.URL+"/tasks/purge", "application/json", strings.NewReader(reqBody))

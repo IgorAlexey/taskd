@@ -24,9 +24,9 @@ function createRow(id) {
   return row;
 }
 
-const tr1 = createRow('task-1');
-const tr2 = createRow('task-2');
-const tr3 = createRow('task-3');
+const tr1 = createRow(1);
+const tr2 = createRow(2);
+const tr3 = createRow(3);
 tr1.nextElementSibling = tr2;
 tr2.previousElementSibling = tr1;
 tr2.nextElementSibling = tr3;
@@ -55,12 +55,12 @@ const document = {
 };
 
 const fetchStub = async (url) => {
-  if (url.includes('/tasks/task-1')) {
+  if (url.includes('/tasks/1')) {
     return {
       ok: true,
       status: 200,
       headers: { get: () => null },
-      text: async () => JSON.stringify({ id: 'task-1', project: 'p', priority: 1 }),
+      text: async () => JSON.stringify({ id: 1, project: 'p', priority: 1 }),
     };
   }
   return { ok: true, status: 200, headers: { get: () => null }, text: async () => '{}' };

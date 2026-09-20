@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -399,7 +400,7 @@ func TestClaimWaitReceivesReleasedTask(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
@@ -456,7 +457,7 @@ func TestClaimWaitReceivesReleasedTask(t *testing.T) {
 	}
 
 	relBody, _ := json.Marshal(map[string]string{"worker": "holder"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/release", "application/json", bytes.NewReader(relBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/release", srv.URL, created.ID), "application/json", bytes.NewReader(relBody))
 	if err != nil {
 		t.Fatalf("release failed: %v", err)
 	}
@@ -507,7 +508,7 @@ func TestClaimWaitReceivesSweptTask(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
@@ -596,7 +597,7 @@ func TestClaimWaitReceivesKickedTask(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	_ = json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
@@ -609,7 +610,7 @@ func TestClaimWaitReceivesKickedTask(t *testing.T) {
 	resp.Body.Close()
 
 	buryBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil {
 		t.Fatalf("bury failed: %v", err)
 	}
@@ -659,7 +660,7 @@ func TestClaimWaitReceivesKickedTask(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/kick", "application/json", bytes.NewReader([]byte("{}")))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/kick", srv.URL, created.ID), "application/json", bytes.NewReader([]byte("{}")))
 	if err != nil {
 		t.Fatalf("kick failed: %v", err)
 	}
@@ -755,7 +756,7 @@ func TestClaimWaitReceivesPatchedProjectTask(t *testing.T) {
 		t.Fatalf("create status = %d, want 201", resp.StatusCode)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created task failed: %v", err)
@@ -803,7 +804,7 @@ func TestClaimWaitReceivesPatchedProjectTask(t *testing.T) {
 	}
 
 	patchBody, _ := json.Marshal(map[string]string{"project": "projB"})
-	patchReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, srv.URL+"/tasks/"+created.ID, bytes.NewReader(patchBody))
+	patchReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID), bytes.NewReader(patchBody))
 	if err != nil {
 		t.Fatalf("new request failed: %v", err)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -137,26 +139,46 @@ func TestStatsWorkerFilter(t *testing.T) {
 			t.Fatalf("POST %s status: %d", endpoint, resp.StatusCode)
 		}
 	}
+	postTask := func(body any) int64 {
+		t.Helper()
+		data, err := json.Marshal(body)
+		if err != nil {
+			t.Fatalf("marshal failed: %v", err)
+		}
+		resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(data))
+		if err != nil {
+			t.Fatalf("POST /tasks failed: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("POST /tasks status: %d", resp.StatusCode)
+		}
+		var created map[string]int64
+		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+			t.Fatalf("decode failed: %v", err)
+		}
+		return created["id"]
+	}
 
-	postJSON("/tasks", map[string]string{"id": "t1", "body": "task 1", "project": "p1"})
-	postJSON("/tasks/t1/claim", map[string]string{"worker": "w1"})
-	postJSON("/tasks/t1/done", map[string]string{"worker": "w1"})
+	t1 := postTask(map[string]string{"body": "task 1", "project": "p1"})
+	postJSON(fmt.Sprintf("/tasks/%d/claim", t1), map[string]string{"worker": "w1"})
+	postJSON(fmt.Sprintf("/tasks/%d/done", t1), map[string]string{"worker": "w1"})
 
-	postJSON("/tasks", map[string]string{"id": "t2", "body": "task 2", "project": "p1"})
-	postJSON("/tasks/t2/claim", map[string]string{"worker": "w1"})
+	t2 := postTask(map[string]string{"body": "task 2", "project": "p1"})
+	postJSON(fmt.Sprintf("/tasks/%d/claim", t2), map[string]string{"worker": "w1"})
 
-	postJSON("/tasks", map[string]string{"id": "t3", "body": "task 3", "project": "p2"})
-	postJSON("/tasks/t3/claim", map[string]string{"worker": "w1"})
+	t3 := postTask(map[string]string{"body": "task 3", "project": "p2"})
+	postJSON(fmt.Sprintf("/tasks/%d/claim", t3), map[string]string{"worker": "w1"})
 
-	postJSON("/tasks", map[string]string{"id": "t4", "body": "task 4", "project": "p1"})
-	postJSON("/tasks/t4/claim", map[string]string{"worker": "w2"})
+	t4 := postTask(map[string]string{"body": "task 4", "project": "p1"})
+	postJSON(fmt.Sprintf("/tasks/%d/claim", t4), map[string]string{"worker": "w2"})
 
-	postJSON("/tasks", map[string]string{"id": "t5", "body": "task 5", "project": "p1"})
+	t5 := postTask(map[string]string{"body": "task 5", "project": "p1"})
+	_ = t5
 
-	postJSON("/tasks", map[string]string{"id": "t6", "body": "task 6", "project": "p1"})
-	postJSON("/tasks/t6/claim", map[string]string{"worker": "w1"})
-	postJSON("/tasks/t6/bury", map[string]string{"worker": "w1"})
-
+	t6 := postTask(map[string]string{"body": "task 6", "project": "p1"})
+	postJSON(fmt.Sprintf("/tasks/%d/claim", t6), map[string]string{"worker": "w1"})
+	postJSON(fmt.Sprintf("/tasks/%d/bury", t6), map[string]string{"worker": "w1"})
 	getStats := func(query string) statsResponse {
 		t.Helper()
 		resp, err := http.Get(srv.URL + "/stats" + query)
@@ -235,14 +257,15 @@ func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
 		t.Fatalf("create task status: %d", resp.StatusCode)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
 		t.Fatalf("decode created: %v", err)
 	}
 	resp.Body.Close()
-	if want := "/tasks/" + created.ID; resp.Header.Get("Location") != want {
+	createdPath := fmt.Sprintf("/tasks/%d", created.ID)
+	if want := createdPath; resp.Header.Get("Location") != want {
 		t.Fatalf("Location = %q, want %q", resp.Header.Get("Location"), want)
 	}
 
@@ -264,7 +287,7 @@ func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
 		t.Fatalf("expire lease: %v", err)
 	}
 
-	getResp, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	getResp, err := http.Get(srv.URL + createdPath)
 	if err != nil {
 		t.Fatalf("get task: %v", err)
 	}
@@ -372,7 +395,7 @@ func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
 	}
 	claim2Resp.Body.Close()
 	if claimed2.ID != created.ID || claimed2.Worker != "w2" || claimed2.ClaimCount != 2 {
-		t.Fatalf("reclaimed task: %+v, want ID=%s Worker=w2 ClaimCount=2", claimed2, created.ID)
+		t.Fatalf("reclaimed task: %+v, want ID=%d Worker=w2 ClaimCount=2", claimed2, created.ID)
 	}
 }
 
@@ -394,9 +417,9 @@ func TestStatsPendingAgreesWithStatusPendingQuery(t *testing.T) {
 			t.Fatalf("post task: %v", err)
 		}
 		defer resp.Body.Close()
-		var res struct{ ID string }
+		var res struct{ ID int64 }
 		json.NewDecoder(resp.Body).Decode(&res)
-		return res.ID
+		return strconv.FormatInt(res.ID, 10)
 	}
 
 	idPending1 := postTask("pending 1")
@@ -501,7 +524,7 @@ func TestSweepLapsedBuriesExhaustedClaims(t *testing.T) {
 	createReq, _ := http.NewRequest(http.MethodPost, srv.URL+"/tasks", strings.NewReader(`{"body":"task-max","project":"p"}`))
 	createReq.Header.Set("Content-Type", "application/json")
 	resp, _ := http.DefaultClient.Do(createReq)
-	var created struct{ ID string }
+	var created struct{ ID int64 }
 	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
 
@@ -514,7 +537,7 @@ func TestSweepLapsedBuriesExhaustedClaims(t *testing.T) {
 		t.Fatalf("expire lease: %v", err)
 	}
 
-	if err := sweepLapsed(db.rw, 1, ""); err != nil {
+	if err := sweepLapsed(db.rw, 1, 0); err != nil {
 		t.Fatalf("sweepLapsed: %v", err)
 	}
 
@@ -537,8 +560,8 @@ func TestClaimProjectValidation(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	postTask := func(id, project string) {
-		body := `{"id":"` + id + `","body":"test","project":"` + project + `"}`
+	postTask := func(project string) {
+		body := `{"body":"test","project":"` + project + `"}`
 		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(body))
 		if err != nil {
 			t.Fatalf("post task failed: %v", err)
@@ -549,7 +572,7 @@ func TestClaimProjectValidation(t *testing.T) {
 		}
 	}
 
-	postTask("t1", "valid-proj")
+	postTask("valid-proj")
 
 	badPayload := `{"worker":"w1","project":"bad project name with spaces"}`
 	resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(badPayload))
@@ -584,7 +607,7 @@ func TestClaimProjectValidation(t *testing.T) {
 		t.Fatalf("expected 200 OK for empty project, got %d", respEmpty.StatusCode)
 	}
 
-	postTask("t2", "valid-proj")
+	postTask("valid-proj")
 	validPayload := `{"worker":"w1","project":"valid-proj"}`
 	respValid, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(validPayload))
 	if err != nil {
@@ -594,7 +617,7 @@ func TestClaimProjectValidation(t *testing.T) {
 	if respValid.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 OK for valid project, got %d", respValid.StatusCode)
 	}
-	postTask("t3", "p1")
+	postTask("p1")
 	wildcardPayload := `{"worker":"w1","project":"*"}`
 	respWildcard, err := http.Post(srv.URL+"/tasks/claim", "application/json", strings.NewReader(wildcardPayload))
 	if err != nil {
@@ -655,27 +678,28 @@ func TestVoluntaryReleaseRefundsMaxClaims(t *testing.T) {
 	defer srv.Close()
 	c := testClient{t: t, srv: srv}
 
-	c.post("/tasks", `{"id":"healthy01","project":"mc","body":"healthy"}`)
+	_, created := c.post("/tasks", `{"project":"mc","body":"healthy"}`)
+	taskPath := fmt.Sprintf("/tasks/%d", created.ID)
 	_, itemA := c.post("/tasks/claim", `{"worker":"A","project":"mc"}`)
 	if itemA.ClaimCount != 1 {
 		t.Fatalf("worker A claim_count = %d, want 1", itemA.ClaimCount)
 	}
-	c.post("/tasks/healthy01/release", `{"worker":"A"}`)
+	c.post(taskPath+"/release", `{"worker":"A"}`)
 
 	_, itemB := c.post("/tasks/claim", `{"worker":"B","project":"mc"}`)
 	if itemB.ClaimCount != 1 {
 		t.Fatalf("worker B claim_count = %d, want 1", itemB.ClaimCount)
 	}
-	c.post("/tasks/healthy01/release", `{"worker":"B"}`)
+	c.post(taskPath+"/release", `{"worker":"B"}`)
 
-	task := c.get("/tasks/healthy01")
+	task := c.get(taskPath)
 	if task.Status != "pending" || task.ClaimCount != 0 {
 		t.Fatalf("task = %+v, want pending with claim_count 0", task)
 	}
 
 	resC, itemC := c.post("/tasks/claim", `{"worker":"C","project":"mc"}`)
-	if resC.StatusCode != http.StatusOK || itemC.ID != "healthy01" {
-		t.Fatalf("worker C claim status = %d, id = %q", resC.StatusCode, itemC.ID)
+	if resC.StatusCode != http.StatusOK || itemC.ID != created.ID {
+		t.Fatalf("worker C claim status = %d, id = %d", resC.StatusCode, itemC.ID)
 	}
 }
 
@@ -690,7 +714,8 @@ func TestLeaseExpirationExhaustsMaxClaims(t *testing.T) {
 	defer srv.Close()
 	c := testClient{t: t, srv: srv}
 
-	c.post("/tasks", `{"id":"expired01","project":"mc","body":"failing"}`)
+	_, created := c.post("/tasks", `{"project":"mc","body":"failing"}`)
+	taskPath := fmt.Sprintf("/tasks/%d", created.ID)
 	_, itemA := c.post("/tasks/claim", `{"worker":"A","project":"mc"}`)
 	if itemA.ClaimCount != 1 {
 		t.Fatalf("worker A claim_count = %d, want 1", itemA.ClaimCount)
@@ -714,7 +739,7 @@ func TestLeaseExpirationExhaustsMaxClaims(t *testing.T) {
 		t.Fatalf("worker C status = %d, want 204 No Content", resC.StatusCode)
 	}
 
-	task := c.get("/tasks/expired01")
+	task := c.get(taskPath)
 	if task.Status != "buried" || task.ClaimCount != 2 {
 		t.Fatalf("task = %+v, want buried with claim_count 2", task)
 	}
@@ -735,7 +760,7 @@ func TestConcurrentClaimersExactlyOnce(t *testing.T) {
 
 	for i := range numTasks {
 		id := fmt.Sprintf("task-%04d", i)
-		body := fmt.Sprintf(`{"id":%q,"project":"bench","body":"work"}`, id)
+		body := fmt.Sprintf(`{"project":"bench","body":"work %d"}`, i)
 		res, err := srv.Client().Post(srv.URL+"/tasks", "application/json", strings.NewReader(body))
 		if err != nil {
 			t.Fatalf("failed to insert task %s: %v", id, err)
@@ -747,7 +772,7 @@ func TestConcurrentClaimersExactlyOnce(t *testing.T) {
 	}
 
 	var mu sync.Mutex
-	claimed := make(map[string]int)
+	claimed := make(map[int64]int)
 	var totalClaims int
 
 	var wg sync.WaitGroup
@@ -797,7 +822,7 @@ func TestConcurrentClaimersExactlyOnce(t *testing.T) {
 	}
 	for id, count := range claimed {
 		if count != 1 {
-			t.Fatalf("task %s was claimed %d times, want 1", id, count)
+			t.Fatalf("task %d was claimed %d times, want 1", id, count)
 		}
 	}
 }
@@ -812,18 +837,21 @@ func TestStatsWorkerExpiredLeases(t *testing.T) {
 	srv := httptest.NewServer(newHandler(st, 300))
 	defer srv.Close()
 
-	postTask := `{"id":"task-exp","body":"expiring work","project":"proj"}`
+	postTask := `{"body":"expiring work","project":"proj"}`
 	res, err := srv.Client().Post(srv.URL+"/tasks", "application/json", strings.NewReader(postTask))
 	if err != nil {
 		t.Fatalf("POST /tasks: %v", err)
 	}
-	res.Body.Close()
+	defer res.Body.Close()
 	if res.StatusCode != http.StatusCreated {
 		t.Fatalf("POST /tasks status = %d", res.StatusCode)
 	}
+	var created map[string]int64
+	json.NewDecoder(res.Body).Decode(&created)
+	taskPath := fmt.Sprintf("/tasks/%d", created["id"])
 
 	claimPayload := `{"worker":"w1"}`
-	res, err = srv.Client().Post(srv.URL+"/tasks/task-exp/claim", "application/json", strings.NewReader(claimPayload))
+	res, err = srv.Client().Post(srv.URL+taskPath+"/claim", "application/json", strings.NewReader(claimPayload))
 	if err != nil {
 		t.Fatalf("claim: %v", err)
 	}
@@ -859,7 +887,7 @@ func TestStatsWorkerExpiredLeases(t *testing.T) {
 		t.Fatalf("stats before expiry ?worker=: got %+v, want pending:0 leased:0 total:0", sBeforeUnassigned)
 	}
 
-	if _, err := st.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = 'task-exp'"); err != nil {
+	if _, err := st.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 10 WHERE id = ?", created["id"]); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
 
@@ -976,5 +1004,221 @@ func TestGetTasksInvalidSortOrderFields(t *testing.T) {
 		if got := errResp["error"]; got != tc.wantErr {
 			t.Fatalf("GET /tasks%s error = %q, want %q", tc.param, got, tc.wantErr)
 		}
+	}
+}
+
+func TestMigrationV14(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "v13.db")
+	rawDB, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+
+	v13Schema := `
+CREATE TABLE tasks (
+  id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'pending',
+  worker TEXT CHECK (octet_length(worker) <= 128),
+  lease_expires INTEGER,
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
+  project TEXT NOT NULL DEFAULT '',
+  claim_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  version INTEGER NOT NULL DEFAULT 1
+);
+CREATE INDEX idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';
+CREATE INDEX idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';
+CREATE INDEX idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';
+CREATE INDEX idx_tasks_project ON tasks (project, status, priority ASC);
+CREATE INDEX idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;
+CREATE INDEX idx_tasks_done ON tasks (project) WHERE status = 'done';
+CREATE TABLE notes (
+  id INTEGER PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  text TEXT NOT NULL
+);
+CREATE INDEX idx_notes_task_id ON notes (task_id);
+PRAGMA user_version = 13;`
+
+	if _, err := rawDB.Exec(v13Schema); err != nil {
+		rawDB.Close()
+		t.Fatalf("init v13 schema failed: %v", err)
+	}
+
+	if _, err := rawDB.Exec(`
+INSERT INTO tasks (id, body, project) VALUES ('task-b', 'body b', 'p1');
+INSERT INTO tasks (id, body, project) VALUES ('task-c', 'body c', 'p1');
+INSERT INTO tasks (id, body, project) VALUES ('task-a', 'body a', 'p1');
+`); err != nil {
+		rawDB.Close()
+		t.Fatalf("insert tasks failed: %v", err)
+	}
+
+	if _, err := rawDB.Exec(`
+INSERT INTO notes (task_id, created_at, author, text) VALUES ('task-b', unixepoch(), 'author-b', 'note b');
+INSERT INTO notes (task_id, created_at, author, text) VALUES ('task-c', unixepoch(), 'author-c', 'note c');
+INSERT INTO notes (task_id, created_at, author, text) VALUES ('task-a', unixepoch(), 'author-a', 'note a');
+`); err != nil {
+		rawDB.Close()
+		t.Fatalf("insert notes failed: %v", err)
+	}
+	rawDB.Close()
+
+	store, err := openDB(dbPath, 0)
+	if err != nil {
+		t.Fatalf("openDB v13 database failed: %v", err)
+	}
+	defer store.Close()
+
+	var ver int
+	if err := store.ro.QueryRow("PRAGMA user_version").Scan(&ver); err != nil {
+		t.Fatalf("query user_version failed: %v", err)
+	}
+	if ver != 14 {
+		t.Fatalf("expected schema version 14, got %d", ver)
+	}
+
+	type taskRow struct {
+		ID   int64
+		Body string
+	}
+	rows, err := store.ro.Query("SELECT id, body FROM tasks ORDER BY id ASC")
+	if err != nil {
+		t.Fatalf("query tasks failed: %v", err)
+	}
+	defer rows.Close()
+	var tasks []taskRow
+	for rows.Next() {
+		var tr taskRow
+		if err := rows.Scan(&tr.ID, &tr.Body); err != nil {
+			t.Fatalf("scan task failed: %v", err)
+		}
+		tasks = append(tasks, tr)
+	}
+	if len(tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(tasks))
+	}
+	if tasks[0].ID != 1 || tasks[0].Body != "body b" {
+		t.Fatalf("expected task 1 = body b, got %+v", tasks[0])
+	}
+	if tasks[1].ID != 2 || tasks[1].Body != "body c" {
+		t.Fatalf("expected task 2 = body c, got %+v", tasks[1])
+	}
+	if tasks[2].ID != 3 || tasks[2].Body != "body a" {
+		t.Fatalf("expected task 3 = body a, got %+v", tasks[2])
+	}
+
+	type noteRow struct {
+		TaskID int64
+		Text   string
+	}
+	nrows, err := store.ro.Query("SELECT task_id, text FROM notes ORDER BY id ASC")
+	if err != nil {
+		t.Fatalf("query notes failed: %v", err)
+	}
+	defer nrows.Close()
+	var notes []noteRow
+	for nrows.Next() {
+		var nr noteRow
+		if err := nrows.Scan(&nr.TaskID, &nr.Text); err != nil {
+			t.Fatalf("scan note failed: %v", err)
+		}
+		notes = append(notes, nr)
+	}
+	if len(notes) != 3 {
+		t.Fatalf("expected 3 notes, got %d", len(notes))
+	}
+	if notes[0].TaskID != 1 || notes[0].Text != "note b" {
+		t.Fatalf("expected note 1 for task 1, got %+v", notes[0])
+	}
+	if notes[1].TaskID != 2 || notes[1].Text != "note c" {
+		t.Fatalf("expected note 2 for task 2, got %+v", notes[1])
+	}
+	if notes[2].TaskID != 3 || notes[2].Text != "note a" {
+		t.Fatalf("expected note 3 for task 3, got %+v", notes[2])
+	}
+
+	trows, err := store.ro.Query("PRAGMA table_info('tasks')")
+	if err != nil {
+		t.Fatalf("PRAGMA table_info failed: %v", err)
+	}
+	defer trows.Close()
+	var foundIDPK bool
+	for trows.Next() {
+		var (
+			cid     int
+			name    string
+			colType string
+			notNull int
+			dflt    sql.NullString
+			pk      int
+		)
+		if err := trows.Scan(&cid, &name, &colType, &notNull, &dflt, &pk); err != nil {
+			t.Fatalf("scan table_info: %v", err)
+		}
+		if name == "id" && strings.ToUpper(colType) == "INTEGER" && pk == 1 {
+			foundIDPK = true
+		}
+	}
+	if !foundIDPK {
+		t.Fatal("expected tasks.id to be INTEGER PRIMARY KEY")
+	}
+}
+
+func TestAutoincrementNoReuse(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	create := func(body string) int64 {
+		payload, _ := json.Marshal(map[string]string{"body": body, "project": "p"})
+		resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(payload))
+		if err != nil {
+			t.Fatalf("POST /tasks: %v", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusCreated {
+			t.Fatalf("status = %d, want 201", resp.StatusCode)
+		}
+		var res struct {
+			ID int64 `json:"id"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		return res.ID
+	}
+
+	id1 := create("first")
+	if id1 != 1 {
+		t.Fatalf("id1 = %d, want 1", id1)
+	}
+	id2 := create("second")
+	if id2 != 2 {
+		t.Fatalf("id2 = %d, want 2", id2)
+	}
+
+	delReq, _ := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/tasks/%d", srv.URL, id2), nil)
+	delResp, err := http.DefaultClient.Do(delReq)
+	if err != nil {
+		t.Fatalf("DELETE /tasks/2 failed: %v", err)
+	}
+	delResp.Body.Close()
+	if delResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("DELETE status = %d, want 204", delResp.StatusCode)
+	}
+
+	id3 := create("third")
+	if id3 != 3 {
+		t.Fatalf("id3 = %d, want 3 (no reuse of autoincrement ID)", id3)
 	}
 }

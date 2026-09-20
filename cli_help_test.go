@@ -29,17 +29,3 @@ func TestCLIHelp(t *testing.T) {
 		})
 	}
 }
-
-func TestCLIHelpPrefixDocs(t *testing.T) {
-	var buf bytes.Buffer
-	if err := run(&buf, []string{"-h"}); err != nil {
-		t.Fatalf("run(-h): %v", err)
-	}
-	out := buf.String()
-	if !strings.Contains(out, "{id} accepts unique prefixes") {
-		t.Fatalf("expected '{id} accepts unique prefixes' in help output, got:\n%s", out)
-	}
-	if !strings.Contains(out, "409") {
-		t.Fatalf("expected 409 collision note in help output, got:\n%s", out)
-	}
-}

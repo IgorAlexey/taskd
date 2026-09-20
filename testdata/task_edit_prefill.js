@@ -32,7 +32,7 @@ const document = {
 };
 
 const sampleTask = {
-  id: 't-101',
+  id: 101,
   project: 'proj-alpha',
   status: 'pending',
   priority: 15,

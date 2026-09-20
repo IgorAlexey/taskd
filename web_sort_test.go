@@ -110,8 +110,8 @@ func TestServerTasksSort(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	postTask := func(id, body string, prio int) {
-		payload, _ := json.Marshal(map[string]any{"id": id, "body": body, "priority": prio, "project": "p"})
+	postTask := func(body string, prio int) {
+		payload, _ := json.Marshal(map[string]any{"body": body, "priority": prio, "project": "p"})
 		resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(payload))
 		if err != nil {
 			t.Fatalf("post task: %v", err)
@@ -119,11 +119,11 @@ func TestServerTasksSort(t *testing.T) {
 		resp.Body.Close()
 	}
 
-	postTask("t-mid", "mid", 2)
-	postTask("t-high", "high", 1)
-	postTask("t-low", "low", 3)
+	postTask("mid", 2)
+	postTask("high", 1)
+	postTask("low", 3)
 
-	getSorted := func(sortParam, orderParam string) []string {
+	getSorted := func(sortParam, orderParam string) []int64 {
 		resp, err := http.Get(srv.URL + "/tasks?project=p&sort=" + sortParam + "&order=" + orderParam)
 		if err != nil {
 			t.Fatalf("get sorted: %v", err)
@@ -133,7 +133,7 @@ func TestServerTasksSort(t *testing.T) {
 		if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 			t.Fatalf("decode: %v", err)
 		}
-		var ids []string
+		var ids []int64
 		for _, item := range list {
 			ids = append(ids, item.ID)
 		}
@@ -141,13 +141,13 @@ func TestServerTasksSort(t *testing.T) {
 	}
 
 	asc := getSorted("priority", "asc")
-	wantAsc := []string{"t-high", "t-mid", "t-low"}
+	wantAsc := []int64{2, 1, 3}
 	if !slices.Equal(asc, wantAsc) {
 		t.Errorf("sort priority asc = %v, want %v", asc, wantAsc)
 	}
 
 	desc := getSorted("priority", "desc")
-	wantDesc := []string{"t-low", "t-mid", "t-high"}
+	wantDesc := []int64{3, 1, 2}
 	if !slices.Equal(desc, wantDesc) {
 		t.Errorf("sort priority desc = %v, want %v", desc, wantDesc)
 	}

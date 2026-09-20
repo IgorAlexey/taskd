@@ -70,13 +70,13 @@ func TestServerBulkKickIntegration(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	for _, id := range []string{"t1", "t2"} {
+	for _, id := range []int64{1, 2} {
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (id, project, status, body, priority, claim_count, worker, created_at) VALUES (?, 'proj-kick', 'buried', 'task body', 1, 1, 'w1', 1000)",
 			id,
 		)
 		if err != nil {
-			t.Fatalf("insert buried task %s: %v", id, err)
+			t.Fatalf("insert buried task %d: %v", id, err)
 		}
 	}
 

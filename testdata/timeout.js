@@ -40,7 +40,7 @@ const document = {
 };
 
 let now = 1000;
-let tasks = [{ id: '41764ca4' }, { id: '2e7afac5' }, { id: 'be3024c2' }];
+let tasks = [{ id: 1 }, { id: 2 }, { id: 3 }];
 let hang = false;
 let fetches = 0;
 let abortHang = null;
@@ -88,7 +88,7 @@ const api = new Function(
   const out = { bootRows: getIds(), bootCount: countEl.textContent };
 
   hang = true;
-  tasks = [{ id: '41764ca4' }, { id: 'be3024c2' }, { id: '3642f64f' }];
+  tasks = [{ id: 1 }, { id: 3 }, { id: 4 }];
 
   const pending = api.loadAll();
   const hangingFetches = fetches;

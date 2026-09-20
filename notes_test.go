@@ -23,17 +23,20 @@ func TestNotes_CreateAndOrder(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-notes-1","body":"spec","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var created1 map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&created1)
 	createRes.Body.Close()
+	taskPath1 := fmt.Sprintf("/tasks/%d", created1["id"])
 	if createRes.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201, got %d", createRes.StatusCode)
 	}
 
 	notePayload1 := `{"author":"worker-1","text":"first note"}`
-	res1, err := http.Post(srv.URL+"/tasks/task-notes-1/notes", "application/json", bytes.NewBufferString(notePayload1))
+	res1, err := http.Post(srv.URL+taskPath1+"/notes", "application/json", bytes.NewBufferString(notePayload1))
 	if err != nil {
 		t.Fatalf("post note 1 failed: %v", err)
 	}
@@ -50,7 +53,7 @@ func TestNotes_CreateAndOrder(t *testing.T) {
 	}
 
 	notePayload2 := `{"author":"worker-2","text":"second note"}`
-	res2, err := http.Post(srv.URL+"/tasks/task-notes-1/notes", "application/json", bytes.NewBufferString(notePayload2))
+	res2, err := http.Post(srv.URL+taskPath1+"/notes", "application/json", bytes.NewBufferString(notePayload2))
 	if err != nil {
 		t.Fatalf("post note 2 failed: %v", err)
 	}
@@ -66,7 +69,7 @@ func TestNotes_CreateAndOrder(t *testing.T) {
 		t.Fatalf("expected note2.ID > note1.ID, got %d <= %d", note2.ID, note1.ID)
 	}
 
-	getRes, err := http.Get(srv.URL + "/tasks/task-notes-1")
+	getRes, err := http.Get(srv.URL + taskPath1)
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
@@ -75,7 +78,7 @@ func TestNotes_CreateAndOrder(t *testing.T) {
 		t.Fatalf("expected 200, got %d", getRes.StatusCode)
 	}
 	var detail struct {
-		ID    string     `json:"id"`
+		ID    int64      `json:"id"`
 		Notes []taskNote `json:"notes"`
 	}
 	if err := json.NewDecoder(getRes.Body).Decode(&detail); err != nil {
@@ -102,11 +105,14 @@ func TestNotes_ValidationAndNotFound(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-val-1","body":"spec","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var createdVal map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&createdVal)
 	createRes.Body.Close()
+	taskValURL := fmt.Sprintf("%s/tasks/%d/notes", srv.URL, createdVal["id"])
 
 	cases := []struct {
 		url       string
@@ -114,13 +120,13 @@ func TestNotes_ValidationAndNotFound(t *testing.T) {
 		status    int
 		wantField string
 	}{
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"","text":"hello"}`, http.StatusBadRequest, "author"},
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"   ","text":"hello"}`, http.StatusBadRequest, "author"},
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"alice","text":""}`, http.StatusBadRequest, "text"},
-		{srv.URL + "/tasks/task-val-1/notes", `{"author":"alice","text":"   "}`, http.StatusBadRequest, "text"},
-		{srv.URL + "/tasks/task-val-1/notes", fmt.Sprintf(`{"author":"%s","text":"hello"}`, strings.Repeat("a", 129)), http.StatusBadRequest, "author"},
-		{srv.URL + "/tasks/task-val-1/notes", `{}`, http.StatusBadRequest, "author"},
-		{srv.URL + "/tasks/nonexistent-task-id/notes", `{"author":"alice","text":"note"}`, http.StatusNotFound, ""},
+		{taskValURL, `{"author":"","text":"hello"}`, http.StatusBadRequest, "author"},
+		{taskValURL, `{"author":"   ","text":"hello"}`, http.StatusBadRequest, "author"},
+		{taskValURL, `{"author":"alice","text":""}`, http.StatusBadRequest, "text"},
+		{taskValURL, `{"author":"alice","text":"   "}`, http.StatusBadRequest, "text"},
+		{taskValURL, fmt.Sprintf(`{"author":"%s","text":"hello"}`, strings.Repeat("a", 129)), http.StatusBadRequest, "author"},
+		{taskValURL, `{}`, http.StatusBadRequest, "author"},
+		{srv.URL + "/tasks/99999/notes", `{"author":"alice","text":"note"}`, http.StatusNotFound, ""},
 	}
 
 	for _, tc := range cases {
@@ -157,13 +163,17 @@ func TestNotes_CascadeOnTaskDelete(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-cascade","body":"spec","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var createdCascade map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&createdCascade)
 	createRes.Body.Close()
+	taskCascadeID := createdCascade["id"]
+	taskCascadePath := fmt.Sprintf("/tasks/%d", taskCascadeID)
 
-	noteRes, err := http.Post(srv.URL+"/tasks/task-cascade/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"note to delete"}`))
+	noteRes, err := http.Post(srv.URL+taskCascadePath+"/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"note to delete"}`))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -173,14 +183,14 @@ func TestNotes_CascadeOnTaskDelete(t *testing.T) {
 	}
 
 	var countBefore int
-	if err := db.ro.QueryRow("SELECT count(*) FROM notes WHERE task_id = 'task-cascade'").Scan(&countBefore); err != nil {
+	if err := db.ro.QueryRow("SELECT count(*) FROM notes WHERE task_id = ?", taskCascadeID).Scan(&countBefore); err != nil {
 		t.Fatalf("count notes failed: %v", err)
 	}
 	if countBefore != 1 {
 		t.Fatalf("expected 1 note before delete, got %d", countBefore)
 	}
 
-	req, err := http.NewRequest(http.MethodDelete, srv.URL+"/tasks/task-cascade", nil)
+	req, err := http.NewRequest(http.MethodDelete, srv.URL+taskCascadePath, nil)
 	if err != nil {
 		t.Fatalf("new delete req failed: %v", err)
 	}
@@ -194,7 +204,7 @@ func TestNotes_CascadeOnTaskDelete(t *testing.T) {
 	}
 
 	var countAfter int
-	if err := db.ro.QueryRow("SELECT count(*) FROM notes WHERE task_id = 'task-cascade'").Scan(&countAfter); err != nil {
+	if err := db.ro.QueryRow("SELECT count(*) FROM notes WHERE task_id = ?", taskCascadeID).Scan(&countAfter); err != nil {
 		t.Fatalf("count notes after delete failed: %v", err)
 	}
 	if countAfter != 0 {
@@ -212,11 +222,14 @@ func TestNotes_ListByteIdentical(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-list-check","body":"spec body","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec body","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var createdListCheck map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&createdListCheck)
 	createRes.Body.Close()
+	taskListCheckPath := fmt.Sprintf("/tasks/%d", createdListCheck["id"])
 
 	listResBefore, err := http.Get(srv.URL + "/tasks?project=p1")
 	if err != nil {
@@ -228,7 +241,7 @@ func TestNotes_ListByteIdentical(t *testing.T) {
 		t.Fatalf("read before failed: %v", err)
 	}
 
-	noteRes, err := http.Post(srv.URL+"/tasks/task-list-check/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"new note"}`))
+	noteRes, err := http.Post(srv.URL+taskListCheckPath+"/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"new note"}`))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -264,26 +277,28 @@ func TestNotes_AcceptsAnyStatus(t *testing.T) {
 
 	statuses := []string{"done", "buried"}
 	for _, status := range statuses {
-		id := fmt.Sprintf("task-%s", status)
-		createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(fmt.Sprintf(`{"id":"%s","body":"test","project":"p1"}`, id)))
+		createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"test","project":"p1"}`))
 		if err != nil {
 			t.Fatalf("create failed: %v", err)
 		}
+		var createdStatus map[string]int64
+		json.NewDecoder(createRes.Body).Decode(&createdStatus)
 		createRes.Body.Close()
+		taskStatusPath := fmt.Sprintf("/tasks/%d", createdStatus["id"])
 
-		claimRes, err := http.Post(srv.URL+"/tasks/"+id+"/claim", "application/json", bytes.NewBufferString(`{"worker":"w1"}`))
+		claimRes, err := http.Post(srv.URL+taskStatusPath+"/claim", "application/json", bytes.NewBufferString(`{"worker":"w1"}`))
 		if err != nil {
 			t.Fatalf("claim failed: %v", err)
 		}
 		claimRes.Body.Close()
 
-		actionRes, err := http.Post(srv.URL+"/tasks/"+id+"/"+status, "application/json", bytes.NewBufferString(`{"worker":"w1"}`))
+		actionRes, err := http.Post(srv.URL+taskStatusPath+"/"+status, "application/json", bytes.NewBufferString(`{"worker":"w1"}`))
 		if err != nil {
 			t.Fatalf("action failed: %v", err)
 		}
 		actionRes.Body.Close()
 
-		noteRes, err := http.Post(srv.URL+"/tasks/"+id+"/notes", "application/json", bytes.NewBufferString(`{"author":"auditor","text":"status note"}`))
+		noteRes, err := http.Post(srv.URL+taskStatusPath+"/notes", "application/json", bytes.NewBufferString(`{"author":"auditor","text":"status note"}`))
 		if err != nil {
 			t.Fatalf("post note on %s task failed: %v", status, err)
 		}
@@ -341,7 +356,7 @@ PRAGMA user_version = 9;`
 	srv := httptest.NewServer(newHandler(store, 300))
 	defer srv.Close()
 
-	res, err := http.Post(srv.URL+"/tasks/v9-task/notes", "application/json", bytes.NewBufferString(`{"author":"migrator","text":"migrated note"}`))
+	res, err := http.Post(srv.URL+"/tasks/1/notes", "application/json", bytes.NewBufferString(`{"author":"migrator","text":"migrated note"}`))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -360,13 +375,16 @@ func TestGetTaskNotesEndpoint(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-getnotes-123","body":"spec","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var createdGetNotes map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&createdGetNotes)
 	createRes.Body.Close()
+	taskGetNotesPath := fmt.Sprintf("/tasks/%d", createdGetNotes["id"])
 
-	emptyRes, err := http.Get(srv.URL + "/tasks/task-getnotes-123/notes")
+	emptyRes, err := http.Get(srv.URL + taskGetNotesPath + "/notes")
 	if err != nil {
 		t.Fatalf("get empty notes failed: %v", err)
 	}
@@ -385,19 +403,19 @@ func TestGetTaskNotesEndpoint(t *testing.T) {
 		t.Fatalf("expected 0 notes, got %d", len(emptyNotes))
 	}
 
-	postRes1, err := http.Post(srv.URL+"/tasks/task-getnotes-123/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"note one"}`))
+	postRes1, err := http.Post(srv.URL+taskGetNotesPath+"/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"note one"}`))
 	if err != nil {
 		t.Fatalf("post note 1 failed: %v", err)
 	}
 	postRes1.Body.Close()
 
-	postRes2, err := http.Post(srv.URL+"/tasks/task-getnotes-123/notes", "application/json", bytes.NewBufferString(`{"author":"bob","text":"note two"}`))
+	postRes2, err := http.Post(srv.URL+taskGetNotesPath+"/notes", "application/json", bytes.NewBufferString(`{"author":"bob","text":"note two"}`))
 	if err != nil {
 		t.Fatalf("post note 2 failed: %v", err)
 	}
 	postRes2.Body.Close()
 
-	getRes, err := http.Get(srv.URL + "/tasks/task-getnotes-123/notes")
+	getRes, err := http.Get(srv.URL + taskGetNotesPath + "/notes")
 	if err != nil {
 		t.Fatalf("get notes failed: %v", err)
 	}
@@ -422,16 +440,7 @@ func TestGetTaskNotesEndpoint(t *testing.T) {
 		t.Fatalf("expected notes ordered by id ASC, got %d >= %d", notes[0].ID, notes[1].ID)
 	}
 
-	prefRes, err := http.Get(srv.URL + "/tasks/task-getnotes/notes")
-	if err != nil {
-		t.Fatalf("get notes by prefix failed: %v", err)
-	}
-	defer prefRes.Body.Close()
-	if prefRes.StatusCode != http.StatusOK {
-		t.Fatalf("expected 200 OK for prefix, got %d", prefRes.StatusCode)
-	}
-
-	notFoundRes, err := http.Get(srv.URL + "/tasks/nonexistent-id/notes")
+	notFoundRes, err := http.Get(srv.URL + "/tasks/99999/notes")
 	if err != nil {
 		t.Fatalf("get nonexistent notes failed: %v", err)
 	}
@@ -440,7 +449,7 @@ func TestGetTaskNotesEndpoint(t *testing.T) {
 		t.Fatalf("expected 404 Not Found, got %d", notFoundRes.StatusCode)
 	}
 
-	putReq, err := http.NewRequest(http.MethodPut, srv.URL+"/tasks/task-getnotes-123/notes", nil)
+	putReq, err := http.NewRequest(http.MethodPut, srv.URL+taskGetNotesPath+"/notes", nil)
 	if err != nil {
 		t.Fatalf("new put request failed: %v", err)
 	}
@@ -468,11 +477,14 @@ func TestNoteTextLengthLimit(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-limit-1","body":"spec","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var createdLimit map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&createdLimit)
 	createRes.Body.Close()
+	taskLimitPath := fmt.Sprintf("/tasks/%d", createdLimit["id"])
 
 	longText := strings.Repeat("a", 65537)
 	body, _ := json.Marshal(map[string]string{
@@ -480,7 +492,7 @@ func TestNoteTextLengthLimit(t *testing.T) {
 		"text":   longText,
 	})
 
-	res, err := http.Post(srv.URL+"/tasks/task-limit-1/notes", "application/json", bytes.NewReader(body))
+	res, err := http.Post(srv.URL+taskLimitPath+"/notes", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -503,7 +515,7 @@ func TestNoteTextLengthLimit(t *testing.T) {
 		"author": "worker-1",
 		"text":   maxValidText,
 	})
-	resValid, err := http.Post(srv.URL+"/tasks/task-limit-1/notes", "application/json", bytes.NewReader(validBody))
+	resValid, err := http.Post(srv.URL+taskLimitPath+"/notes", "application/json", bytes.NewReader(validBody))
 	if err != nil {
 		t.Fatalf("post valid note failed: %v", err)
 	}
@@ -523,14 +535,17 @@ func TestCreateNoteAuthorValidation(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 30))
 	defer srv.Close()
 
-	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-author-val","body":"spec","project":"p1"}`))
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"body":"spec","project":"p1"}`))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var createdAuthor map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&createdAuthor)
 	createRes.Body.Close()
+	taskAuthorPath := fmt.Sprintf("/tasks/%d", createdAuthor["id"])
 
 	validTrimBody := `{"author":"  alice:worker  ","text":"test trimmed author"}`
-	res, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewBufferString(validTrimBody))
+	res, err := http.Post(srv.URL+taskAuthorPath+"/notes", "application/json", bytes.NewBufferString(validTrimBody))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -546,7 +561,7 @@ func TestCreateNoteAuthorValidation(t *testing.T) {
 		t.Fatalf("expected author %q, got %q", "alice:worker", createdNote.Author)
 	}
 
-	getRes, err := http.Get(srv.URL + "/tasks/task-author-val/notes")
+	getRes, err := http.Get(srv.URL + taskAuthorPath + "/notes")
 	if err != nil {
 		t.Fatalf("get notes failed: %v", err)
 	}
@@ -560,7 +575,7 @@ func TestCreateNoteAuthorValidation(t *testing.T) {
 	}
 
 	validCharsBody := `{"author":"worker.1_sub:dir/node-a","text":"test valid chars"}`
-	resChars, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewBufferString(validCharsBody))
+	resChars, err := http.Post(srv.URL+taskAuthorPath+"/notes", "application/json", bytes.NewBufferString(validCharsBody))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -569,7 +584,7 @@ func TestCreateNoteAuthorValidation(t *testing.T) {
 		t.Fatalf("expected 201 Created for valid characters, got %d", resChars.StatusCode)
 	}
 	validWhitespaceBody := `{"author":"  alice\n\t  ","text":"test whitespace author"}`
-	resWs, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewBufferString(validWhitespaceBody))
+	resWs, err := http.Post(srv.URL+taskAuthorPath+"/notes", "application/json", bytes.NewBufferString(validWhitespaceBody))
 	if err != nil {
 		t.Fatalf("post note failed: %v", err)
 	}
@@ -599,7 +614,7 @@ func TestCreateNoteAuthorValidation(t *testing.T) {
 			"author": badAuthor,
 			"text":   "some note",
 		})
-		badRes, err := http.Post(srv.URL+"/tasks/task-author-val/notes", "application/json", bytes.NewReader(reqBody))
+		badRes, err := http.Post(srv.URL+taskAuthorPath+"/notes", "application/json", bytes.NewReader(reqBody))
 		if err != nil {
 			t.Fatalf("post note with bad author %q failed: %v", badAuthor, err)
 		}

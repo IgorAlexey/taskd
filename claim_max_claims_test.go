@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -18,12 +19,15 @@ func TestClaimHonorsMaxClaimsAfterRestart(t *testing.T) {
 	}
 	srv1 := httptest.NewServer(newHandler(db1, 300))
 
-	createBody, _ := json.Marshal(map[string]string{"id": "t1", "body": "work", "project": "p"})
+	createBody, _ := json.Marshal(map[string]string{"body": "work", "project": "p"})
 	resp, err := http.Post(srv1.URL+"/tasks", "application/json", bytes.NewReader(createBody))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
+	var created map[string]int64
+	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
+	taskID := created["id"]
 
 	claimBody, _ := json.Marshal(map[string]string{"worker": "w1", "project": "p"})
 	resp, err = http.Post(srv1.URL+"/tasks/claim", "application/json", bytes.NewReader(claimBody))
@@ -35,7 +39,7 @@ func TestClaimHonorsMaxClaimsAfterRestart(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if _, err := db1.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = 't1'"); err != nil {
+	if _, err := db1.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = ?", taskID); err != nil {
 		t.Fatalf("expire first lease failed: %v", err)
 	}
 	if _, err := db1.sweep(); err != nil {
@@ -51,7 +55,7 @@ func TestClaimHonorsMaxClaimsAfterRestart(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	if _, err := db1.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = 't1'"); err != nil {
+	if _, err := db1.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = ?", taskID); err != nil {
 		t.Fatalf("expire second lease failed: %v", err)
 	}
 	if _, err := db1.sweep(); err != nil {
@@ -78,7 +82,7 @@ func TestClaimHonorsMaxClaimsAfterRestart(t *testing.T) {
 		t.Fatalf("claim at max-claims limit status = %d, want %d", resp.StatusCode, http.StatusNoContent)
 	}
 
-	respGet, err := http.Get(srv2.URL + "/tasks/t1")
+	respGet, err := http.Get(fmt.Sprintf("%s/tasks/%d", srv2.URL, taskID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
@@ -102,7 +106,7 @@ func TestClaimBelowMaxClaimsSucceeds(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	createBody, _ := json.Marshal(map[string]string{"id": "t1", "body": "work", "project": "p"})
+	createBody, _ := json.Marshal(map[string]string{"body": "work", "project": "p"})
 	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(createBody))
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)

@@ -55,16 +55,16 @@ function checkButton(html, id) {
   };
 }
 
-api.renderTaskDetails({ id: 't-1', status: 'leased', worker: '' }, false);
+api.renderTaskDetails({ id: 1, status: 'leased', worker: '' }, false);
 const htmlWithout = getOrCreate('task-details-content').innerHTML;
 
-api.renderTaskDetails({ id: 't-2', status: 'leased', worker: 'worker-1' }, false);
+api.renderTaskDetails({ id: 2, status: 'leased', worker: 'worker-1' }, false);
 const htmlWith = getOrCreate('task-details-content').innerHTML;
 
-api.completeTask('t-1', '');
+api.completeTask(1, '');
 const completeError = getOrCreate('error-banner-text').textContent;
 
-api.releaseTask('t-1', '');
+api.releaseTask(1, '');
 const releaseError = getOrCreate('error-banner-text').textContent;
 
 process.stdout.write(JSON.stringify({

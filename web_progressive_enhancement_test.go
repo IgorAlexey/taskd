@@ -59,7 +59,7 @@ func TestFormURLEncodedCreateTaskRoundtrip(t *testing.T) {
 	defer tasksRes.Body.Close()
 
 	var tasks []struct {
-		ID       string `json:"id"`
+		ID       int64  `json:"id"`
 		Project  string `json:"project"`
 		Body     string `json:"body"`
 		Priority int    `json:"priority"`
@@ -87,11 +87,11 @@ func TestFormURLEncodedCreateTaskRoundtrip(t *testing.T) {
 	if apiRes.StatusCode != http.StatusCreated {
 		t.Fatalf("expected 201 Created, got %d", apiRes.StatusCode)
 	}
-	var created map[string]string
+	var created map[string]any
 	if err := json.NewDecoder(apiRes.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created task failed: %v", err)
 	}
-	if created["id"] == "" {
+	if created["id"] == nil || created["id"] == float64(0) {
 		t.Fatalf("expected non-empty id in response, got %+v", created)
 	}
 }

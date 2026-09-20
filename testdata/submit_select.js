@@ -30,7 +30,6 @@ const els = {
   'form-project': { value: 'default', focus() {} },
   'form-body': { value: 'test body', focus() {} },
   'form-priority': { value: '' },
-  'form-id': { value: '' },
   'form-error-summary': { hidden: true, setAttribute() {}, removeAttribute() {} },
   'form-success-summary': { hidden: true, setAttribute() {}, removeAttribute() {} },
   'form-error-summary-list': { replaceChildren() {} },
@@ -48,7 +47,7 @@ const document = {
 };
 
 let detailsFetchCount = 0;
-const createdId = 'task-created-456';
+const createdId = 1;
 
 const fetchStub = async (url, opts) => {
   if (url === '/tasks' && opts && opts.method === 'POST') {

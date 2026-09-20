@@ -995,12 +995,6 @@
               <textarea id="form-body" name="body" aria-invalid="false" aria-describedby="form-body-hint form-body-count form-body-error"></textarea>
               <div class="hint" id="form-body-count">0 characters</div>
             </div>
-            <div class="field">
-              <label for="form-id">Custom ID (optional)</label>
-              <div class="hint" id="form-id-hint">Auto-generated if empty</div>
-              <span class="field-error" id="form-id-error" hidden></span>
-              <input type="text" id="form-id" name="id" aria-invalid="false" aria-describedby="form-id-hint form-id-error">
-            </div>
             <button type="submit" id="submit-task-btn" data-variant="primary" class="w-full" aria-busy="false">Submit Task</button>
           </form>
         </div>
@@ -1493,7 +1487,8 @@
       }
       const searchEl = document.getElementById('filter-search');
       if (searchEl) searchEl.value = state.q || '';
-      selectedTaskId = state.task || null;
+      const parsedTask = parseInt(state.task, 10);
+      selectedTaskId = (Number.isInteger(parsedTask) && parsedTask > 0) ? parsedTask : null;
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
       sortCol = state.sort;
@@ -1879,7 +1874,6 @@
       const tid = String(t.id || '');
       return {
         id: tid,
-        shortId: tid.length > 10 ? tid.slice(0, 8) + '…' : tid,
         project: t.project || '',
         status: t.status || '',
         priority: String(t.priority ?? ''),
@@ -1912,7 +1906,7 @@
       btn.type = 'button';
       btn.className = 'row-select';
       btn.title = f.id;
-      btn.textContent = f.shortId;
+      btn.textContent = f.id;
       th.appendChild(btn);
       tr.appendChild(th);
 
@@ -2094,21 +2088,22 @@
   }
 
     function selectTask(id) {
-      if (!id) return;
-      if (selectedTaskId !== id) isEditingTask = false;
-      selectedTaskId = id;
+      const parsed = parseInt(id, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0) return;
+      if (selectedTaskId !== parsed) isEditingTask = false;
+      selectedTaskId = parsed;
       showError(null);
       syncURL(true);
       const tbody = document.getElementById('task-table-body');
       if (tbody) {
         for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-          const sel = tr.dataset.taskId === id;
+          const sel = parseInt(tr.dataset.taskId, 10) === parsed;
           tr.setAttribute('aria-selected', sel ? 'true' : 'false');
           if (sel) tr.setAttribute('data-state', 'selected');
           else tr.removeAttribute('data-state');
         }
       }
-      return loadTaskDetails(id);
+      return loadTaskDetails(parsed);
     }
 
     async function prevPage() {
@@ -2198,20 +2193,21 @@
       });
     }
     async function loadTaskDetails(id) {
-      if (!id) {
+      const parsed = parseInt(id, 10);
+      if (!Number.isInteger(parsed) || parsed <= 0) {
         resetTaskDetails();
         return;
       }
-      if (isEditingTask && currentTask && currentTask.id === id) {
+      if (isEditingTask && currentTask && currentTask.id === parsed) {
         return;
       }
       const pane = document.getElementById('task-details-content');
       if (!pane) return;
       let t;
-      const sameTask = (id === shownTaskId);
+      const sameTask = (parsed === shownTaskId);
       try {
-        const res = await fetchRaw('/tasks/' + encodeURIComponent(id));
-        if (id !== selectedTaskId) return;
+        const res = await fetchRaw('/tasks/' + encodeURIComponent(parsed));
+        if (parsed !== selectedTaskId) return;
         if (res.status === 404) {
           selectedTaskId = null;
           syncURL(false);
@@ -2220,7 +2216,7 @@
           return;
         }
         const raw = await res.text();
-        if (id !== selectedTaskId) return;
+        if (parsed !== selectedTaskId) return;
         if (!res.ok) {
           const err = new Error(parseErrorMessage(res, raw));
           err.status = res.status;
@@ -2228,31 +2224,17 @@
         }
         if (sameTask && raw === shownTaskRaw) return;
         t = JSON.parse(raw);
-        shownTaskId = id;
+        shownTaskId = parsed;
         shownTaskRaw = raw;
       } catch (e) {
-        if (id !== selectedTaskId) return;
+        if (parsed !== selectedTaskId) return;
         showFetchError(e);
         logFailure('Failed to load task details:', e);
         return;
       }
-      if (id !== selectedTaskId) return;
+      if (parsed !== selectedTaskId) return;
       currentTask = t;
       renderTaskDetails(t, sameTask);
-      if (t && t.id && t.id !== id) {
-        selectedTaskId = t.id;
-        shownTaskId = t.id;
-        syncURL(false);
-        const tbody = document.getElementById('task-table-body');
-        if (tbody) {
-          for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
-            const sel = tr.dataset.taskId === t.id;
-            tr.setAttribute('aria-selected', sel ? 'true' : 'false');
-            if (sel) tr.setAttribute('data-state', 'selected');
-            else tr.removeAttribute('data-state');
-          }
-        }
-      }
     }
 
     function isActivelyLeased(t) {
@@ -3398,18 +3380,6 @@
       return null;
     }
 
-    function customIdError(id) {
-      if (!id || id.length > 128 || !NAME_RE.test(id)) {
-        return {
-          fieldId: 'form-id',
-          message: 'Custom ID must be 1-128 characters: letters, digits, dot, underscore or hyphen'
-        };
-      }
-      if (id === '.' || id === '..' || /^(claim|purge|kick)$/i.test(id)) {
-        return { fieldId: 'form-id', message: 'Custom ID "' + id + '" is reserved, pick another one' };
-      }
-      return null;
-    }
 
     function bodyError(body) {
       if (body.trim() === '') {
@@ -3438,12 +3408,10 @@
       const projEl = document.getElementById('form-project');
       const bodyEl = document.getElementById('form-body');
       const prioEl = document.getElementById('form-priority');
-      const idEl = document.getElementById('form-id');
 
       const proj = projEl ? projEl.value.trim() : '';
       const body = bodyEl ? bodyEl.value : '';
       const prioText = prioEl ? prioEl.value.trim() : '';
-      const customId = idEl ? idEl.value.trim() : '';
 
       const errors = [];
       const projErr = projectError(proj);
@@ -3458,12 +3426,6 @@
       if (prioErr) {
         errors.push(prioErr);
       }
-      if (customId !== '') {
-        const idErr = customIdError(customId);
-        if (idErr) {
-          errors.push(idErr);
-        }
-      }
 
       if (errors.length > 0) {
         showFormErrors(errors);
@@ -3475,7 +3437,6 @@
         body: body
       };
       if (prioText !== '') payload.priority = parseInt(prioText, 10);
-      if (customId) payload.id = customId;
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.setAttribute('aria-busy', 'true');
@@ -3488,11 +3449,10 @@
           body: JSON.stringify(payload)
         });
         if (bodyEl) bodyEl.value = '';
-        if (idEl) idEl.value = '';
         updateBodyCount();
         clearFormErrors();
         showError(null);
-        const createdId = (res && res.id) || customId;
+        const createdId = res && res.id;
         if (createdId) {
           showFormSuccess(createdId);
           selectedTaskId = createdId;
@@ -3507,7 +3467,7 @@
       } catch (err) {
         clearFormSuccess();
         if (err.transport) return;
-        const fieldId = err.field ? ('form-' + err.field) : (err.status === 409 ? 'form-id' : null);
+        const fieldId = err.field ? ('form-' + err.field) : null;
         showFormErrors([{ fieldId: fieldId, message: err.message || 'Failed to submit task' }]);
       } finally {
         if (submitBtn) {

@@ -167,18 +167,22 @@ func TestClaimOrderFIFO(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	zBody, _ := json.Marshal(map[string]any{"id": "z-task", "body": "z", "priority": 3, "project": "testfifo"})
+	zBody, _ := json.Marshal(map[string]any{"body": "z", "priority": 3, "project": "testfifo"})
 	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(zBody))
 	if err != nil {
 		t.Fatalf("create z-task failed: %v", err)
 	}
+	var createdZ map[string]int64
+	json.NewDecoder(resp.Body).Decode(&createdZ)
 	resp.Body.Close()
 
-	aBody, _ := json.Marshal(map[string]any{"id": "a-task", "body": "a", "priority": 3, "project": "testfifo"})
+	aBody, _ := json.Marshal(map[string]any{"body": "a", "priority": 3, "project": "testfifo"})
 	resp, err = http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(aBody))
 	if err != nil {
 		t.Fatalf("create a-task failed: %v", err)
 	}
+	var createdA map[string]int64
+	json.NewDecoder(resp.Body).Decode(&createdA)
 	resp.Body.Close()
 
 	claimPayload, _ := json.Marshal(map[string]string{"worker": "w1", "project": "testfifo"})
@@ -189,13 +193,13 @@ func TestClaimOrderFIFO(t *testing.T) {
 	}
 	defer resp1.Body.Close()
 	var claim1 struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp1.Body).Decode(&claim1); err != nil {
 		t.Fatalf("decode first claim: %v", err)
 	}
-	if claim1.ID != "z-task" {
-		t.Fatalf("first claimed = %q, want z-task", claim1.ID)
+	if claim1.ID != createdZ["id"] {
+		t.Fatalf("first claimed = %d, want %d", claim1.ID, createdZ["id"])
 	}
 
 	resp2, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimPayload))
@@ -204,13 +208,13 @@ func TestClaimOrderFIFO(t *testing.T) {
 	}
 	defer resp2.Body.Close()
 	var claim2 struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp2.Body).Decode(&claim2); err != nil {
 		t.Fatalf("decode second claim: %v", err)
 	}
-	if claim2.ID != "a-task" {
-		t.Fatalf("second claimed = %q, want a-task", claim2.ID)
+	if claim2.ID != createdA["id"] {
+		t.Fatalf("second claimed = %d, want %d", claim2.ID, createdA["id"])
 	}
 
 	var (
@@ -241,9 +245,9 @@ func TestSortCursor(t *testing.T) {
 	defer srv.Close()
 
 	for _, task := range []map[string]any{
-		{"id": "task-1", "project": "demo", "priority": 1, "body": "first"},
-		{"id": "task-2", "project": "demo", "priority": 2, "body": "second"},
-		{"id": "task-3", "project": "demo", "priority": 3, "body": "third"},
+		{"project": "demo", "priority": 1, "body": "first"},
+		{"project": "demo", "priority": 2, "body": "second"},
+		{"project": "demo", "priority": 3, "body": "third"},
 	} {
 		payload, err := json.Marshal(task)
 		if err != nil {
@@ -316,25 +320,23 @@ func TestSortEffectiveStatusAndWorker(t *testing.T) {
 		return resp
 	}
 
-	r1 := postJSON("/tasks", map[string]any{"id": "t1", "body": "first", "project": "p"})
+	r1 := postJSON("/tasks", map[string]any{"body": "first", "project": "p"})
+	var created1 map[string]int64
+	json.NewDecoder(r1.Body).Decode(&created1)
 	r1.Body.Close()
-	if r1.StatusCode != http.StatusCreated {
-		t.Fatalf("create t1 status = %d, want 201", r1.StatusCode)
-	}
+	t1ID := created1["id"]
+
 	c1 := postJSON("/tasks/claim", map[string]any{"worker": "w2"})
 	if c1.StatusCode != http.StatusOK {
 		t.Fatalf("claim t1 status = %d, want 200", c1.StatusCode)
 	}
 	c1.Body.Close()
 
-	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = 't1'"); err != nil {
+	if _, err := db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() - 1 WHERE id = ?", t1ID); err != nil {
 		t.Fatalf("expire lease failed: %v", err)
 	}
-	r2 := postJSON("/tasks", map[string]any{"id": "t2", "body": "second", "project": "p"})
+	r2 := postJSON("/tasks", map[string]any{"body": "second", "project": "p"})
 	r2.Body.Close()
-	if r2.StatusCode != http.StatusCreated {
-		t.Fatalf("create t2 status = %d, want 201", r2.StatusCode)
-	}
 
 	c2 := postJSON("/tasks/claim", map[string]any{"worker": "w1"})
 	c2.Body.Close()
@@ -343,7 +345,7 @@ func TestSortEffectiveStatusAndWorker(t *testing.T) {
 	}
 
 	type listTask struct {
-		ID           string `json:"id"`
+		ID           int64  `json:"id"`
 		Status       string `json:"status"`
 		Worker       string `json:"worker"`
 		LeaseExpires int64  `json:"lease_expires"`

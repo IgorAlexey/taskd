@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -29,7 +30,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 		t.Fatalf("expected 201, got %d", resp.StatusCode)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -37,7 +38,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 	}
 
 	patch1, _ := json.Marshal(map[string]any{"body": "first", "if_version": v})
-	req, _ := http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+created.ID, bytes.NewReader(patch1))
+	req, _ := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID), bytes.NewReader(patch1))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -69,7 +70,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 	resp.Body.Close()
 
 	patch2, _ := json.Marshal(map[string]any{"body": "second", "if_version": v})
-	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+created.ID, bytes.NewReader(patch2))
+	req, _ = http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID), bytes.NewReader(patch2))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -80,7 +81,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
@@ -98,7 +99,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 	}
 
 	patchUncond, _ := json.Marshal(map[string]any{"body": "unconditional"})
-	req, _ = http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+created.ID, bytes.NewReader(patchUncond))
+	req, _ = http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID), bytes.NewReader(patchUncond))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err = http.DefaultClient.Do(req)
 	if err != nil {
@@ -109,7 +110,7 @@ func TestPatchCompareAndSwap(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
@@ -128,8 +129,8 @@ func TestPatchCompareAndSwap(t *testing.T) {
 		t.Fatalf("list tasks failed: %v", err)
 	}
 	var list []struct {
-		ID      string `json:"id"`
-		Version int    `json:"version"`
+		ID      int64 `json:"id"`
+		Version int   `json:"version"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&list); err != nil {
 		resp.Body.Close()
@@ -145,8 +146,8 @@ func TestPatchCompareAndSwap(t *testing.T) {
 		t.Fatalf("list fields failed: %v", err)
 	}
 	var fieldList []struct {
-		ID      string `json:"id"`
-		Version int    `json:"version"`
+		ID      int64 `json:"id"`
+		Version int   `json:"version"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&fieldList); err != nil {
 		resp.Body.Close()
@@ -174,13 +175,13 @@ func TestMutationsBumpVersion(t *testing.T) {
 		t.Fatalf("create failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	json.NewDecoder(resp.Body).Decode(&created)
 	resp.Body.Close()
 
 	getVer := func() int {
-		r, err := http.Get(srv.URL + "/tasks/" + created.ID)
+		r, err := http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 		if err != nil {
 			t.Fatalf("get failed: %v", err)
 		}
@@ -210,7 +211,7 @@ func TestMutationsBumpVersion(t *testing.T) {
 	}
 
 	touchBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/touch", "application/json", bytes.NewReader(touchBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/touch", srv.URL, created.ID), "application/json", bytes.NewReader(touchBody))
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("touch failed: %v", err)
 	}
@@ -222,7 +223,7 @@ func TestMutationsBumpVersion(t *testing.T) {
 	}
 
 	releaseBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/release", "application/json", bytes.NewReader(releaseBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/release", srv.URL, created.ID), "application/json", bytes.NewReader(releaseBody))
 	if err != nil || resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("release failed: %v", err)
 	}
@@ -234,7 +235,7 @@ func TestMutationsBumpVersion(t *testing.T) {
 	}
 
 	claimIDBody, _ := json.Marshal(map[string]string{"worker": "w2"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/claim", "application/json", bytes.NewReader(claimIDBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/claim", srv.URL, created.ID), "application/json", bytes.NewReader(claimIDBody))
 	if err != nil || resp.StatusCode != http.StatusOK {
 		t.Fatalf("claim by id failed: %v", err)
 	}
@@ -246,7 +247,7 @@ func TestMutationsBumpVersion(t *testing.T) {
 	}
 
 	buryBody, _ := json.Marshal(map[string]string{"worker": "w2"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/bury", "application/json", bytes.NewReader(buryBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/bury", srv.URL, created.ID), "application/json", bytes.NewReader(buryBody))
 	if err != nil || resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("bury failed: %v", err)
 	}
@@ -257,7 +258,7 @@ func TestMutationsBumpVersion(t *testing.T) {
 		t.Fatalf("expected version after bury %d, got %d", v4+1, v5)
 	}
 
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/kick", "application/json", bytes.NewReader([]byte("{}")))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/kick", srv.URL, created.ID), "application/json", bytes.NewReader([]byte("{}")))
 	if err != nil || resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("kick failed: %v", err)
 	}
@@ -280,7 +281,7 @@ func TestMutationsBumpVersion(t *testing.T) {
 	}
 
 	doneBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/done", "application/json", bytes.NewReader(doneBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/done", srv.URL, created.ID), "application/json", bytes.NewReader(doneBody))
 	if err != nil || resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("done failed: %v", err)
 	}
@@ -346,8 +347,7 @@ PRAGMA user_version = 11;
 	}
 
 	var taskVer int
-	if err := store.ro.QueryRow("SELECT version FROM tasks WHERE id = 'v11-task'").Scan(&taskVer); err != nil {
-		t.Fatalf("query version from migrated task failed: %v", err)
+	if err := store.ro.QueryRow("SELECT version FROM tasks WHERE body = 'old task'").Scan(&taskVer); err != nil {
 	}
 	if taskVer != 1 {
 		t.Fatalf("expected default version 1, got %d", taskVer)

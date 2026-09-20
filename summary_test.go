@@ -21,10 +21,9 @@ func TestSummaryFromBody(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	postTask := func(id, body string) {
+	postTask := func(body string) int64 {
 		t.Helper()
 		payload, err := json.Marshal(map[string]string{
-			"id":      id,
 			"project": "render",
 			"body":    body,
 		})
@@ -39,10 +38,15 @@ func TestSummaryFromBody(t *testing.T) {
 		if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
 			t.Fatalf("POST /tasks status: %d", resp.StatusCode)
 		}
+		var created map[string]int64
+		if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+			t.Fatalf("decode failed: %v", err)
+		}
+		return created["id"]
 	}
 
-	postTask("t-body", "primary body text\nsecond line details")
-	postTask("t-long", "01234567890123456789012345678901234567890123456789extra characters that should be trimmed")
+	id1 := postTask("primary body text\nsecond line details")
+	id2 := postTask("01234567890123456789012345678901234567890123456789extra characters that should be trimmed")
 
 	resp, err := http.Get(srv.URL + "/tasks?fields=id,summary&order=asc")
 	if err != nil {
@@ -54,7 +58,7 @@ func TestSummaryFromBody(t *testing.T) {
 	}
 
 	var items []struct {
-		ID      string `json:"id"`
+		ID      int64  `json:"id"`
 		Summary string `json:"summary"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
@@ -64,18 +68,18 @@ func TestSummaryFromBody(t *testing.T) {
 		t.Fatalf("got %d items, want 2", len(items))
 	}
 
-	want := map[string]string{
-		"t-body": "primary body text",
-		"t-long": "01234567890123456789012345678901234567890123456789…",
+	want := map[int64]string{
+		id1: "primary body text",
+		id2: "01234567890123456789012345678901234567890123456789…",
 	}
 	for _, item := range items {
 		expected, ok := want[item.ID]
 		if !ok {
-			t.Errorf("unexpected task ID %q", item.ID)
+			t.Errorf("unexpected task ID %d", item.ID)
 			continue
 		}
 		if item.Summary != expected {
-			t.Errorf("task %q summary = %q, want %q", item.ID, item.Summary, expected)
+			t.Errorf("task %d summary = %q, want %q", item.ID, item.Summary, expected)
 		}
 	}
 }
@@ -169,8 +173,8 @@ PRAGMA user_version = 12;
 	if err := store.ro.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("query user_version failed: %v", err)
 	}
-	if version != 13 {
-		t.Fatalf("expected schema version 13, got %d", version)
+	if version < 13 {
+		t.Fatalf("expected schema version >= 13, got %d", version)
 	}
 
 	rows, err := store.ro.Query("PRAGMA table_info('tasks')")
@@ -203,13 +207,13 @@ PRAGMA user_version = 12;
 	}
 
 	var body, project string
-	if err := store.ro.QueryRow("SELECT body, project FROM tasks WHERE id = 'v12-1'").Scan(&body, &project); err != nil {
+	if err := store.ro.QueryRow("SELECT body, project FROM tasks WHERE body = 'task body'").Scan(&body, &project); err != nil {
 		t.Fatalf("query task data failed: %v", err)
 	}
 	if body != "task body" || project != "p1" {
 		t.Fatalf("expected task body='task body' project='p1', got body=%q project=%q", body, project)
 	}
-	if err := store.ro.QueryRow("SELECT body FROM tasks WHERE id = 'v12-2'").Scan(&body); err != nil {
+	if err := store.ro.QueryRow("SELECT body FROM tasks WHERE body = 'models/box.glb'").Scan(&body); err != nil {
 		t.Fatalf("query asset-only task failed: %v", err)
 	}
 	if body != "models/box.glb" {

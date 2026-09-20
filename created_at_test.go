@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -33,7 +34,7 @@ func TestCreatedAt_NewTaskAndQuery(t *testing.T) {
 		t.Fatalf("expected 201 Created, got %d", createResp.StatusCode)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode create response: %v", err)
@@ -45,8 +46,8 @@ func TestCreatedAt_NewTaskAndQuery(t *testing.T) {
 	}
 	defer listResp.Body.Close()
 	var tasks []struct {
-		ID        string `json:"id"`
-		CreatedAt int64  `json:"created_at"`
+		ID        int64 `json:"id"`
+		CreatedAt int64 `json:"created_at"`
 	}
 	if err := json.NewDecoder(listResp.Body).Decode(&tasks); err != nil {
 		t.Fatalf("decode list tasks: %v", err)
@@ -55,20 +56,20 @@ func TestCreatedAt_NewTaskAndQuery(t *testing.T) {
 		t.Fatalf("expected 1 task, got %d", len(tasks))
 	}
 	if tasks[0].ID != created.ID {
-		t.Fatalf("expected task id %s, got %s", created.ID, tasks[0].ID)
+		t.Fatalf("expected task id %d, got %d", created.ID, tasks[0].ID)
 	}
 	if tasks[0].CreatedAt < now-5 || tasks[0].CreatedAt > now+5 {
 		t.Fatalf("expected created_at near %d, got %d", now, tasks[0].CreatedAt)
 	}
 
-	getResp, err := http.Get(srv.URL + "/tasks/" + created.ID)
+	getResp, err := http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
 	defer getResp.Body.Close()
 	var single struct {
-		ID        string `json:"id"`
-		CreatedAt int64  `json:"created_at"`
+		ID        int64 `json:"id"`
+		CreatedAt int64 `json:"created_at"`
 	}
 	if err := json.NewDecoder(getResp.Body).Decode(&single); err != nil {
 		t.Fatalf("decode single task: %v", err)
@@ -83,8 +84,8 @@ func TestCreatedAt_NewTaskAndQuery(t *testing.T) {
 	}
 	defer fieldsResp.Body.Close()
 	var fieldTasks []struct {
-		ID        string `json:"id"`
-		CreatedAt int64  `json:"created_at"`
+		ID        int64 `json:"id"`
+		CreatedAt int64 `json:"created_at"`
 	}
 	if err := json.NewDecoder(fieldsResp.Body).Decode(&fieldTasks); err != nil {
 		t.Fatalf("decode field tasks: %v", err)
@@ -99,8 +100,8 @@ func TestCreatedAt_NewTaskAndQuery(t *testing.T) {
 	}
 	defer claimResp.Body.Close()
 	var claimed struct {
-		ID        string `json:"id"`
-		CreatedAt int64  `json:"created_at"`
+		ID        int64 `json:"id"`
+		CreatedAt int64 `json:"created_at"`
 	}
 	if err := json.NewDecoder(claimResp.Body).Decode(&claimed); err != nil {
 		t.Fatalf("decode claim: %v", err)
@@ -156,7 +157,7 @@ PRAGMA user_version = 7;
 	}
 
 	var createdAt int64
-	if err := store.ro.QueryRow("SELECT created_at FROM tasks WHERE id = 'v7-task'").Scan(&createdAt); err != nil {
+	if err := store.ro.QueryRow("SELECT created_at FROM tasks WHERE body = 'old task'").Scan(&createdAt); err != nil {
 		t.Fatalf("query created_at from migrated task failed: %v", err)
 	}
 	if createdAt <= 0 {
@@ -171,7 +172,7 @@ PRAGMA user_version = 7;
 	}
 	defer resp.Body.Close()
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created: %v", err)

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -26,7 +27,7 @@ func TestListTasksETag(t *testing.T) {
 		t.Fatalf("create task 1: %v", err)
 	}
 	var created1 struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp1.Body).Decode(&created1); err != nil {
 		t.Fatalf("decode created task 1: %v", err)
@@ -102,7 +103,7 @@ func TestListTasksETag(t *testing.T) {
 		t.Fatalf("expected 304 on HEAD, got %d", respHead.StatusCode)
 	}
 
-	patchReq, err := http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+created1.ID, bytes.NewBufferString(`{"priority":1}`))
+	patchReq, err := http.NewRequest(http.MethodPatch, fmt.Sprintf("%s/tasks/%d", srv.URL, created1.ID), bytes.NewBufferString(`{"priority":1}`))
 	if err != nil {
 		t.Fatalf("new PATCH request: %v", err)
 	}
@@ -174,14 +175,14 @@ func TestGetTaskETag(t *testing.T) {
 		t.Fatalf("create task: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		t.Fatalf("decode created task: %v", err)
 	}
 	resp.Body.Close()
 
-	taskURL := srv.URL + "/tasks/" + created.ID
+	taskURL := fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID)
 
 	req, err := http.NewRequest(http.MethodGet, taskURL, nil)
 	if err != nil {

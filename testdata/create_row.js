@@ -42,7 +42,7 @@ const api = new Function(
 );
 
 const row = api.createRow({
-  id: 'task-12345678',
+  id: 1,
   project: '<script>bad()</script>',
   status: 'pending',
   priority: 5,

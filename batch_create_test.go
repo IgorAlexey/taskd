@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -35,12 +36,12 @@ func TestBatchCreateTasks(t *testing.T) {
 		if loc == "" {
 			t.Fatal("expected Location header on single create")
 		}
-		var created map[string]string
+		var created map[string]int64
 		if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
 			t.Fatalf("decode failed: %v", err)
 		}
-		if created["id"] == "" {
-			t.Fatal("expected task id in response")
+		if created["id"] <= 0 {
+			t.Fatal("expected positive task id in response")
 		}
 	})
 
@@ -54,77 +55,37 @@ func TestBatchCreateTasks(t *testing.T) {
 		if res.StatusCode != http.StatusCreated {
 			t.Fatalf("expected 201, got %d", res.StatusCode)
 		}
-		var created []map[string]string
+		var created []map[string]int64
 		if err := json.NewDecoder(res.Body).Decode(&created); err != nil {
 			t.Fatalf("decode batch response failed: %v", err)
 		}
 		if len(created) != 2 {
 			t.Fatalf("expected 2 created tasks, got %d", len(created))
 		}
-		if created[0]["id"] == "" || created[1]["id"] == "" {
-			t.Fatal("expected non-empty IDs for created tasks")
+		if created[0]["id"] <= 0 || created[1]["id"] <= 0 {
+			t.Fatal("expected positive IDs for created tasks")
 		}
 		if created[0]["id"] == created[1]["id"] {
-			t.Fatalf("expected distinct IDs, got %s and %s", created[0]["id"], created[1]["id"])
+			t.Fatalf("expected distinct IDs, got %d and %d", created[0]["id"], created[1]["id"])
 		}
 
 		for _, item := range created {
-			getRes, err := http.Get(srv.URL + "/tasks/" + item["id"])
+			path := fmt.Sprintf("/tasks/%d", item["id"])
+			getRes, err := http.Get(srv.URL + path)
 			if err != nil {
-				t.Fatalf("GET /tasks/%s failed: %v", item["id"], err)
+				t.Fatalf("GET %s failed: %v", path, err)
 			}
 			if getRes.StatusCode != http.StatusOK {
 				getRes.Body.Close()
-				t.Fatalf("expected 200 for task %s, got %d", item["id"], getRes.StatusCode)
+				t.Fatalf("expected 200 for task %s, got %d", path, getRes.StatusCode)
 			}
 			getRes.Body.Close()
 		}
 	})
 
-	t.Run("batch atomic rollback on conflict", func(t *testing.T) {
-		first := `{"id":"existing-id","project":"p-atomic","body":"initial"}`
-		resInit, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(first))
-		if err != nil {
-			t.Fatalf("create initial task failed: %v", err)
-		}
-		resInit.Body.Close()
-
-		conflictBatch := `[
-			{"id":"batch-atomic-1","project":"p-atomic","body":"first in batch"},
-			{"id":"existing-id","project":"p-atomic","body":"duplicate id"},
-			{"id":"batch-atomic-2","project":"p-atomic","body":"second in batch"}
-		]`
-		resConf, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(conflictBatch))
-		if err != nil {
-			t.Fatalf("POST conflict batch failed: %v", err)
-		}
-		defer resConf.Body.Close()
-		if resConf.StatusCode != http.StatusConflict {
-			t.Fatalf("expected 409 Conflict, got %d", resConf.StatusCode)
-		}
-
-		check1, err := http.Get(srv.URL + "/tasks/batch-atomic-1")
-		if err != nil {
-			t.Fatalf("get check1 failed: %v", err)
-		}
-		defer check1.Body.Close()
-		if check1.StatusCode != http.StatusNotFound {
-			t.Fatalf("expected 404 for uncommitted task 1, got %d", check1.StatusCode)
-		}
-
-		check2, err := http.Get(srv.URL + "/tasks/batch-atomic-2")
-		if err != nil {
-			t.Fatalf("get check2 failed: %v", err)
-		}
-		defer check2.Body.Close()
-		if check2.StatusCode != http.StatusNotFound {
-			t.Fatalf("expected 404 for uncommitted task 2, got %d", check2.StatusCode)
-		}
-	})
-
 	t.Run("batch wakes waiting claimers", func(t *testing.T) {
 		var wg sync.WaitGroup
-		claimed := make(chan string, 2)
+		claimed := make(chan int64, 2)
 
 		for i := range 2 {
 			wg.Add(1)
@@ -175,7 +136,7 @@ func TestBatchCreateTasks(t *testing.T) {
 		}
 
 		close(claimed)
-		ids := make([]string, 0, 2)
+		ids := make([]int64, 0, 2)
 		for id := range claimed {
 			ids = append(ids, id)
 		}

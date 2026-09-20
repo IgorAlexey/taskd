@@ -16,7 +16,6 @@ const els = {
   'form-project': { value: 'default', focus() {} },
   'form-body': { value: 'test body', focus() {} },
   'form-priority': { value: '' },
-  'form-id': { value: '' },
   'form-error-summary': { hidden: true, setAttribute() {}, removeAttribute() {} },
   'form-success-summary': { hidden: true, setAttribute() {}, removeAttribute() {} },
   'form-error-summary-list': { replaceChildren() {} },
@@ -43,7 +42,7 @@ const fetchStub = async (url, opts) => {
       ok: true,
       status: 200,
       headers: { get: () => 'application/json' },
-      json: async () => ({ id: 'new-id' }),
+      json: async () => ({ id: 1 }),
     };
   }
   return { ok: true, status: 200, json: async () => ({}) };

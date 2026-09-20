@@ -3,12 +3,10 @@ package main
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	_ "embed"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -74,7 +72,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14}
 
 const schemaVersion = len(migrations) + 1
 
@@ -343,7 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) 
 CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (project) WHERE status = 'done';
 CREATE TABLE IF NOT EXISTS notes (
   id INTEGER PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
   created_at INTEGER NOT NULL,
   author TEXT NOT NULL,
   text TEXT NOT NULL
@@ -590,8 +588,23 @@ const taskColumnsV12 = `
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   version INTEGER NOT NULL DEFAULT 1`
 
-const taskColumns = `
+// taskColumnsV13 is the layout migration V13 rebuilt into; it is
+// frozen so that migration keeps producing the schema it did at the time.
+const taskColumnsV13 = `
   id TEXT PRIMARY KEY,
+  status TEXT DEFAULT 'pending',
+  worker TEXT CHECK (octet_length(worker) <= 128),
+  lease_expires INTEGER,
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
+  project TEXT NOT NULL DEFAULT '',
+  claim_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  version INTEGER NOT NULL DEFAULT 1`
+
+const taskColumns = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   status TEXT DEFAULT 'pending',
   worker TEXT CHECK (octet_length(worker) <= 128),
   lease_expires INTEGER,
@@ -756,7 +769,7 @@ func migrateV13(db *sql.DB) error {
 	defer tx.Rollback()
 
 	stmts := []string{
-		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		"CREATE TABLE tasks_new (" + taskColumnsV13 + ");",
 		`INSERT INTO tasks_new (rowid, id, status, worker, lease_expires, primitives, body, priority, project, claim_count, created_at, version)
 SELECT rowid, id, status, worker, lease_expires, primitives,
   CASE WHEN trim(body) = '' THEN asset_path ELSE body END,
@@ -770,6 +783,58 @@ SELECT rowid, id, status, worker, lease_expires, primitives,
 		"CREATE INDEX idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;",
 		"CREATE INDEX idx_tasks_done ON tasks (project) WHERE status = 'done';",
 		"PRAGMA user_version = 13;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func migrateV14(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF;"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA foreign_keys = ON;")
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		`CREATE TEMP TABLE idmap AS
+SELECT id AS old_id, row_number() OVER (ORDER BY rowid) AS new_id FROM tasks;`,
+		`INSERT INTO tasks_new (id, status, worker, lease_expires, primitives, body, priority, project, claim_count, created_at, version)
+SELECT m.new_id, t.status, t.worker, t.lease_expires, t.primitives, t.body, t.priority, t.project, t.claim_count, t.created_at, t.version
+FROM tasks t JOIN idmap m ON t.id = m.old_id;`,
+		`CREATE TABLE notes_new (
+  id INTEGER PRIMARY KEY,
+  task_id INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  created_at INTEGER NOT NULL,
+  author TEXT NOT NULL,
+  text TEXT NOT NULL
+);`,
+		`INSERT INTO notes_new (id, task_id, created_at, author, text)
+SELECT n.id, m.new_id, n.created_at, n.author, n.text
+FROM notes n
+JOIN idmap m ON n.task_id = m.old_id;`,
+		"DROP TABLE notes;",
+		"ALTER TABLE notes_new RENAME TO notes;",
+		"DROP TABLE tasks;",
+		"ALTER TABLE tasks_new RENAME TO tasks;",
+		"DROP TABLE idmap;",
+		"CREATE INDEX idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';",
+		"CREATE INDEX idx_tasks_project ON tasks (project, status, priority ASC);",
+		"CREATE INDEX idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;",
+		"CREATE INDEX idx_tasks_done ON tasks (project) WHERE status = 'done';",
+		"CREATE INDEX idx_notes_task_id ON notes (task_id);",
+		"PRAGMA user_version = 14;",
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.Exec(stmt); err != nil {
@@ -953,7 +1018,7 @@ type leaseConflict struct {
 	ClaimCount int    `json:"claim_count"`
 }
 
-func writeTaskStateError(w http.ResponseWriter, q queryer, id, worker string, claim *int) {
+func writeTaskStateError(w http.ResponseWriter, q queryer, id int64, worker string, claim *int) {
 	var (
 		status string
 		holder sql.NullString
@@ -1039,12 +1104,12 @@ func decodeOptionalWorker(w http.ResponseWriter, r *http.Request) bool {
 	return decodeBody(w, r, &req, true)
 }
 
-func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) (leaseEnvelope, bool) {
+func updateLeased(w http.ResponseWriter, db *sql.DB, set string, id int64, worker string, args ...any) (leaseEnvelope, bool) {
 	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch() RETURNING id, lease_expires, status, project"
 	return updateTask(w, db, query, append(args, id, worker), id, worker, nil)
 }
 
-func updateLeasedOrLapsed(w http.ResponseWriter, db *sql.DB, set, id, worker string, claim *int, args ...any) (leaseEnvelope, bool) {
+func updateLeasedOrLapsed(w http.ResponseWriter, db *sql.DB, set string, id int64, worker string, claim *int, args ...any) (leaseEnvelope, bool) {
 	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=?"
 	fullArgs := append(args, id, worker)
 	if claim != nil {
@@ -1055,7 +1120,7 @@ func updateLeasedOrLapsed(w http.ResponseWriter, db *sql.DB, set, id, worker str
 	return updateTask(w, db, query, fullArgs, id, worker, claim)
 }
 
-func updateTask(w http.ResponseWriter, db *sql.DB, query string, args []any, id, worker string, claim *int) (leaseEnvelope, bool) {
+func updateTask(w http.ResponseWriter, db *sql.DB, query string, args []any, id int64, worker string, claim *int) (leaseEnvelope, bool) {
 	var (
 		env     leaseEnvelope
 		expires sql.NullInt64
@@ -1090,114 +1155,16 @@ type queryer interface {
 
 var errTaskNotFound = errors.New("task not found")
 
-const maxPrefixMatches = 50
-
-type ambiguousMatch struct {
-	Error     string   `json:"error"`
-	Count     int      `json:"count,omitempty"`
-	Matches   []string `json:"matches"`
-	Truncated bool     `json:"truncated,omitempty"`
-}
-
-type errMultipleMatch struct {
-	count     int
-	truncated bool
-	matches   []string
-}
-
-func (e *errMultipleMatch) Error() string {
-	if e.truncated {
-		return fmt.Sprintf("ambiguous id prefix: more than %d tasks match", maxPrefixMatches)
+func pathTaskID(r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil || id <= 0 {
+		return 0, false
 	}
-	return fmt.Sprintf("ambiguous id prefix: %d tasks match", e.count)
-}
-
-func prefixRange(prefix string) (string, string) {
-	b := []byte(prefix)
-	for i := len(b) - 1; i >= 0; i-- {
-		if b[i] < 0xff {
-			b[i]++
-			return prefix, string(b[:i+1])
-		}
-	}
-	return prefix, ""
-}
-
-func resolveTaskID(q queryer, id string) (string, error) {
-	if id == "" {
-		return "", errTaskNotFound
-	}
-	var exactID string
-	err := q.QueryRow("SELECT id FROM tasks WHERE id = ?", id).Scan(&exactID)
-	if err == nil {
-		return exactID, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", err
-	}
-
-	lower, upper := prefixRange(id)
-	where := "id >= ?"
-	args := []any{lower}
-	if upper != "" {
-		where += " AND id < ?"
-		args = append(args, upper)
-	}
-	args = append(args, maxPrefixMatches+1)
-	rows, err := q.Query("SELECT id FROM tasks WHERE "+where+" ORDER BY id ASC LIMIT ?", args...)
-	if err != nil {
-		return "", err
-	}
-	defer rows.Close()
-
-	var matches []string
-	for rows.Next() {
-		var match string
-		if err := rows.Scan(&match); err != nil {
-			return "", err
-		}
-		matches = append(matches, match)
-	}
-	if err := rows.Err(); err != nil {
-		return "", err
-	}
-	if len(matches) == 0 {
-		return "", errTaskNotFound
-	}
-	if len(matches) > maxPrefixMatches {
-		return "", &errMultipleMatch{truncated: true, matches: matches[:maxPrefixMatches]}
-	}
-	if len(matches) > 1 {
-		return "", &errMultipleMatch{count: len(matches), matches: matches}
-	}
-	return matches[0], nil
-}
-
-func resolveTaskIDHTTP(w http.ResponseWriter, q queryer, id string) (string, bool) {
-	resolved, err := resolveTaskID(q, id)
-	if err == nil {
-		return resolved, true
-	}
-	var mm *errMultipleMatch
-	if errors.As(err, &mm) {
-		writeAPIError(w, http.StatusConflict, ambiguousMatch{
-			Error:     mm.Error(),
-			Count:     mm.count,
-			Matches:   mm.matches,
-			Truncated: mm.truncated,
-		})
-		return "", false
-	}
-	if errors.Is(err, errTaskNotFound) {
-		writeError(w, http.StatusNotFound, "task not found")
-		return "", false
-	}
-	internalError(w, err)
-	return "", false
+	return id, true
 }
 
 type taskItem struct {
-	ID           string          `json:"id"`
+	ID           int64           `json:"id"`
 	Status       string          `json:"status"`
 	Worker       string          `json:"worker"`
 	LeaseExpires int64           `json:"lease_expires"`
@@ -1226,7 +1193,7 @@ type taskDetail struct {
 	Notes []taskNote `json:"notes"`
 }
 
-func fetchTaskNotes(q queryer, taskID string) ([]taskNote, error) {
+func fetchTaskNotes(q queryer, taskID int64) ([]taskNote, error) {
 	notes := make([]taskNote, 0)
 	rows, err := q.Query("SELECT id, created_at, author, text FROM notes WHERE task_id = ? ORDER BY id ASC", taskID)
 	if err != nil {
@@ -1321,8 +1288,7 @@ func writeProjectedTask(buf *bytes.Buffer, item taskItem, fields []string) {
 		buf.WriteString(`":`)
 		switch f {
 		case "id":
-			b, _ := json.Marshal(item.ID)
-			buf.Write(b)
+			buf.WriteString(strconv.FormatInt(item.ID, 10))
 		case "status":
 			b, _ := json.Marshal(item.Status)
 			buf.Write(b)
@@ -1360,16 +1326,16 @@ func writeProjectedTask(buf *bytes.Buffer, item taskItem, fields []string) {
 }
 
 type leaseEnvelope struct {
-	ID           string `json:"id"`
+	ID           int64  `json:"id"`
 	LeaseExpires int64  `json:"lease_expires"`
 	Status       string `json:"status"`
 	Project      string `json:"-"`
 }
 type taskCreateReq struct {
-	ID       string `json:"id"`
-	Body     string `json:"body"`
-	Priority *int   `json:"priority"`
-	Project  string `json:"project"`
+	ID       json.RawMessage `json:"id"`
+	Body     string          `json:"body"`
+	Priority *int            `json:"priority"`
+	Project  string          `json:"project"`
 }
 
 type fieldError struct {
@@ -1382,13 +1348,11 @@ func (e fieldError) Error() string {
 }
 
 type validatedTask struct {
-	id       string
 	body     string
 	priority int
 	project  string
 }
 
-const maxTaskIDLen = 128
 const maxProjectLen = 64
 const maxAuthorLen = 128
 
@@ -1400,29 +1364,6 @@ func validNameByte(c byte) bool {
 
 func validAuthorByte(c byte) bool {
 	return validNameByte(c) || c == '/' || c == ':'
-}
-
-func validTaskID(id string) bool {
-	_, ok := checkTaskID(id)
-	return ok
-}
-
-func checkTaskID(id string) (string, bool) {
-	if id == "" {
-		return "invalid id", false
-	}
-	if len(id) > maxTaskIDLen {
-		return fmt.Sprintf("invalid id: exceeds %d characters", maxTaskIDLen), false
-	}
-	if id == "." || id == ".." || strings.EqualFold(id, "claim") || strings.EqualFold(id, "purge") || strings.EqualFold(id, "kick") {
-		return fmt.Sprintf("invalid id %q, id is reserved", id), false
-	}
-	for i := range len(id) {
-		if !validNameByte(id[i]) {
-			return fmt.Sprintf("invalid id %q: must contain only %s", id, validNameChars), false
-		}
-	}
-	return "", true
 }
 
 func validProject(p string) bool {
@@ -1561,11 +1502,11 @@ func mainDBName(db *sql.DB) string {
 	}
 	return ""
 }
-func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
+func sweepLapsed(rw *sql.DB, maxClaims int, id int64) error {
 	if maxClaims > 0 {
 		query := buryExhaustedSQL
 		args := []any{maxClaims}
-		if id != "" {
+		if id > 0 {
 			query += " AND id = ?"
 			args = append(args, id)
 		}
@@ -1574,9 +1515,9 @@ func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
 			return err
 		}
 		defer rows.Close()
-		var buried []string
+		var buried []int64
 		for rows.Next() {
-			var task string
+			var task int64
 			if err := rows.Scan(&task); err != nil {
 				return err
 			}
@@ -1586,12 +1527,16 @@ func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
 			return err
 		}
 		if len(buried) > 0 {
-			log.Printf("buried at the %d claim limit: %s", maxClaims, strings.Join(buried, " "))
+			strs := make([]string, len(buried))
+			for i, b := range buried {
+				strs[i] = strconv.FormatInt(b, 10)
+			}
+			log.Printf("buried at the %d claim limit: %s", maxClaims, strings.Join(strs, " "))
 		}
 	}
 	query := "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, version = version + 1 WHERE status='leased' AND lease_expires < unixepoch()"
 	var args []any
-	if id != "" {
+	if id > 0 {
 		query += " AND id = ?"
 		args = append(args, id)
 	}
@@ -1655,7 +1600,7 @@ func newHandlerWithCORS(db *store, lease int, corsOrigin string) http.Handler {
 	mux := http.NewServeMux()
 	dbName := mainDBName(db.ro)
 
-	sweepLapsedLeases := func(id string) error {
+	sweepLapsedLeases := func(id int64) error {
 		return sweepLapsed(db.rw, db.maxClaims, id)
 	}
 	uiHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -1712,6 +1657,9 @@ FROM tasks`
 		})
 	}
 	validateTask := func(req taskCreateReq) (validatedTask, error) {
+		if req.ID != nil {
+			return validatedTask{}, fieldError{msg: "id is assigned by the server", field: "id"}
+		}
 		project := strings.TrimSpace(req.Project)
 		if strings.TrimSpace(req.Body) == "" {
 			return validatedTask{}, fieldError{msg: "missing body", field: "body"}
@@ -1729,18 +1677,7 @@ FROM tasks`
 			}
 			priority = *req.Priority
 		}
-		id := req.ID
-		if id == "" {
-			var b [16]byte
-			if _, err := rand.Read(b[:]); err != nil {
-				return validatedTask{}, err
-			}
-			id = hex.EncodeToString(b[:])
-		} else if msg, ok := checkTaskID(id); !ok {
-			return validatedTask{}, fieldError{msg: msg, field: "id"}
-		}
 		return validatedTask{
-			id:       id,
 			body:     req.Body,
 			priority: priority,
 			project:  project,
@@ -1767,11 +1704,13 @@ FROM tasks`
 				prio = &p
 			}
 			reqs = []taskCreateReq{{
-				ID:       r.FormValue("id"),
 				Body:     r.FormValue("body"),
 				Priority: prio,
 				Project:  r.FormValue("project"),
 			}}
+			if id := r.FormValue("id"); id != "" {
+				reqs[0].ID = json.RawMessage(id)
+			}
 		} else {
 			var raw json.RawMessage
 			if !decodeJSON(w, r, &raw) {
@@ -1820,21 +1759,16 @@ FROM tasks`
 		}
 		defer tx.Rollback()
 
-		stmt, err := tx.Prepare("INSERT INTO tasks (id, body, priority, project, created_at) VALUES (?, ?, ?, ?, unixepoch())")
+		stmt, err := tx.Prepare("INSERT INTO tasks (body, priority, project, created_at) VALUES (?, ?, ?, unixepoch()) RETURNING id")
 		if err != nil {
 			internalError(w, err)
 			return
 		}
 		defer stmt.Close()
 
-		for _, t := range tasks {
-			_, err := stmt.Exec(t.id, t.body, t.priority, t.project)
-			if err != nil {
-				var se *sqlite.Error
-				if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
-					writeFieldError(w, http.StatusConflict, "duplicate id", "id")
-					return
-				}
+		createdIDs := make([]int64, len(tasks))
+		for i, t := range tasks {
+			if err := stmt.QueryRow(t.body, t.priority, t.project).Scan(&createdIDs[i]); err != nil {
 				internalError(w, err)
 				return
 			}
@@ -1856,17 +1790,17 @@ FROM tasks`
 
 		w.Header().Set("Content-Type", "application/json")
 		if !isBatch {
-			w.Header().Set("Location", "/tasks/"+tasks[0].id)
+			w.Header().Set("Location", fmt.Sprintf("/tasks/%d", createdIDs[0]))
 		}
 		w.WriteHeader(http.StatusCreated)
 		if isBatch {
-			resp := make([]map[string]string, len(tasks))
-			for i, t := range tasks {
-				resp[i] = map[string]string{"id": t.id}
+			resp := make([]map[string]int64, len(createdIDs))
+			for i, id := range createdIDs {
+				resp[i] = map[string]int64{"id": id}
 			}
 			json.NewEncoder(w).Encode(resp)
 		} else {
-			json.NewEncoder(w).Encode(map[string]string{"id": tasks[0].id})
+			json.NewEncoder(w).Encode(map[string]int64{"id": createdIDs[0]})
 		}
 	}
 
@@ -2009,8 +1943,9 @@ WHERE id = (
 		if !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		if err := sweepLapsedLeases(id); err != nil {
@@ -2058,8 +1993,9 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		var prim any
@@ -2075,8 +2011,9 @@ RETURNING id, status, worker, lease_expires, priority, version, body, primitives
 		if !decodeOptionalWorker(w, r) {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		res, err := db.rw.Exec(`UPDATE tasks SET status='done', worker=NULL, lease_expires=NULL, version = version + 1
@@ -2101,8 +2038,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		env, ok := updateLeased(w, db.rw, "lease_expires = unixepoch() + ?", id, worker, lease)
@@ -2117,8 +2055,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !ok {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		env, ok := updateLeasedOrLapsed(w, db.rw, "status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0), version = version + 1", id, worker, nil)
@@ -2148,8 +2087,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority))
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		var prim any
@@ -2165,8 +2105,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if !decodeOptionalWorker(w, r) {
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		var project string
@@ -2342,7 +2283,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			search := strings.TrimSpace(q.Get("q"))
 			if search != "" {
 				pat := "%" + escapeLike(search) + "%"
-				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))))")
+				where = append(where, "(CAST(id AS TEXT) LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))))")
 				whereArgs = append(whereArgs, pat, pat, pat, pat, now)
 			}
 		}
@@ -2465,8 +2406,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 		var (
@@ -2525,8 +2467,17 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		w.Write(buf.Bytes())
 	}
 	getNotesHandler := func(w http.ResponseWriter, r *http.Request) {
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
+		var dummy int
+		if err := db.ro.QueryRow("SELECT 1 FROM tasks WHERE id = ?", id).Scan(&dummy); errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		} else if err != nil {
+			internalError(w, err)
 			return
 		}
 		notes, err := fetchTaskNotes(db.ro, id)
@@ -2562,8 +2513,17 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeFieldError(w, http.StatusBadRequest, "text too long", "text")
 			return
 		}
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		}
+		var dummy int
+		if err := db.ro.QueryRow("SELECT 1 FROM tasks WHERE id = ?", id).Scan(&dummy); errors.Is(err, sql.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "task not found")
+			return
+		} else if err != nil {
+			internalError(w, err)
 			return
 		}
 		var note taskNote
@@ -2688,8 +2648,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			}
 		}
 
-		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 
@@ -2761,8 +2722,9 @@ RETURNING status, project`,
 		}
 		defer tx.Rollback()
 
-		id, ok := resolveTaskIDHTTP(w, tx, r.PathValue("id"))
+		id, ok := pathTaskID(r)
 		if !ok {
+			writeError(w, http.StatusNotFound, "task not found")
 			return
 		}
 
@@ -3126,11 +3088,10 @@ HTTP Endpoints:
                              lease_expires, priority, body, primitives,
                              project, claim_count, summary, created_at, version
          ?columns=           alias for fields
-  POST   /tasks              create a task (requires project, body; optional id, priority)
+  POST   /tasks              create a task (requires project, body; optional priority)
                              accepts JSON array for atomic batch creation
   POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait in seconds)
   GET    /tasks/{id}         get task details
-         {id} accepts unique prefixes (returns 409 on collision)
          ?fields=            comma list from id, status, worker,
                              lease_expires, priority, body, primitives,
                              project, claim_count, summary, created_at, version
@@ -3167,10 +3128,10 @@ Examples:
 
   # Task lifecycle (create, claim, complete):
   T=${T:-http://localhost:8080}
-  curl -s -XPOST $T/tasks -d '{"id":"t1","body":"hello","project":"demo"}'
-  curl -s -XPOST $T/tasks -d '[{"id":"t2","body":"batch","project":"demo"}]'
+  curl -s -XPOST $T/tasks -d '{"body":"hello","project":"demo"}'
+  curl -s -XPOST $T/tasks -d '[{"body":"batch","project":"demo"}]'
   curl -s -XPOST $T/tasks/claim -d '{"worker":"me","project":"demo"}'
-  curl -s -i -XPOST $T/tasks/t1/done -d '{"worker":"me"}'
+  curl -s -i -XPOST $T/tasks/1/done -d '{"worker":"me"}'
 `)
 }
 
@@ -3395,7 +3356,7 @@ func runServer(ctx context.Context, l net.Listener, db *store, lease int, corsOr
 	serverCtx, cancelServer := context.WithCancel(ctx)
 	defer cancelServer()
 	sweepFn := func() {
-		sweepLapsed(db.rw, db.maxClaims, "")
+		sweepLapsed(db.rw, db.maxClaims, 0)
 	}
 	go runCheckpointer(serverCtx, db.rw, defaultCheckpointInterval, sweepFn)
 

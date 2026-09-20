@@ -19,10 +19,10 @@ func TestFilteredTasksTotalCount(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	for _, id := range []string{"t1", "t2", "t3"} {
-		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(`{"id":"`+id+`","project":"alpha","priority":1,"body":"b"}`))
+	for range 3 {
+		resp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(`{"project":"alpha","priority":1,"body":"b"}`))
 		if err != nil {
-			t.Fatalf("POST /tasks %s: %v", id, err)
+			t.Fatalf("POST /tasks: %v", err)
 		}
 		resp.Body.Close()
 	}

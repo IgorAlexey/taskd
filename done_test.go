@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -25,7 +26,7 @@ func TestDoneClearsLeaseExpires(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -41,7 +42,7 @@ func TestDoneClearsLeaseExpires(t *testing.T) {
 	resp.Body.Close()
 
 	doneBody, _ := json.Marshal(map[string]string{"worker": "w1"})
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/done", "application/json", bytes.NewReader(doneBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/done", srv.URL, created.ID), "application/json", bytes.NewReader(doneBody))
 	if err != nil {
 		t.Fatalf("done task failed: %v", err)
 	}
@@ -57,7 +58,7 @@ func TestDoneClearsLeaseExpires(t *testing.T) {
 	defer resp.Body.Close()
 
 	var tasks []struct {
-		ID           string `json:"id"`
+		ID           int64  `json:"id"`
 		LeaseExpires int64  `json:"lease_expires"`
 		Status       string `json:"status"`
 	}
@@ -68,7 +69,7 @@ func TestDoneClearsLeaseExpires(t *testing.T) {
 		t.Fatalf("got %d tasks, want 1", len(tasks))
 	}
 	if tasks[0].ID != created.ID {
-		t.Fatalf("task id = %q, want %q", tasks[0].ID, created.ID)
+		t.Fatalf("task id = %d, want %d", tasks[0].ID, created.ID)
 	}
 	if tasks[0].LeaseExpires != 0 {
 		t.Fatalf("lease_expires = %d, want 0", tasks[0].LeaseExpires)
@@ -91,7 +92,7 @@ func TestDoneNullPrimitives(t *testing.T) {
 		t.Fatalf("create task failed: %v", err)
 	}
 	var created struct {
-		ID string `json:"id"`
+		ID int64 `json:"id"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
 		resp.Body.Close()
@@ -107,7 +108,7 @@ func TestDoneNullPrimitives(t *testing.T) {
 	resp.Body.Close()
 
 	doneBody := []byte(`{"worker":"w1", "primitives": null}`)
-	resp, err = http.Post(srv.URL+"/tasks/"+created.ID+"/done", "application/json", bytes.NewReader(doneBody))
+	resp, err = http.Post(fmt.Sprintf("%s/tasks/%d/done", srv.URL, created.ID), "application/json", bytes.NewReader(doneBody))
 	if err != nil {
 		t.Fatalf("done task failed: %v", err)
 	}
@@ -125,7 +126,7 @@ func TestDoneNullPrimitives(t *testing.T) {
 		t.Errorf("primitives column in SQLite = %v (isNull=%v), want NULL", primValue, isNull)
 	}
 
-	resp, err = http.Get(srv.URL + "/tasks/" + created.ID)
+	resp, err = http.Get(fmt.Sprintf("%s/tasks/%d", srv.URL, created.ID))
 	if err != nil {
 		t.Fatalf("get task failed: %v", err)
 	}
