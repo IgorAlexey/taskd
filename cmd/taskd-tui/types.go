@@ -147,6 +147,37 @@ type model struct {
 	confirm confirmModel
 	help    helpModel
 }
+type tabDef struct {
+	key    string
+	name   string
+	count  int
+	filter string
+}
+type tabHitTarget struct {
+	filter string
+	start  int
+	end    int
+}
+
+type row1Bounds struct {
+	tabs   []tabHitTarget
+	proj   [2]int
+	worker [2]int
+}
+type paneLayout struct {
+	tableTop   int
+	tableRows  int
+	detailTop  int
+	detailRows int
+}
+
+func (p paneLayout) inTable(y int) bool {
+	return p.tableRows > 0 && y >= p.tableTop && y < p.tableTop+p.tableRows
+}
+
+func (p paneLayout) inDetail(y int) bool {
+	return p.detailRows > 0 && y >= p.detailTop && y < p.detailTop+p.detailRows
+}
 
 // Layout constants shared by view and model (paging, offset clamping).
 const (

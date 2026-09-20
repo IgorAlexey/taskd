@@ -9,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func newModel(cfg config, c *client) model {
@@ -248,15 +249,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.help, cmd = m.help.Update(msg)
 			return m, cmd
 		}
+		panes := m.panes()
+		targetDetail := false
+		if m.mode == modeZoom || panes.inDetail(msg.Y) {
+			targetDetail = true
+		} else if panes.inTable(msg.Y) {
+			targetDetail = false
+		} else {
+			targetDetail = (m.mode == modeDetail)
+		}
 		switch msg.Button {
 		case tea.MouseWheelUp:
-			if m.mode == modeDetail || m.mode == modeZoom {
+			if targetDetail {
 				m.detail.ScrollUp(3)
 			} else {
 				m.move(-3)
 			}
 		case tea.MouseWheelDown:
-			if m.mode == modeDetail || m.mode == modeZoom {
+			if targetDetail {
 				m.detail.ScrollDown(3)
 			} else {
 				m.move(3)
@@ -265,11 +275,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft && (m.mode == modeTable || m.mode == modeDetail) {
-			bandTop := headerRows + tabRows + 1 + colHeadRows
-			tr, dr := m.layout()
-			if msg.Y >= bandTop && msg.Y < bandTop+tr {
-				idx := m.offset + (msg.Y - bandTop)
+		if msg.Button == tea.MouseLeft && (m.mode == modeTable || m.mode == modeDetail || m.mode == modeZoom) {
+			if msg.Y == headerRows {
+				bounds := m.row1Bounds()
+				for _, tab := range bounds.tabs {
+					if msg.X >= tab.start && msg.X < tab.end {
+						m.mode = modeTable
+						return m.setFilter(tab.filter)
+					}
+				}
+				if msg.X >= bounds.proj[0] && msg.X < bounds.proj[1] {
+					m.mode = modeTable
+					return m.cycleProject()
+				}
+				if msg.X >= bounds.worker[0] && msg.X < bounds.worker[1] {
+					m.mode = modeTable
+					m.worker = cycleWorker(m.worker, m.workers, 1)
+					return m, m.rescope()
+				}
+				return m, nil
+			}
+
+			panes := m.panes()
+			if panes.inTable(msg.Y) {
+				idx := m.offset + (msg.Y - panes.tableTop)
 				if idx >= 0 && idx < len(m.shown) {
 					m.cursor = idx
 					m.lastRow = idx
@@ -279,12 +308,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.mode == modeDetail {
 					m.mode = modeTable
 				}
-			} else {
-				detailTop := bandTop + tr + 1
-				if msg.Y >= detailTop && msg.Y < detailTop+dr {
-					if m.mode == modeTable {
-						m.mode = modeDetail
-					}
+			} else if panes.inDetail(msg.Y) {
+				if m.mode == modeTable {
+					m.mode = modeDetail
 				}
 			}
 		}
@@ -497,28 +523,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case msg.Text == "4":
 				return m.setFilter("buried")
 			case msg.Text == "p":
-				if len(m.projects) == 0 {
-					m.project = ""
-				} else if m.project == "" {
-					m.project = m.projects[0]
-				} else {
-					next := ""
-					for i, p := range m.projects {
-						if p == m.project {
-							if i+1 < len(m.projects) {
-								next = m.projects[i+1]
-							} else {
-								next = ""
-							}
-							break
-						}
-					}
-					m.project = next
-				}
-				// The tag, the counts and the walk depth describe the
-				// previous project's list; the new one starts live.
-				m.stats, m.hasStats = stats{}, false
-				return m, m.rescope()
+				return m.cycleProject()
 			case msg.Text == "w":
 				m.worker = cycleWorker(m.worker, m.workers, 1)
 				return m, m.rescope()
@@ -738,6 +743,75 @@ func (m model) setFilter(f string) (model, tea.Cmd) {
 	}
 	m.filter = f
 	return m, m.rescope()
+}
+func (m model) cycleProject() (model, tea.Cmd) {
+	if len(m.projects) == 0 {
+		m.project = ""
+	} else if m.project == "" {
+		m.project = m.projects[0]
+	} else {
+		next := ""
+		for i, p := range m.projects {
+			if p == m.project {
+				if i+1 < len(m.projects) {
+					next = m.projects[i+1]
+				} else {
+					next = ""
+				}
+				break
+			}
+		}
+		m.project = next
+	}
+	m.stats, m.hasStats = stats{}, false
+	return m, m.rescope()
+}
+func (m model) panes() paneLayout {
+	tr, dr := m.layout()
+	tableTop := headerRows + tabRows + 1 + colHeadRows
+	detailTop := tableTop + tr + 1
+	if m.mode == modeZoom {
+		detailTop = headerRows + tabRows + 1
+	}
+	return paneLayout{
+		tableTop:   tableTop,
+		tableRows:  tr,
+		detailTop:  detailTop,
+		detailRows: dr,
+	}
+}
+
+func (m model) row1Bounds() row1Bounds {
+	tabDefs := m.tabDefs()
+	var b row1Bounds
+	x := 0
+	for _, tab := range tabDefs {
+		w := ansi.StringWidth(m.renderTab(tab))
+		b.tabs = append(b.tabs, tabHitTarget{
+			filter: tab.filter,
+			start:  x,
+			end:    x + w,
+		})
+		x += w + 2
+	}
+	tlw := max(0, x-2)
+
+	pw := ansi.StringWidth(m.renderProject())
+	ww := ansi.StringWidth(m.renderWorker())
+	trw := pw + 2 + ww
+
+	w := m.width
+	if w <= 0 {
+		w = 80
+	}
+	rightStart := w - trw
+	if tlw+trw+1 > w {
+		rightStart = tlw + 1
+	}
+
+	b.proj = [2]int{min(w, rightStart), min(w, rightStart+pw)}
+	b.worker = [2]int{min(w, rightStart+pw+2), min(w, rightStart+trw)}
+	return b
 }
 
 func (m *model) rebuildShown() {

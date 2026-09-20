@@ -203,6 +203,53 @@ func highlightCode(s string, th theme) string {
 	}
 	return b.String()
 }
+func (m model) tabDefs() []tabDef {
+	st := m.stats
+	defs := []tabDef{
+		{"0", "all", st.Total, ""},
+		{"1", "pending", st.Pending, "pending"},
+		{"2", "leased", st.Leased, "leased"},
+		{"3", "done", st.Done, "done"},
+	}
+	if st.Buried > 0 || m.filter == "buried" {
+		defs = append(defs, tabDef{"4", "buried", st.Buried, "buried"})
+	}
+	return defs
+}
+
+func (m model) renderTab(tab tabDef) string {
+	countStr := "-"
+	if m.hasStats {
+		countStr = strconv.Itoa(tab.count)
+	}
+	active := m.filter == tab.filter
+	pill := func(body string) string {
+		return m.theme.accent.Render(m.glyph.pillL) + m.theme.tabActive.Render(body) + m.theme.accent.Render(m.glyph.pillR)
+	}
+	switch {
+	case active && m.connected:
+		return pill(tab.key + " " + tab.name + " " + countStr)
+	case active:
+		return pill(tab.key+" "+tab.name) + " " + m.theme.dim.Render(countStr)
+	default:
+		return m.theme.tabKey.Render(tab.key) + " " + tab.name + " " + m.theme.dim.Render(countStr)
+	}
+}
+func (m model) renderProject() string {
+	name := m.project
+	if name == "" {
+		name = "all"
+	}
+	return m.glyph.folder + " " + m.theme.tabKey.Render("p") + " " + m.theme.dim.Render("project ") + name
+}
+
+func (m model) renderWorker() string {
+	name := m.worker
+	if name == "" {
+		name = "all"
+	}
+	return m.glyph.host + " " + m.theme.tabKey.Render("w") + " " + m.theme.dim.Render("worker ") + name
+}
 
 func (m model) View() tea.View {
 	w := m.width
@@ -263,58 +310,14 @@ func (m model) View() tea.View {
 		headerLine = padLine(headLeft+" "+headRight, w)
 	}
 
-	// 2. Tabs (1 row)
-	type tabInfo struct {
-		key    string
-		name   string
-		count  int
-		filter string
-	}
-	st := m.stats
-	tabDefs := []tabInfo{
-		{"0", "all", st.Total, ""},
-		{"1", "pending", st.Pending, "pending"},
-		{"2", "leased", st.Leased, "leased"},
-		{"3", "done", st.Done, "done"},
-	}
-	if st.Buried > 0 || m.filter == "buried" {
-		tabDefs = append(tabDefs, tabInfo{"4", "buried", st.Buried, "buried"})
-	}
-
+	tabDefs := m.tabDefs()
 	var tabParts []string
 	for _, tab := range tabDefs {
-		countStr := "-"
-		if m.hasStats {
-			countStr = strconv.Itoa(tab.count)
-		}
-		active := m.filter == tab.filter
-		pill := func(body string) string {
-			return m.theme.accent.Render(m.glyph.pillL) + m.theme.tabActive.Render(body) + m.theme.accent.Render(m.glyph.pillR)
-		}
-		switch {
-		case active && m.connected:
-			tabParts = append(tabParts, pill(tab.key+" "+tab.name+" "+countStr))
-		case active:
-			// Counts are from the last successful poll: keep the
-			// selection, move the count out of the pill and dim it.
-			tabParts = append(tabParts, pill(tab.key+" "+tab.name)+" "+m.theme.dim.Render(countStr))
-		default:
-			tabParts = append(tabParts, m.theme.tabKey.Render(tab.key)+" "+tab.name+" "+m.theme.dim.Render(countStr))
-		}
+		tabParts = append(tabParts, m.renderTab(tab))
 	}
 	tabsLeft := strings.Join(tabParts, "  ")
 
-	projName := m.project
-	if projName == "" {
-		projName = "all"
-	}
-	workerName := m.worker
-	if workerName == "" {
-		workerName = "all"
-	}
-	tabsRight := m.glyph.folder + " " + m.theme.tabKey.Render("p") + " " + m.theme.dim.Render("project ") + projName +
-		"  " + m.glyph.host + " " + m.theme.tabKey.Render("w") + " " + m.theme.dim.Render("worker ") + workerName
-
+	tabsRight := m.renderProject() + "  " + m.renderWorker()
 	tlw := lipgloss.Width(tabsLeft)
 	trw := lipgloss.Width(tabsRight)
 	var tabLine string
