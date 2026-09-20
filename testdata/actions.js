@@ -482,13 +482,13 @@ const api = new Function(
 
   resetLeased();
   failReleaseStatus = 409;
-  failReleaseMessage = 'task not leased by worker';
+  failReleaseMessage = 'task leased by another worker';
   els['error-banner'].textContent = '';
   await api.selectTask('t-leased');
   await els['release-task-btn'].onclick();
-  results.releaseWrongWorkerBanner = els['error-banner'].textContent.includes('task not leased by worker');
+  results.releaseWrongWorkerBanner = els['error-banner'].textContent.includes('task leased by another worker');
   await api.loadTasks();
-  results.releaseWrongWorkerBannerSurvivesPoll = els['error-banner'].textContent.includes('task not leased by worker');
+  results.releaseWrongWorkerBannerSurvivesPoll = els['error-banner'].textContent.includes('task leased by another worker');
   failReleaseStatus = null;
 
   await api.selectTask('t-pending');

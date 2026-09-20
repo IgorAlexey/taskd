@@ -35,7 +35,7 @@ func TestExpiredLeaseOfAnotherWorkerIsNotMine(t *testing.T) {
 	for _, action := range []string{"done", "touch", "release", "bury"} {
 		t.Run(action, func(t *testing.T) {
 			code, body := post(t, srv.URL+"/tasks/"+id+"/"+action, map[string]any{"worker": "w2"})
-			assertConflict(t, code, body, "task not leased by worker")
+			assertConflict(t, code, body, "task leased by another worker")
 		})
 	}
 }
@@ -66,7 +66,7 @@ func TestConflictDistinguishesPendingAndForeignLease(t *testing.T) {
 
 	claimTask(t, srv.URL, "p", "w1")
 	code, body = post(t, srv.URL+"/tasks/"+id+"/release", map[string]any{"worker": "w2"})
-	assertConflict(t, code, body, "task not leased by worker")
+	assertConflict(t, code, body, "task leased by another worker")
 
 	code, body = post(t, srv.URL+"/tasks/"+id+"/bury", map[string]any{"worker": "w1"})
 	if code != http.StatusNoContent {

@@ -598,12 +598,19 @@ func internalError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, "internal error")
 }
 
-func writeTaskStateError(w http.ResponseWriter, q queryer, id, worker string) {
+type leaseConflict struct {
+	Error      string `json:"error"`
+	Worker     string `json:"worker"`
+	ClaimCount int    `json:"claim_count"`
+}
+
+func writeTaskStateError(w http.ResponseWriter, q queryer, id, worker string, claim *int) {
 	var (
 		status string
 		holder sql.NullString
+		claims int
 	)
-	err := q.QueryRow("SELECT status, worker FROM tasks WHERE id = ?", id).Scan(&status, &holder)
+	err := q.QueryRow("SELECT status, worker, claim_count FROM tasks WHERE id = ?", id).Scan(&status, &holder, &claims)
 	if errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "task not found")
 		return
@@ -616,14 +623,18 @@ func writeTaskStateError(w http.ResponseWriter, q queryer, id, worker string) {
 	case "done":
 		writeError(w, http.StatusConflict, "task is done")
 	case "leased":
+		conflict := leaseConflict{Worker: holder.String, ClaimCount: claims}
 		switch {
 		case worker == "":
-			writeError(w, http.StatusConflict, "task is leased")
-		case holder.String == worker:
-			writeError(w, http.StatusConflict, "lease has expired")
+			conflict.Error = "task is leased"
+		case holder.String != worker:
+			conflict.Error = "task leased by another worker"
+		case claim != nil && claims != *claim:
+			conflict.Error = "task claimed again"
 		default:
-			writeError(w, http.StatusConflict, "task not leased by worker")
+			conflict.Error = "lease has expired"
 		}
+		writeAPIError(w, http.StatusConflict, conflict)
 	case "pending":
 		writeError(w, http.StatusConflict, "task is pending")
 	case "buried":
@@ -677,7 +688,10 @@ func decodeOptionalWorker(w http.ResponseWriter, r *http.Request) bool {
 
 func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, args ...any) (leaseEnvelope, bool) {
 	query := "UPDATE tasks SET " + set + " WHERE id=? AND status='leased' AND worker=? AND lease_expires >= unixepoch() RETURNING id, lease_expires, status"
-	args = append(args, id, worker)
+	return updateTask(w, db, query, append(args, id, worker), id, worker, nil)
+}
+
+func updateTask(w http.ResponseWriter, db *sql.DB, query string, args []any, id, worker string, claim *int) (leaseEnvelope, bool) {
 	var (
 		env     leaseEnvelope
 		expires sql.NullInt64
@@ -690,7 +704,7 @@ func updateLeased(w http.ResponseWriter, db *sql.DB, set, id, worker string, arg
 	defer tx.Rollback()
 	err = tx.QueryRow(query, args...).Scan(&env.ID, &expires, &env.Status)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeTaskStateError(w, tx, id, worker)
+		writeTaskStateError(w, tx, id, worker, claim)
 		return env, false
 	}
 	if err != nil {
@@ -1160,7 +1174,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		err := db.rw.QueryRow(query, worker, lease, id, maxClaims, maxClaims).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
-			writeTaskStateError(w, db.ro, id, "")
+			writeTaskStateError(w, db.ro, id, "", nil)
 			return
 		}
 		if err != nil {
@@ -1177,6 +1191,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 	doneIDHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Worker     string          `json:"worker"`
+			ClaimCount *int            `json:"claim_count"`
 			Primitives json.RawMessage `json:"primitives"`
 		}
 		if !decodeJSON(w, r, &req) {
@@ -1194,7 +1209,14 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		if _, ok := updateLeased(w, db.rw, "status='done', primitives=?", id, req.Worker, prim); !ok {
+		query := "UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=?"
+		args := []any{prim, id, req.Worker}
+		if req.ClaimCount != nil {
+			query += " AND claim_count=?"
+			args = append(args, *req.ClaimCount)
+		}
+		query += " RETURNING id, lease_expires, status"
+		if _, ok := updateTask(w, db.rw, query, args, id, req.Worker, req.ClaimCount); !ok {
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1219,7 +1241,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if aff == 0 {
-			writeTaskStateError(w, db.ro, id, "")
+			writeTaskStateError(w, db.ro, id, "", nil)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1298,7 +1320,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if aff == 0 {
-			writeTaskStateError(w, db.ro, id, "")
+			writeTaskStateError(w, db.ro, id, "", nil)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -1722,7 +1744,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 			return
 		}
 		if n == 0 {
-			writeTaskStateError(w, db.ro, id, "")
+			writeTaskStateError(w, db.ro, id, "", nil)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)

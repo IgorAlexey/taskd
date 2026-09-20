@@ -52,26 +52,60 @@ Once running, view and manage tasks in your browser via `GET /ui` at
 
 ## Lease conflicts
 
-`done`, `touch`, `release`, and `bury` require a live lease held by the
-calling worker; `claim`, `close`, `kick`, and `PATCH /tasks/{id}` require
-a task in the matching state. `close` and `kick` hold no lease, so they
-take no input: an absent body, `{}`, `null`, and `{"worker":...}` all
-work, and the worker id is ignored rather than recorded. A refused call
-answers `404 Not Found` with `task not found`, or `409 Conflict` with
-one of these `{"error": ...}` messages:
+`touch`, `release`, and `bury` require a live lease held by the calling
+worker. `done` only requires that the task row still names the calling
+worker, so a worker whose lease lapsed while it was still working keeps
+its result and gets `204 No Content`; it fails only once the task has
+been claimed again. `claim`, `close`, `kick`, and `PATCH /tasks/{id}`
+require a task in the matching state. `close` and `kick` hold no lease,
+so they take no input: an absent body, `{}`, `null`, and
+`{"worker":...}` all work, and the worker id is ignored rather than
+recorded. A refused call answers `404 Not Found` with `task not found`,
+or `409 Conflict` with one of these `{"error": ...}` messages:
 
-- `lease has expired`: the lease was yours and ran out.
-- `task not leased by worker`: the lease belongs to another worker, live
-  or expired.
+- `lease has expired`: the lease was yours and ran out. This is what
+  `touch`, `release` and `bury` answer; `done` does not.
+- `task leased by another worker`: the task is leased by someone
+  else, live or expired.
+- `task claimed again`: the task is leased by you again, under a
+  different claim than the one you sent.
 - `task is leased`: another worker is on the task right now.
 - `task is pending`, `task is buried`, `task is done`: nobody leases the
   task right now.
 - `task state conflict`: unknown status, worth a bug report.
 
+Every `409` about a leased task also has a `worker` and a
+`claim_count` field naming the current holder and its generation, the
+way the ambiguous-prefix body below names `count` and `matches`.
+
+Every claim hands back the task JSON with a `claim_count`, the number
+of times the task has been handed out since the last kick. Echo it
+back in the `done` body as `"claim_count": 3` and the daemon finishes
+the task only if it is still on that claim, which fences off your own
+past: a generation of your worker that hung, lost its lease and woke
+up late cannot land a stale result over the one the live claim is
+producing. A mismatch answers `409 Conflict` with `task claimed again`
+and the current `claim_count`, which tells a superseded generation of
+yours apart from a task another worker took. Leave the field out and
+`done` accepts any claim that still names you, live or lapsed, and
+inside that window nothing tells your own generations apart: a
+generation that lapsed and was replaced by another of the same worker
+still lands its result over the live one. Send it.
+
+The fence rides on the retry budget, so it is scoped to one life of the
+task: `POST /tasks/{id}/kick` resets `claim_count` to zero and the
+numbering starts over, which lets a generation from before the kick
+match a claim made after it. Across a bury and a kick the fence is
+worth nothing, and a task that has been kicked should be treated as a
+new task by anything still holding an old count.
+
 Whichever one you get, the instruction is the same: you do not hold the
 task, so drop the work. The wording tells a human reading the log which
 way it went, and is not a stable signal, since a worker that claims the
-task between your call and the answer changes it.
+task between your call and the answer changes it. The `worker` and
+`claim_count` fields are what a client should read: they give the
+holder and the generation as data, and keep their meaning when the
+prose is reworded.
 
 A task id also resolves from a unique prefix. A prefix matching more than
 one task answers `409 Conflict` with a wider body,
