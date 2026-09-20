@@ -30,6 +30,7 @@ const document = {
   createElement: () => ({
     dataset: {},
     style: {},
+    appendChild() {},
     remove() { const i = rows.indexOf(this); if (i >= 0) rows.splice(i, 1); },
     setAttribute() {},
     getAttribute: () => null,

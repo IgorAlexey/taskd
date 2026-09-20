@@ -518,3 +518,52 @@ func TestWebUIGlobalErrorBoundary(t *testing.T) {
 		t.Errorf("error banner not shown on unhandled rejection: %+v", got.RejectionCaptured)
 	}
 }
+
+func TestWebUIRowDOMCreation(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/create_row.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("create_row harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("create_row harness failed: %v", err)
+	}
+
+	var got struct {
+		BtnTitle          string `json:"btnTitle"`
+		BtnText           string `json:"btnText"`
+		ProjText          string `json:"projText"`
+		ProjChildCount    int    `json:"projChildCount"`
+		StatusText        string `json:"statusText"`
+		StatusAttr        string `json:"statusAttr"`
+		PrioText          string `json:"prioText"`
+		ClaimText         string `json:"claimText"`
+		WorkerText        string `json:"workerText"`
+		WorkerChildCount  int    `json:"workerChildCount"`
+		SummaryText       string `json:"summaryText"`
+		SummaryChildCount int    `json:"summaryChildCount"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.BtnTitle != "task-12345678" || got.BtnText != "task-123…" {
+		t.Errorf("unexpected button title/text: %q / %q", got.BtnTitle, got.BtnText)
+	}
+	if got.ProjText != "<script>bad()</script>" || got.ProjChildCount != 0 {
+		t.Errorf("project cell not treated as textContent: text=%q, children=%d", got.ProjText, got.ProjChildCount)
+	}
+	if got.SummaryText != "<b>summary</b>" || got.SummaryChildCount != 0 {
+		t.Errorf("summary cell not treated as textContent: text=%q, children=%d", got.SummaryText, got.SummaryChildCount)
+	}
+	if got.WorkerText != "worker<1>" || got.WorkerChildCount != 0 {
+		t.Errorf("worker cell not treated as textContent: text=%q, children=%d", got.WorkerText, got.WorkerChildCount)
+	}
+	if got.StatusText != "pending" || got.StatusAttr != "pending" {
+		t.Errorf("badge not configured: text=%q, attr=%q", got.StatusText, got.StatusAttr)
+	}
+}

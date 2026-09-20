@@ -1402,6 +1402,14 @@
         summary: t.summary || t.asset_path || ''
       };
     }
+    function createCell(field, text, className) {
+      const td = document.createElement('td');
+      td.setAttribute('data-field', field);
+      if (className) td.className = className;
+      td.textContent = text;
+      return td;
+    }
+
     function createRow(t, isSelected) {
       const f = rowFields(t);
       const tr = document.createElement('tr');
@@ -1409,15 +1417,33 @@
       tr.setAttribute('tabindex', '-1');
       tr.setAttribute('aria-selected', isSelected ? 'true' : 'false');
       if (isSelected) tr.setAttribute('data-state', 'selected');
-      tr.innerHTML = `
-        <th scope="row" class="mono"><button type="button" class="row-select" title="${escapeHTML(f.id)}">${escapeHTML(f.shortId)}</button></th>
-        <td data-field="project">${escapeHTML(f.project)}</td>
-        <td data-field="status"><span class="badge" data-status="${escapeHTML(f.status)}">${escapeHTML(f.status)}</span></td>
-        <td data-field="priority">${escapeHTML(f.priority)}</td>
-        <td data-field="claim_count">${escapeHTML(f.claimCount)}</td>
-        <td data-field="worker" class="mono">${escapeHTML(f.worker)}</td>
-        <td data-field="summary">${escapeHTML(f.summary)}</td>
-      `;
+
+      const th = document.createElement('th');
+      th.setAttribute('scope', 'row');
+      th.className = 'mono';
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'row-select';
+      btn.title = f.id;
+      btn.textContent = f.shortId;
+      th.appendChild(btn);
+      tr.appendChild(th);
+
+      tr.appendChild(createCell('project', f.project));
+
+      const tdStatus = document.createElement('td');
+      tdStatus.setAttribute('data-field', 'status');
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.setAttribute('data-status', f.status);
+      badge.textContent = f.status;
+      tdStatus.appendChild(badge);
+      tr.appendChild(tdStatus);
+
+      tr.appendChild(createCell('priority', f.priority));
+      tr.appendChild(createCell('claim_count', f.claimCount));
+      tr.appendChild(createCell('worker', f.worker, 'mono'));
+      tr.appendChild(createCell('summary', f.summary));
       return tr;
     }
 
@@ -1708,24 +1734,44 @@
       }
     }
 
-    function renderNoteItemHTML(n) {
+    function renderNoteItem(n) {
       const time = formatNoteTime(n.created_at);
-      return `
-        <div class="note-item" data-note-id="${escapeHTML(String(n.id || ''))}">
-          <div class="note-header">
-            <span class="note-author">${escapeHTML(n.author || '')}</span>
-            <time class="note-timestamp" datetime="${escapeHTML(time.iso)}" title="${escapeHTML(time.iso)}">${escapeHTML(time.display)}</time>
-          </div>
-          <div class="note-text">${escapeHTML(n.text || '')}</div>
-        </div>
-      `;
+      const item = document.createElement('div');
+      item.className = 'note-item';
+      if (n.id) item.setAttribute('data-note-id', String(n.id));
+
+      const header = document.createElement('div');
+      header.className = 'note-header';
+
+      const author = document.createElement('span');
+      author.className = 'note-author';
+      author.textContent = n.author || '';
+      header.appendChild(author);
+
+      const timeEl = document.createElement('time');
+      timeEl.className = 'note-timestamp';
+      if (time.iso) {
+        timeEl.setAttribute('datetime', time.iso);
+        timeEl.title = time.iso;
+      }
+      timeEl.textContent = time.display;
+      header.appendChild(timeEl);
+
+      item.appendChild(header);
+
+      const textEl = document.createElement('div');
+      textEl.className = 'note-text';
+      textEl.textContent = n.text || '';
+      item.appendChild(textEl);
+
+      return item;
     }
 
     function renderNotesList(notes) {
       if (!notes || notes.length === 0) {
         return '<p class="no-notes">No notes</p>';
       }
-      return notes.map(renderNoteItemHTML).join('');
+      return notes.map(n => renderNoteItem(n).outerHTML).join('');
     }
 
     async function submitNote(e, id) {
@@ -1795,36 +1841,58 @@
           <div class="field">
             <span class="field-label">ID</span>
             <div class="cluster">
-              <span class="mono">${escapeHTML(t.id || '')}</span>
+              <span class="mono" id="edit-task-id"></span>
               <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
             </div>
           </div>
           <div class="field">
             <label for="edit-task-project" class="field-label">Project</label>
-            <input type="text" id="edit-task-project" value="${escapeHTML(t.project || '')}">
+            <input type="text" id="edit-task-project">
           </div>
-          <div class="field"><span class="field-label">Status</span><span class="badge" data-status="${escapeHTML(t.status || '')}">${escapeHTML(t.status || '')}</span></div>
+          <div class="field"><span class="field-label">Status</span><span id="edit-task-status" class="badge"></span></div>
           <div class="field">
             <label for="edit-task-priority" class="field-label">Priority</label>
-            <input type="number" id="edit-task-priority" value="${escapeHTML(String(t.priority ?? ''))}">
+            <input type="number" id="edit-task-priority">
           </div>
-          <div class="field"><span class="field-label">Claim Count</span><span>${escapeHTML(String(t.claim_count ?? 0))}</span></div>
-          ${t.worker ? `<div class="field"><span class="field-label">Worker</span><span class="mono">${escapeHTML(t.worker)}</span></div>` : ''}
-          ${leaseExpStr ? `<div class="field"><span class="field-label">Lease Expires</span><span>${escapeHTML(leaseExpStr)}</span></div>` : ''}
+          <div class="field"><span class="field-label">Claim Count</span><span id="edit-task-claim-count"></span></div>
+          <div class="field" id="edit-task-worker-row" hidden><span class="field-label">Worker</span><span id="edit-task-worker" class="mono"></span></div>
+          <div class="field" id="edit-task-lease-row" hidden><span class="field-label">Lease Expires</span><span id="edit-task-lease"></span></div>
           <div class="field">
             <label for="edit-task-asset-path" class="field-label">Asset Path</label>
-            <input type="text" id="edit-task-asset-path" value="${escapeHTML(t.asset_path || '')}">
+            <input type="text" id="edit-task-asset-path">
           </div>
           <div class="field">
             <label for="edit-task-body" class="field-label">Body</label>
-            <textarea id="edit-task-body">${escapeHTML(t.body || '')}</textarea>
+            <textarea id="edit-task-body"></textarea>
           </div>
-          ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
+          <div class="field" id="edit-task-prim-row" hidden><span class="field-label">Primitives</span><pre id="edit-task-prim"></pre></div>
           <div class="cluster task-actions">
             <button type="button" id="save-task-btn" data-variant="primary" onclick="saveTaskEdit()">Save</button>
             <button type="button" id="cancel-task-btn" data-variant="secondary" onclick="cancelTaskEdit()">Cancel</button>
           </div>
         `;
+        setText(document.getElementById('edit-task-id'), t.id || '');
+        const editStatusEl = document.getElementById('edit-task-status');
+        if (editStatusEl) {
+          editStatusEl.setAttribute('data-status', t.status || '');
+          setText(editStatusEl, t.status || '');
+        }
+        setText(document.getElementById('edit-task-claim-count'), String(t.claim_count ?? 0));
+        const editWorkerRow = document.getElementById('edit-task-worker-row');
+        if (editWorkerRow && t.worker) {
+          editWorkerRow.hidden = false;
+          setText(document.getElementById('edit-task-worker'), t.worker);
+        }
+        const editLeaseRow = document.getElementById('edit-task-lease-row');
+        if (editLeaseRow && leaseExpStr) {
+          editLeaseRow.hidden = false;
+          setText(document.getElementById('edit-task-lease'), leaseExpStr);
+        }
+        const editPrimRow = document.getElementById('edit-task-prim-row');
+        if (editPrimRow && primStr) {
+          editPrimRow.hidden = false;
+          setText(document.getElementById('edit-task-prim'), primStr);
+        }
         const prioInput = document.getElementById('edit-task-priority');
         const projInput = document.getElementById('edit-task-project');
         const assetInput = document.getElementById('edit-task-asset-path');
@@ -1860,29 +1928,29 @@
           <div class="metadata-row">
             <dt class="field-label">ID</dt>
             <dd class="cluster">
-              <span class="mono">${escapeHTML(t.id || '')}</span>
+              <span class="mono" id="detail-task-id"></span>
               <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
             </dd>
           </div>
           <div class="metadata-row">
             <dt class="field-label">Project</dt>
-            <dd>${escapeHTML(t.project || '')}</dd>
+            <dd id="detail-task-project"></dd>
           </div>
           <div class="metadata-row">
             <dt class="field-label">Status</dt>
-            <dd><span class="badge" data-status="${escapeHTML(t.status || '')}">${escapeHTML(t.status || '')}</span></dd>
+            <dd><span id="detail-task-status" class="badge"></span></dd>
           </div>
           <div class="metadata-row">
             <dt class="field-label">Priority</dt>
-            <dd>${escapeHTML(String(t.priority ?? ''))}</dd>
+            <dd id="detail-task-priority"></dd>
           </div>
           <div class="metadata-row">
             <dt class="field-label">Claim Count</dt>
-            <dd>${escapeHTML(String(t.claim_count ?? 0))}</dd>
+            <dd id="detail-task-claim-count"></dd>
           </div>
-          ${t.worker ? `<div class="metadata-row"><dt class="field-label">Worker</dt><dd class="mono">${escapeHTML(t.worker)}</dd></div>` : ''}
-          ${leaseExpStr ? `<div class="metadata-row"><dt class="field-label">Lease Expires</dt><dd>${escapeHTML(leaseExpStr)}</dd></div>` : ''}
-          ${t.asset_path ? `<div class="metadata-row"><dt class="field-label">Asset Path</dt><dd class="mono">${escapeHTML(t.asset_path)}</dd></div>` : ''}
+          <div class="metadata-row" id="detail-task-worker-row" hidden><dt class="field-label">Worker</dt><dd id="detail-task-worker" class="mono"></dd></div>
+          <div class="metadata-row" id="detail-task-lease-row" hidden><dt class="field-label">Lease Expires</dt><dd id="detail-task-lease"></dd></div>
+          <div class="metadata-row" id="detail-task-asset-row" hidden><dt class="field-label">Asset Path</dt><dd id="detail-task-asset" class="mono"></dd></div>
         </dl>
         <div class="field">
           <div class="field-header">
@@ -1892,9 +1960,9 @@
               <button type="button" id="copy-body-btn" class="copy-btn">Copy</button>
             </span>
           </div>
-          <pre>${escapeHTML(t.body || '')}</pre>
+          <pre id="detail-task-body"></pre>
         </div>
-        ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
+        <div class="field" id="detail-task-prim-row" hidden><span class="field-label">Primitives</span><pre id="detail-task-prim"></pre></div>
         <div class="task-actions">
           ${t.status !== 'done' ? `<button type="button" id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}>Edit Task</button>` : ''}
           ${t.status === 'leased' ? `
@@ -1922,7 +1990,7 @@
           <form id="add-note-form">
             <div class="field">
               <label for="note-author" class="field-label">Author</label>
-              <input type="text" id="note-author" value="${escapeHTML(currentNoteAuthor || claimWorker || '')}" maxlength="128" required>
+              <input type="text" id="note-author" maxlength="128" required>
             </div>
             <div class="field">
               <label for="note-text" class="field-label">Note</label>
@@ -1932,6 +2000,38 @@
           </form>
         </div>
       `;
+      setText(document.getElementById('detail-task-id'), t.id || '');
+      setText(document.getElementById('detail-task-project'), t.project || '');
+      const viewStatusEl = document.getElementById('detail-task-status');
+      if (viewStatusEl) {
+        viewStatusEl.setAttribute('data-status', t.status || '');
+        setText(viewStatusEl, t.status || '');
+      }
+      setText(document.getElementById('detail-task-priority'), String(t.priority ?? ''));
+      setText(document.getElementById('detail-task-claim-count'), String(t.claim_count ?? 0));
+      const workerRow = document.getElementById('detail-task-worker-row');
+      if (workerRow && t.worker) {
+        workerRow.hidden = false;
+        setText(document.getElementById('detail-task-worker'), t.worker);
+      }
+      const leaseRow = document.getElementById('detail-task-lease-row');
+      if (leaseRow && leaseExpStr) {
+        leaseRow.hidden = false;
+        setText(document.getElementById('detail-task-lease'), leaseExpStr);
+      }
+      const assetRow = document.getElementById('detail-task-asset-row');
+      if (assetRow && t.asset_path) {
+        assetRow.hidden = false;
+        setText(document.getElementById('detail-task-asset'), t.asset_path);
+      }
+      setText(document.getElementById('detail-task-body'), t.body || '');
+      const primRow = document.getElementById('detail-task-prim-row');
+      if (primRow && primStr) {
+        primRow.hidden = false;
+        setText(document.getElementById('detail-task-prim'), primStr);
+      }
+      const authorInput = document.getElementById('note-author');
+      if (authorInput) authorInput.value = currentNoteAuthor || claimWorker || '';
       if (sameTask) pane.scrollTop = prevScrollTop;
 
       const editBtn = document.getElementById('edit-task-btn');
@@ -2561,17 +2661,6 @@
           submitBtn.setAttribute('aria-busy', 'false');
         }
       }
-    }
-
-    function escapeHTML(str) {
-      if (str === null || str === undefined) return '';
-      return String(str).replace(/[&<>'"]/g, tag => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        "'": '&#39;',
-        '"': '&quot;'
-      }[tag] || tag));
     }
 
     async function loadAll() {
