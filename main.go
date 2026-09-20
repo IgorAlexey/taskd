@@ -1196,7 +1196,7 @@ const summaryRunes = 50
 
 const summaryTrim = " \t\r\n"
 
-var summaryPrefixCol = fmt.Sprintf("substr(ltrim(body, %s), 1, %d)", sqlCharset(summaryTrim), summaryRunes+1)
+var summaryPrefixCol = fmt.Sprintf("substr(COALESCE(NULLIF(ltrim(body, %s), ''), ltrim(asset_path, %s), ''), 1, %d)", sqlCharset(summaryTrim), sqlCharset(summaryTrim), summaryRunes+1)
 
 func sqlCharset(cut string) string {
 	parts := make([]string, 0, len(cut))
