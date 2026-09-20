@@ -143,7 +143,7 @@ func (m model) View() tea.View {
 		h = 24
 	}
 
-	var overlay string
+	overlay, isOverlay := "", true
 	switch m.mode {
 	case modeForm:
 		overlay = m.form.View(w, h, m.theme)
@@ -151,8 +151,10 @@ func (m model) View() tea.View {
 		overlay = m.confirm.View(w, h, m.theme)
 	case modeHelp:
 		overlay = helpView(w, h, m.theme)
+	default:
+		isOverlay = false
 	}
-	if overlay != "" {
+	if isOverlay {
 		return frame(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay), h)
 	}
 

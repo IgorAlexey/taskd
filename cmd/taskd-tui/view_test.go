@@ -340,6 +340,11 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 			if md == modeTable && !strings.Contains(lines[h-1], "q quit") {
 				t.Fatalf("height %d lost the footer: %q", h, lines[h-1])
 			}
+			// Title, three fields, body label, one body row, save and
+			// the border need ten rows; from there the button must show.
+			if md == modeForm && h >= 10 && !strings.Contains(strings.Join(lines, "\n"), "[ save ]") {
+				t.Fatalf("height %d form hides the save button", h)
+			}
 		}
 	}
 }

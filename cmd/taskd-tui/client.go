@@ -151,19 +151,19 @@ func (c *client) do(method, path string, body any) error {
 	return parseError(resp, method, path)
 }
 
-func pollCmd(c *client, project, etag string) tea.Cmd {
+func pollCmd(c *client, project, etag string, seq uint64) tea.Cmd {
 	return func() tea.Msg {
 		tasks, newETag, changed, err := c.list(project, etag)
 		if err != nil {
-			return pollMsg{project: project, err: err}
+			return pollMsg{seq: seq, err: err}
 		}
 		st, err := c.getStats(project)
 		if err != nil {
-			return pollMsg{project: project, tasks: tasks, etag: newETag, changed: changed, err: err}
+			return pollMsg{seq: seq, tasks: tasks, etag: newETag, changed: changed, err: err}
 		}
 		projs, _ := c.getProjects()
 		return pollMsg{
-			project:  project,
+			seq:      seq,
 			tasks:    tasks,
 			etag:     newETag,
 			changed:  changed,

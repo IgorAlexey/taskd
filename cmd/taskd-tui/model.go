@@ -58,7 +58,8 @@ func (m *model) startPoll() tea.Cmd {
 		return nil
 	}
 	m.polling = true
-	return pollCmd(m.client, m.project, m.etag)
+	m.seq++
+	return pollCmd(m.client, m.project, m.etag, m.seq)
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -88,9 +89,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tickCmd(m.cfg.refresh), poll)
 
 	case pollMsg:
-		if msg.project != m.project {
-			// Reply to a query that is no longer selected; the poll
-			// for the current project is still on the wire.
+		if msg.seq != m.seq {
+			// Answer to a superseded poll; the newest one is still on
+			// the wire and owns the in-flight flag.
 			return m, nil
 		}
 		m.polling = false

@@ -567,7 +567,7 @@ func TestInitTicksAndOnlyOnePollIsInFlightAtATime(t *testing.T) {
 	if !m.polling {
 		t.Errorf("tick before the pollMsg must not start a second poll")
 	}
-	m, _ = send(t, m, pollMsg{tasks: []task{{ID: "task-00", Status: "pending"}}, etag: `"e1"`, changed: true})
+	m, _ = send(t, m, pollMsg{seq: m.seq, tasks: []task{{ID: "task-00", Status: "pending"}}, etag: `"e1"`, changed: true})
 	if m.polling {
 		t.Fatalf("pollMsg must clear the in-flight flag")
 	}
@@ -897,22 +897,27 @@ func TestQuitKeysQuitFromTheTable(t *testing.T) {
 	}
 }
 
-func TestPollReplyForAnotherProjectIsDropped(t *testing.T) {
+func TestReplyToASupersededPollIsDropped(t *testing.T) {
 	m := newModel(config{refresh: time.Second}, nil)
 	m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: 30})
-	m, _ = send(t, m, pollMsg{project: "", tasks: []task{{ID: "a1", Project: "alpha", Status: "pending"}}, etag: `"alpha"`, changed: true, projects: []string{"alpha", "beta"}})
-	m, _ = send(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"}) // -> alpha
-	m, _ = send(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"}) // -> beta
-	if m.project != "beta" {
-		t.Fatalf("project = %q, want beta", m.project)
+	m, _ = send(t, m, tickMsg(time.Now())) // poll #1 in flight
+	first := m.seq
+	m, _ = send(t, m, pollMsg{seq: first, tasks: []task{{ID: "a1", Project: "alpha", Status: "pending"}}, etag: `"v1"`, changed: true, projects: []string{"alpha"}})
+	m, _ = send(t, m, tickMsg(time.Now())) // poll #2 in flight, carries "v1"
+	m, cmd := send(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'p', Text: "p"}) // back to "" : poll #4, tag cleared
+	if cmd == nil || m.etag != "" || m.project != "" {
+		t.Fatalf("project cycle must clear the tag and poll: cmd=%v etag=%q project=%q", cmd != nil, m.etag, m.project)
 	}
-	m, _ = send(t, m, pollMsg{project: "alpha", tasks: []task{{ID: "a2", Project: "alpha", Status: "pending"}}, etag: `"alpha-v2"`, changed: true})
-	if !m.polling || m.etag != "" || len(m.tasks) != 1 || m.tasks[0].ID != "a1" {
-		t.Fatalf("reply for alpha must not touch a beta model nor clear the in-flight flag: polling=%v etag=%q tasks=%v", m.polling, m.etag, m.tasks)
+	newest := m.seq
+	// Poll #2 answers now: same project name, but a superseded generation.
+	m, _ = send(t, m, pollMsg{seq: first + 1, tasks: []task{{ID: "STALE", Status: "pending"}}, etag: `"v1"`, changed: true})
+	if !m.polling || m.etag != "" || m.tasks[0].ID != "a1" {
+		t.Fatalf("stale reply applied: polling=%v etag=%q tasks=%v", m.polling, m.etag, m.tasks)
 	}
-	m, _ = send(t, m, pollMsg{project: "beta", tasks: []task{{ID: "b1", Project: "beta", Status: "pending"}}, etag: `"beta"`, changed: true})
-	if m.etag != `"beta"` || len(m.shown) != 1 {
-		t.Fatalf("beta reply must apply: etag=%q shown=%d", m.etag, len(m.shown))
+	m, _ = send(t, m, pollMsg{seq: newest, tasks: []task{{ID: "fresh", Status: "pending"}}, etag: `"v2"`, changed: true})
+	if m.polling || m.etag != `"v2"` || m.tasks[0].ID != "fresh" {
+		t.Fatalf("newest reply must apply: polling=%v etag=%q tasks=%v", m.polling, m.etag, m.tasks)
 	}
 }
 

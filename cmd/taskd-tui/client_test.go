@@ -195,7 +195,7 @@ func TestPollCmdToleratesProjects500(t *testing.T) {
 	defer ts.Close()
 
 	c := newClient(ts.URL)
-	cmd := pollCmd(c, "", "")
+	cmd := pollCmd(c, "", "", 1)
 	if cmd == nil {
 		t.Fatalf("pollCmd returned nil cmd")
 	}

@@ -114,8 +114,24 @@ func (f *formModel) resize(width, height int) {
 	f.priority.SetWidth(inputW)
 	f.asset.SetWidth(inputW)
 	f.body.SetWidth(inner)
-	bodyH := min(12, max(4, height-14))
+	bodyH, _ := formBodyHeight(height, f.errText != "")
 	f.body.SetHeight(bodyH)
+}
+
+// formBodyHeight fits the form to the terminal: the textarea takes what
+// is left after the fixed rows, and when even one row does not fit the
+// two blank separators and the hint line go (compact), never the button.
+func formBodyHeight(height int, hasErr bool) (bodyH int, compact bool) {
+	fixed := 12 // border 2, title, blank, 3 fields, body label, blank, save, blank, hint
+	if hasErr {
+		fixed++
+	}
+	spare := height - fixed
+	if spare < 1 {
+		compact = true
+		spare += 3
+	}
+	return max(1, min(12, spare)), compact
 }
 
 func (f *formModel) setFocus(target int) tea.Cmd {
@@ -322,15 +338,20 @@ func (f formModel) View(width, height int, th theme) string {
 		boxWidth = width
 	}
 
+	_, compact := formBodyHeight(height, f.errText != "")
 	var lines []string
 	lines = append(lines, th.accent.Render(f.title))
-	lines = append(lines, "")
+	if !compact {
+		lines = append(lines, "")
+	}
 	lines = append(lines, th.dim.Render("project:  ")+f.project.View())
 	lines = append(lines, th.dim.Render("priority: ")+f.priority.View())
 	lines = append(lines, th.dim.Render("asset:    ")+f.asset.View())
 	lines = append(lines, th.dim.Render("body:"))
 	lines = append(lines, f.body.View())
-	lines = append(lines, "")
+	if !compact {
+		lines = append(lines, "")
+	}
 
 	if f.focus == 4 {
 		lines = append(lines, th.accentPill.Render("[ save ]"))
@@ -341,8 +362,10 @@ func (f formModel) View(width, height int, th theme) string {
 	if f.errText != "" {
 		lines = append(lines, th.err.Render(f.errText))
 	}
-	lines = append(lines, "")
-	lines = append(lines, th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
+	if !compact {
+		lines = append(lines, "")
+		lines = append(lines, th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
+	}
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 
@@ -445,7 +468,7 @@ func helpView(width, height int, th theme) string {
 	content := lipgloss.JoinVertical(lipgloss.Left, rows...)
 
 	maxW := max(20, width-4)
-	maxH := max(10, height-2)
+	maxH := max(3, height)
 
 	boxStyle := lipgloss.NewStyle().
 		BorderStyle(lipgloss.RoundedBorder()).

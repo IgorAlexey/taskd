@@ -66,7 +66,7 @@ type (
 	// false when the daemon answered 304 for the list, in which case tasks
 	// is nil and the model keeps its current slice.
 	pollMsg struct {
-		project  string // the query this reply answers; stale ones are dropped
+		seq      uint64 // the startPoll generation this reply answers
 		tasks    []task
 		etag     string
 		changed  bool
@@ -105,7 +105,8 @@ type model struct {
 	query    string // / substring filter, case-insensitive
 	mode     mode
 	etag     string // ETag of m.tasks for m.project
-	polling  bool   // a pollCmd is in flight; cleared by pollMsg
+	polling  bool   // a pollCmd is in flight; cleared by its pollMsg
+	seq      uint64 // generation of the newest poll; older replies are dropped
 	stats    stats
 	hasStats bool // a poll has delivered stats at least once
 	projects []string
