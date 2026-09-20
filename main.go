@@ -2914,12 +2914,30 @@ func checkBackupSource(path string) error {
 	if fsPath == "" {
 		return fmt.Errorf("cannot resolve database path: %s", path)
 	}
-	if _, err := os.Stat(fsPath); errors.Is(err, os.ErrNotExist) {
+	fi, err := os.Stat(fsPath)
+	if errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("database does not exist: %s", fsPath)
 	} else if err != nil {
 		return fmt.Errorf("cannot access database %s: %w", fsPath, err)
 	}
+	if fi.IsDir() {
+		return fmt.Errorf("database is a directory: %s", fsPath)
+	}
 	return nil
+}
+
+func countTasks(path string) (int, error) {
+	bk, err := openDBConn(path, true)
+	if err != nil {
+		return 0, err
+	}
+	bk.SetMaxOpenConns(1)
+	defer bk.Close()
+	var tasks int
+	if err := bk.QueryRow("SELECT count(*) FROM tasks").Scan(&tasks); err != nil {
+		return 0, err
+	}
+	return tasks, nil
 }
 
 func backupDB(db *sql.DB, path string, out io.Writer) error {
@@ -2965,12 +2983,18 @@ func backupDB(db *sql.DB, path string, out io.Writer) error {
 			return err
 		}
 	}
+	tasks, err := countTasks(tmpPath)
+	if err != nil {
+		return fmt.Errorf("cannot verify backup: %w", err)
+	}
+	fi, err := os.Stat(tmpPath)
+	if err != nil {
+		return fmt.Errorf("cannot verify backup: %w", err)
+	}
 	if err := os.Rename(tmpPath, fsPath); err != nil {
 		return err
 	}
-	if err := reportBackup(fsPath, out); err != nil {
-		log.Printf("cannot report backup %s: %v", fsPath, err)
-	}
+	_, _ = fmt.Fprintf(out, "wrote %s (%d bytes, %d tasks)\n", fsPath, fi.Size(), tasks)
 	return nil
 }
 
@@ -2989,25 +3013,6 @@ func checkNotSource(db *sql.DB, destPath string, destInfo os.FileInfo) error {
 	if os.SameFile(srcInfo, destInfo) {
 		return fmt.Errorf("backup destination is the source database: %s", destPath)
 	}
-	return nil
-}
-
-func reportBackup(fsPath string, out io.Writer) error {
-	fi, err := os.Stat(fsPath)
-	if err != nil {
-		return err
-	}
-	bk, err := openDBConn(fsPath, true)
-	if err != nil {
-		return err
-	}
-	bk.SetMaxOpenConns(1)
-	defer bk.Close()
-	var tasks int
-	if err := bk.QueryRow("SELECT count(*) FROM tasks").Scan(&tasks); err != nil {
-		return err
-	}
-	_, _ = fmt.Fprintf(out, "wrote %s (%d bytes, %d tasks)\n", fsPath, fi.Size(), tasks)
 	return nil
 }
 
@@ -3053,7 +3058,11 @@ func run(stdout io.Writer, args []string) error {
 		}
 		db.SetMaxOpenConns(1)
 		defer db.Close()
-		return backupDB(db, cfg.backupPath, os.Stdout)
+		var dummy int
+		if err := db.QueryRow("SELECT 1 FROM tasks LIMIT 1").Scan(&dummy); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("database is uninitialized: %s: %w", cfg.dbPath, err)
+		}
+		return backupDB(db, cfg.backupPath, stdout)
 	}
 
 	l, err := net.Listen("tcp", cfg.addr)
