@@ -1389,6 +1389,54 @@ func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
 	return err
 }
 
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	status int
+	bytes  int64
+}
+
+func (lrw *loggingResponseWriter) WriteHeader(status int) {
+	if lrw.status == 0 {
+		lrw.status = status
+		lrw.ResponseWriter.WriteHeader(status)
+	}
+}
+
+func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
+	if lrw.status == 0 {
+		lrw.status = http.StatusOK
+	}
+	n, err := lrw.ResponseWriter.Write(b)
+	lrw.bytes += int64(n)
+	return n, err
+}
+
+func (lrw *loggingResponseWriter) Unwrap() http.ResponseWriter {
+	return lrw.ResponseWriter
+}
+
+func withRequestLogging(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		lw := &loggingResponseWriter{ResponseWriter: w}
+		defer func() {
+			if rec := recover(); rec != nil {
+				panic(rec)
+			}
+			status := lw.status
+			if status == 0 {
+				status = http.StatusOK
+			}
+			path := r.URL.RequestURI()
+			if path == "" {
+				path = r.URL.Path
+			}
+			log.Printf("%s %s %s %d %d %s", r.RemoteAddr, r.Method, path, status, lw.bytes, time.Since(start))
+		}()
+		next.ServeHTTP(lw, r)
+	})
+}
+
 func newHandler(db *store, lease int) http.Handler {
 	return newHandlerWithCORS(db, lease, "")
 }
@@ -2597,21 +2645,23 @@ RETURNING status, project`,
 }
 
 type config struct {
-	dbPath     string
-	addr       string
-	lease      int
-	maxClaims  int
-	backupPath string
-	corsOrigin string
-	version    bool
+	dbPath      string
+	addr        string
+	lease       int
+	maxClaims   int
+	backupPath  string
+	corsOrigin  string
+	version     bool
+	logRequests bool
 }
 
 func printUsage(w io.Writer) {
 	cfg := config{
-		dbPath:    defaultDBPath,
-		addr:      defaultAddr,
-		lease:     defaultLease,
-		maxClaims: defaultMaxClaims,
+		dbPath:      defaultDBPath,
+		addr:        defaultAddr,
+		lease:       defaultLease,
+		maxClaims:   defaultMaxClaims,
+		logRequests: defaultLogRequests,
 	}
 	fs := newFlagSet(&cfg)
 	fmt.Fprintf(w, "Usage of %s:\n\n", fs.Name())
@@ -2625,6 +2675,7 @@ Environment variables:
   TASKD_LEASE         lease duration in seconds (default: 300)
   TASKD_MAX_CLAIMS    bury a task after this many claims (default: 0)
   TASKD_CORS_ORIGIN   allowed CORS origin
+  TASKD_LOG_REQUESTS  log completed HTTP requests (default: true)
 
 HTTP Endpoints:
   GET    /health             daemon readiness and database ping
@@ -2709,10 +2760,11 @@ func typedFlag(args []string, name string) string {
 }
 
 const (
-	defaultDBPath    = "taskd.db"
-	defaultAddr      = "127.0.0.1:8080"
-	defaultLease     = 300
-	defaultMaxClaims = 0
+	defaultDBPath      = "taskd.db"
+	defaultAddr        = "127.0.0.1:8080"
+	defaultLease       = 300
+	defaultMaxClaims   = 0
+	defaultLogRequests = true
 )
 
 func newFlagSet(cfg *config) *flag.FlagSet {
@@ -2725,6 +2777,7 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 	fs.IntVar(&cfg.maxClaims, "max-claims", cfg.maxClaims, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", cfg.corsOrigin, "allowed CORS origin")
+	fs.BoolVar(&cfg.logRequests, "log-requests", cfg.logRequests, "log completed HTTP requests")
 	fs.BoolVar(&cfg.version, "v", false, "print version and exit")
 	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
 	return fs
@@ -2734,10 +2787,11 @@ const maxLeaseSeconds = 31536000
 
 func parseFlags(args []string) (config, error) {
 	cfg := config{
-		dbPath:    defaultDBPath,
-		addr:      defaultAddr,
-		lease:     defaultLease,
-		maxClaims: defaultMaxClaims,
+		dbPath:      defaultDBPath,
+		addr:        defaultAddr,
+		lease:       defaultLease,
+		maxClaims:   defaultMaxClaims,
+		logRequests: defaultLogRequests,
 	}
 	if v := os.Getenv("TASKD_DB"); v != "" {
 		cfg.dbPath = v
@@ -2767,6 +2821,13 @@ func parseFlags(args []string) (config, error) {
 	}
 	if v := os.Getenv("TASKD_CORS_ORIGIN"); v != "" {
 		cfg.corsOrigin = v
+	}
+	if v := os.Getenv("TASKD_LOG_REQUESTS"); v != "" {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return cfg, usagef("invalid value %q for TASKD_LOG_REQUESTS: %w", v, err)
+		}
+		cfg.logRequests = b
 	}
 
 	fs := newFlagSet(&cfg)
@@ -2879,9 +2940,13 @@ func runCheckpointer(ctx context.Context, db *sql.DB, interval time.Duration, on
 	}
 }
 
-func runServer(ctx context.Context, l net.Listener, db *store, lease int, corsOrigin string) error {
+func runServer(ctx context.Context, l net.Listener, db *store, lease int, corsOrigin string, logRequests bool) error {
+	handler := newHandlerWithCORS(db, lease, corsOrigin)
+	if logRequests {
+		handler = withRequestLogging(handler)
+	}
 	srv := &http.Server{
-		Handler:           newHandlerWithCORS(db, lease, corsOrigin),
+		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -3097,7 +3162,7 @@ func run(stdout io.Writer, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin)
+	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin, cfg.logRequests)
 }
 
 func logStartupDB(dbPath string, lease int, isNew bool) {
