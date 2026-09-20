@@ -277,6 +277,9 @@ func TestHelpView(t *testing.T) {
 	if !strings.Contains(stripped, "quit") {
 		t.Fatalf("missing 'quit' in help view")
 	}
+	if !strings.Contains(stripped, "ctrl-s") {
+		t.Fatalf("missing 'ctrl-s' in help view")
+	}
 
 	for _, line := range strings.Split(stripped, "\n") {
 		if ansi.StringWidth(line) > 80 {

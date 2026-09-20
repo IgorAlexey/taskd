@@ -185,6 +185,9 @@ func TestPrintUsage(t *testing.T) {
 	if !strings.Contains(output, "TASKD_URL") {
 		t.Error("usage output missing 'TASKD_URL'")
 	}
+	if !strings.Contains(output, "ctrl-s") {
+		t.Error("usage output missing 'ctrl-s'")
+	}
 
 	lines := strings.Split(output, "\n")
 	for i, line := range lines {

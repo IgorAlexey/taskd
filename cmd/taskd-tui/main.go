@@ -123,6 +123,7 @@ Keyboard shortcuts:
   D                   delete selected task
   x                   complete selected task
   y/Y                 copy task ID / body to clipboard
+  ctrl-s              submit form
   r                   force refresh
   ?                   show help overlay
   q                   quit

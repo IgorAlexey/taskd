@@ -532,6 +532,9 @@ func helpView(width, height int, th theme) string {
 		key  string
 		desc string
 	}
+	const col1KeyW = 13
+	const col1DescW = 10
+	const col2KeyW = 4
 
 	col1 := []keyRef{
 		{"j/k, ↑/↓", "move"},
@@ -544,6 +547,7 @@ func helpView(width, height int, th theme) string {
 		{"z", "zoom"},
 		{"n", "new"},
 		{"e", "edit"},
+		{"ctrl-s", "save form"},
 	}
 
 	col2 := []keyRef{
@@ -561,12 +565,18 @@ func helpView(width, height int, th theme) string {
 
 	var rows []string
 	rows = append(rows, th.accent.Render("Keyboard Shortcuts"), "")
-	for i := 0; i < len(col1) && i < len(col2); i++ {
-		k1 := th.accent.Render(padRightVisual(col1[i].key, 13))
-		d1 := th.dim.Render(padRightVisual(col1[i].desc, 10))
-		k2 := th.accent.Render(padRightVisual(col2[i].key, 4))
-		d2 := th.dim.Render(col2[i].desc)
-		rows = append(rows, k1+" "+d1+"  "+k2+" "+d2)
+	n := max(len(col1), len(col2))
+	for i := range n {
+		var left, right string
+		if i < len(col1) {
+			left = th.accent.Render(padRightVisual(col1[i].key, col1KeyW)) + " " + th.dim.Render(padRightVisual(col1[i].desc, col1DescW))
+		} else {
+			left = strings.Repeat(" ", col1KeyW+1+col1DescW)
+		}
+		if i < len(col2) {
+			right = th.accent.Render(padRightVisual(col2[i].key, col2KeyW)) + " " + th.dim.Render(col2[i].desc)
+		}
+		rows = append(rows, left+"  "+right)
 	}
 	rows = append(rows, "", th.dim.Render("Press ? or Esc to close"))
 

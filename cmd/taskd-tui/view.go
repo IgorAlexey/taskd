@@ -299,7 +299,7 @@ func (m model) View() tea.View {
 		wID := 7
 
 		hasScrollbar := len(m.shown) > tRows
-		fixedWidth := 1 + 1 + 1 + 1 + 1 // cursor(1), status(1), space(1), pri(1), space(1) = 5
+		fixedWidth := 5
 		if wScope > 0 {
 			fixedWidth += wScope + 1
 		}
@@ -309,9 +309,39 @@ func (m model) View() tea.View {
 		if wWorker > 0 {
 			fixedWidth += 1 + wWorker
 		}
-		fixedWidth += 1 + wLease + 1 + wLeft + 1 + wID
+		if wLease > 0 {
+			fixedWidth += 1 + wLease
+		}
+		if wLeft > 0 {
+			fixedWidth += 1 + wLeft
+		}
+		if wID > 0 {
+			fixedWidth += 1 + wID
+		}
 		if hasScrollbar {
 			fixedWidth += 1
+		}
+
+		const minTitle = 20
+		if w-fixedWidth < minTitle && wClaims > 0 {
+			fixedWidth -= 1 + wClaims
+			wClaims = 0
+		}
+		if w-fixedWidth < minTitle && wWorker > 0 {
+			fixedWidth -= 1 + wWorker
+			wWorker = 0
+		}
+		if w-fixedWidth < minTitle && wLease > 0 {
+			fixedWidth -= 1 + wLease
+			wLease = 0
+		}
+		if w-fixedWidth < minTitle && wLeft > 0 {
+			fixedWidth -= 1 + wLeft
+			wLeft = 0
+		}
+		if w-fixedWidth < minTitle && wScope > 5 {
+			fixedWidth -= wScope - 5
+			wScope = 5
 		}
 		wTitle := w - fixedWidth
 		if wTitle < 5 {
@@ -342,12 +372,18 @@ func (m model) View() tea.View {
 			}
 			colH.WriteString(padRight(workerHead, wWorker))
 		}
-		colH.WriteString(" ")
-		colH.WriteString(padRight("lease", wLease))
-		colH.WriteString(" ")
-		colH.WriteString(padRight("left", wLeft))
-		colH.WriteString(" ")
-		colH.WriteString(padRight("id", wID))
+		if wLease > 0 {
+			colH.WriteString(" ")
+			colH.WriteString(padRight("lease", wLease))
+		}
+		if wLeft > 0 {
+			colH.WriteString(" ")
+			colH.WriteString(padRight("left", wLeft))
+		}
+		if wID > 0 {
+			colH.WriteString(" ")
+			colH.WriteString(padRight("id", wID))
+		}
 		if hasScrollbar {
 			colH.WriteString(" ")
 		}
@@ -548,12 +584,18 @@ func (m model) View() tea.View {
 					rowBody.WriteString(" ")
 					rowBody.WriteString(workerStyled)
 				}
-				rowBody.WriteString(" ")
-				rowBody.WriteString(barStyled)
-				rowBody.WriteString(" ")
-				rowBody.WriteString(leftStyled)
-				rowBody.WriteString(" ")
-				rowBody.WriteString(idStyled)
+				if wLease > 0 {
+					rowBody.WriteString(" ")
+					rowBody.WriteString(barStyled)
+				}
+				if wLeft > 0 {
+					rowBody.WriteString(" ")
+					rowBody.WriteString(leftStyled)
+				}
+				if wID > 0 {
+					rowBody.WriteString(" ")
+					rowBody.WriteString(idStyled)
+				}
 
 				rowW := w - 1
 				if hasScrollbar {

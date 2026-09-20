@@ -375,3 +375,139 @@ func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
 		}
 	}
 }
+func TestNarrowTableDropsColumnsAndPreservesTitle(t *testing.T) {
+	fixedNow := time.Unix(1700000000, 0)
+	tasks := []task{
+		{
+			ID:           "task0011111",
+			Project:      "frontend-web-ui",
+			Status:       "leased",
+			Worker:       "worker-linux-runner:/tmp/taskd-long-checkout-path",
+			LeaseExpires: fixedNow.Unix() + 1800,
+			ClaimCount:   5,
+			Priority:     1,
+			Body:         "taskd: fix critical layout bug in narrow terminals",
+		},
+	}
+	m := model{
+		cfg: config{
+			url:     "http://localhost:8080",
+			refresh: 2 * time.Second,
+		},
+		theme:  newTheme(true),
+		glyph:  asciiGlyphs,
+		width:  70,
+		height: 24,
+		now:    fixedNow,
+		tasks:  tasks,
+		shown:  []int{0},
+		cursor: 0,
+		stats: stats{
+			Pending:      0,
+			Leased:       1,
+			Done:         0,
+			Total:        1,
+			LeaseSeconds: 3600,
+		},
+		connected: true,
+	}
+
+	v := m.View()
+	stripped := ansi.Strip(v.Content)
+	lines := strings.Split(stripped, "\n")
+
+	for i, line := range lines {
+		if w := ansi.StringWidth(line); w != 70 {
+			t.Fatalf("line %d display width %d != 70: %q", i, w, line)
+		}
+	}
+
+	headerLine := lines[3]
+	if strings.Contains(headerLine, "worker") {
+		t.Fatalf("expected worker column header to be dropped at 70 cols: %q", headerLine)
+	}
+
+	row := lines[4]
+	if strings.Contains(row, "worker-linux") {
+		t.Fatalf("expected worker name to be dropped at 70 cols: %q", row)
+	}
+	if strings.Contains(row, asciiGlyphs.refresh) {
+		t.Fatalf("expected claims to be dropped at 70 cols: %q", row)
+	}
+	if !strings.Contains(row, "30m00s") {
+		t.Fatalf("expected lease remaining time to be retained: %q", row)
+	}
+	if !strings.Contains(row, "task001") {
+		t.Fatalf("expected task id to be retained: %q", row)
+	}
+	if !strings.Contains(row, "frontend-web") {
+		t.Fatalf("expected scope to be retained: %q", row)
+	}
+	if !strings.Contains(row, "taskd: fix critical") {
+		t.Fatalf("expected title to have 20+ visible chars: %q", row)
+	}
+
+	m60 := m
+	m60.width = 60
+	v60 := m60.View()
+	lines60 := strings.Split(ansi.Strip(v60.Content), "\n")
+	for i, line := range lines60 {
+		if w := ansi.StringWidth(line); w != 60 {
+			t.Fatalf("line %d display width %d != 60: %q", i, w, line)
+		}
+	}
+	header60 := lines60[3]
+	if strings.Contains(header60, "lease") {
+		t.Fatalf("expected lease bar header to be dropped at 60 cols: %q", header60)
+	}
+	row60 := lines60[4]
+	if strings.Contains(row60, "=") {
+		t.Fatalf("expected lease bar to be dropped at 60 cols: %q", row60)
+	}
+	if !strings.Contains(row60, "taskd: fix critical") {
+		t.Fatalf("expected title to have 20+ visible chars at 60 cols: %q", row60)
+	}
+}
+
+func TestFormVisibleAtVariousTerminalHeights(t *testing.T) {
+	th := newTheme(true)
+	sampleTask := task{
+		ID:       "task1234567",
+		Project:  "taskd",
+		Status:   "pending",
+		Priority: 1,
+		Body:     "existing body line",
+	}
+
+	for _, h := range []int{16, 24, 50} {
+		for _, w := range []int{70, 80, 100} {
+			cf, _ := newCreateForm("testproj")
+			cf.fit(w, h, th)
+			cv := ansi.Strip(cf.View())
+
+			if !strings.Contains(cv, "project:") {
+				t.Fatalf("create form at %dx%d hides project field:\n%s", w, h, cv)
+			}
+			if !strings.Contains(cv, "[ save ]") {
+				t.Fatalf("create form at %dx%d hides submit button:\n%s", w, h, cv)
+			}
+			if !strings.Contains(cv, "Esc cancel") {
+				t.Fatalf("create form at %dx%d hides cancel hint:\n%s", w, h, cv)
+			}
+
+			ef, _ := newEditForm(sampleTask)
+			ef.fit(w, h, th)
+			ev := ansi.Strip(ef.View())
+
+			if !strings.Contains(ev, "project:") {
+				t.Fatalf("edit form at %dx%d hides project field:\n%s", w, h, ev)
+			}
+			if !strings.Contains(ev, "[ save ]") {
+				t.Fatalf("edit form at %dx%d hides submit button:\n%s", w, h, ev)
+			}
+			if !strings.Contains(ev, "Esc cancel") {
+				t.Fatalf("edit form at %dx%d hides cancel hint:\n%s", w, h, ev)
+			}
+		}
+	}
+}
