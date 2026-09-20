@@ -395,8 +395,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.project = next
 				}
+				m.etag = "" // the tag names the previous project's list
 				m.rebuild()
-				poll := m.startPoll()
+				// A different query, not duplicate work: bypass the
+				// in-flight guard; a stale reply is dropped by its stamp.
+				m.polling = true
+				poll := pollCmd(m.client, m.project, m.etag)
 				return m, poll
 			case msg.Text == "/":
 				m.mode = modeSearch

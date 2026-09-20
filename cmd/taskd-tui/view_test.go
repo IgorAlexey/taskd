@@ -322,18 +322,23 @@ func TestGlyphModesUseTheirOwnTextGlyphs(t *testing.T) {
 	}
 }
 
-func TestShortTerminalKeepsTheFooter(t *testing.T) {
-	for _, h := range []int{8, 10, 12} {
-		m := newModel(config{}, nil)
-		m.glyph = asciiGlyphs
-		m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: h})
-		m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
-		lines := strings.Split(ansi.Strip(m.View().Content), "\n")
-		if len(lines) != h {
-			t.Fatalf("height %d rendered %d lines", h, len(lines))
-		}
-		if !strings.Contains(lines[h-1], "q quit") {
-			t.Fatalf("height %d lost the footer: %q", h, lines[h-1])
+func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
+	for h := 1; h <= 40; h++ {
+		for _, zoom := range []bool{false, true} {
+			m := newModel(config{}, nil)
+			m.glyph = asciiGlyphs
+			m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: h})
+			m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
+			if zoom {
+				m.mode = modeZoom
+			}
+			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+			if len(lines) != h {
+				t.Fatalf("height %d zoom=%v rendered %d lines", h, zoom, len(lines))
+			}
+			if !strings.Contains(lines[h-1], "q quit") {
+				t.Fatalf("height %d zoom=%v lost the footer: %q", h, zoom, lines[h-1])
+			}
 		}
 	}
 }

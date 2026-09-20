@@ -71,7 +71,6 @@ type (
 		etag     string
 		changed  bool
 		stats    stats
-		hasStats bool // a poll has delivered stats at least once
 		projects []string
 		err      error
 	}

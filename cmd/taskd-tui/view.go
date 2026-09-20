@@ -229,18 +229,19 @@ func (m model) View() tea.View {
 		if m.hasStats {
 			countStr = strconv.Itoa(tab.count)
 		}
-		if m.filter == tab.filter {
-			body := tab.key + " " + tab.name + " " + countStr
-			tabParts = append(tabParts, m.theme.accent.Render(m.glyph.pillL)+m.theme.tabActive.Render(body)+m.theme.accent.Render(m.glyph.pillR))
-		} else {
-			tabParts = append(tabParts, m.theme.tabKey.Render(tab.key)+" "+tab.name+" "+m.theme.dim.Render(countStr))
+		active := m.filter == tab.filter
+		pill := func(body string) string {
+			return m.theme.accent.Render(m.glyph.pillL) + m.theme.tabActive.Render(body) + m.theme.accent.Render(m.glyph.pillR)
 		}
-	}
-	// Counts come from the last successful poll; while disconnected the
-	// whole row is dimmed so none of them read as live.
-	if !m.connected {
-		for i := range tabParts {
-			tabParts[i] = m.theme.dim.Render(ansi.Strip(tabParts[i]))
+		switch {
+		case active && m.connected:
+			tabParts = append(tabParts, pill(tab.key+" "+tab.name+" "+countStr))
+		case active:
+			// Counts are from the last successful poll: keep the
+			// selection, move the count out of the pill and dim it.
+			tabParts = append(tabParts, pill(tab.key+" "+tab.name)+" "+m.theme.dim.Render(countStr))
+		default:
+			tabParts = append(tabParts, m.theme.tabKey.Render(tab.key)+" "+tab.name+" "+m.theme.dim.Render(countStr))
 		}
 	}
 	tabsLeft := strings.Join(tabParts, "  ")
@@ -690,11 +691,6 @@ func (m model) View() tea.View {
 			}
 		}
 	}
-	// The rule, title and chips are fixed lines; on a very short terminal
-	// they alone exceed dRows, so cut from the bottom to keep the footer.
-	if len(detailLines) > dRows {
-		detailLines = detailLines[:dRows]
-	}
 
 	// 8. Footer (1 row)
 	pos := 0
@@ -771,6 +767,11 @@ func (m model) View() tea.View {
 		allLines = append(allLines, detailLines...)
 	}
 	allLines = append(allLines, footerLine)
+	// Cut the frame to the terminal, dropping lines above the footer
+	// first so it survives until there is no room for it at all.
+	if len(allLines) > h {
+		allLines = append(allLines[:h-1], footerLine)
+	}
 
 	content := strings.Join(allLines, "\n")
 	v := tea.NewView(content)
