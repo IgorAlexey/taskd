@@ -269,15 +269,20 @@ func (s *store) sweep() ([]string, error) {
 	return sweepExpired(s.rw, s.maxClaims)
 }
 
-func openDB(path string, maxClaims int) (s *store, err error) {
+func openDB(path string, maxClaims int) (*store, error) {
+	s, _, err := openDBInit(path, maxClaims)
+	return s, err
+}
+
+func openDBInit(path string, maxClaims int) (s *store, isNew bool, err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("cannot open database %s: %w", path, err)
 		}
 	}()
-	rw, err := openRW(path)
+	rw, isNew, err := openRW(path)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var ro *sql.DB
 	if _, memory := resolveDBPath(path); memory {
@@ -286,7 +291,7 @@ func openDB(path string, maxClaims int) (s *store, err error) {
 		ro, err = openDBConn(path, true)
 		if err != nil {
 			rw.Close()
-			return nil, err
+			return nil, false, err
 		}
 		ro.SetMaxOpenConns(maxReaders)
 		ro.SetMaxIdleConns(maxReaders)
@@ -294,7 +299,7 @@ func openDB(path string, maxClaims int) (s *store, err error) {
 		if err := ro.Ping(); err != nil {
 			ro.Close()
 			rw.Close()
-			return nil, err
+			return nil, false, err
 		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -303,31 +308,31 @@ func openDB(path string, maxClaims int) (s *store, err error) {
 		cancel()
 		rw.Close()
 		ro.Close()
-		return nil, err
+		return nil, false, err
 	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		runLeaseSweeper(ctx, s, defaultSweepInterval)
 	}()
-	return s, nil
+	return s, isNew, nil
 }
 
-func openRW(path string) (*sql.DB, error) {
+func openRW(path string) (*sql.DB, bool, error) {
 	db, err := openDBConn(path, false)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	var version int
 	if err := db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		db.Close()
-		return nil, err
+		return nil, false, err
 	}
 	if version < 0 || version > schemaVersion {
 		db.Close()
-		return nil, fmt.Errorf("unsupported schema version %d (this binary supports %d)", version, schemaVersion)
+		return nil, false, fmt.Errorf("unsupported schema version %d (this binary supports %d)", version, schemaVersion)
 	}
 	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
 CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';
@@ -347,41 +352,41 @@ CREATE INDEX IF NOT EXISTS idx_notes_task_id ON notes (task_id);`
 	hasTasks, err := rowExists(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tasks'")
 	if err != nil {
 		db.Close()
-		return nil, err
+		return nil, false, err
 	}
 	if !hasTasks {
 		if version != 0 {
 			db.Close()
-			return nil, fmt.Errorf("schema version %d specified but tasks table is missing", version)
+			return nil, false, fmt.Errorf("schema version %d specified but tasks table is missing", version)
 		}
 		used, err := rowExists(db, "SELECT 1 FROM sqlite_master LIMIT 1")
 		if err != nil {
 			db.Close()
-			return nil, err
+			return nil, false, err
 		}
 		if used {
 			db.Close()
-			return nil, errors.New("file is not a taskd database")
+			return nil, false, errors.New("file is not a taskd database")
 		}
 		if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
 			db.Close()
-			return nil, err
+			return nil, false, err
 		}
 		if _, err := db.Exec(fullSchema + fmt.Sprintf("\nPRAGMA user_version = %d;", schemaVersion)); err != nil {
 			db.Close()
-			return nil, err
+			return nil, false, err
 		}
-		return db, nil
+		return db, true, nil
 	}
 	if _, err := db.Exec("PRAGMA journal_mode(WAL)"); err != nil {
 		db.Close()
-		return nil, err
+		return nil, false, err
 	}
 	if version == 0 {
 		var hasProject int
 		if err := db.QueryRow("SELECT count(*) FROM pragma_table_info('tasks') WHERE name='project'").Scan(&hasProject); err != nil {
 			db.Close()
-			return nil, err
+			return nil, false, err
 		}
 		if hasProject > 0 {
 			version = 2
@@ -390,16 +395,16 @@ CREATE INDEX IF NOT EXISTS idx_notes_task_id ON notes (task_id);`
 		}
 		if _, err := db.Exec(fmt.Sprintf("PRAGMA user_version = %d;", version)); err != nil {
 			db.Close()
-			return nil, err
+			return nil, false, err
 		}
 	}
 	for i := max(0, version-1); i < len(migrations); i++ {
 		if err := migrations[i](db); err != nil {
 			db.Close()
-			return nil, err
+			return nil, false, err
 		}
 	}
-	return db, nil
+	return db, false, nil
 }
 
 func migrateV2(db *sql.DB) error {
@@ -2946,17 +2951,6 @@ func reportBackup(fsPath string, out io.Writer) error {
 	return nil
 }
 
-func listen(addr string) (net.Listener, error) {
-	l, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
-	if tcp, ok := l.Addr().(*net.TCPAddr); ok && tcp.IP.IsUnspecified() {
-		log.Print("warning: listening on all interfaces; taskd has no authentication")
-	}
-	log.Printf("listening on %s", l.Addr())
-	return l, nil
-}
 func openReadOnlyDB(path string) (db *sql.DB, err error) {
 	defer func() {
 		if err != nil {
@@ -3002,22 +2996,38 @@ func run(stdout io.Writer, args []string) error {
 		return backupDB(db, cfg.backupPath, os.Stdout)
 	}
 
-	db, err := openDB(cfg.dbPath, cfg.maxClaims)
+	l, err := net.Listen("tcp", cfg.addr)
+	if err != nil {
+		return err
+	}
+	defer l.Close()
+
+	db, isNew, err := openDBInit(cfg.dbPath, cfg.maxClaims)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+
+	logStartupDB(cfg.dbPath, cfg.lease, isNew)
+
+	if tcp, ok := l.Addr().(*net.TCPAddr); ok && tcp.IP.IsUnspecified() {
+		log.Print("warning: listening on all interfaces; taskd has no authentication")
+	}
+	log.Printf("listening on %s", l.Addr())
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-
-	l, err := listen(cfg.addr)
-	if err != nil {
-		return err
-	}
 
 	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin)
 }
 
+func logStartupDB(dbPath string, lease int, isNew bool) {
+	if isNew {
+		log.Printf("created new database %s (lease %ds)", dbPath, lease)
+	} else {
+		log.Printf("opened database %s (lease %ds)", dbPath, lease)
+	}
+}
 func fatal(stderr io.Writer, err error) int {
 	var ue *usageError
 	if errors.As(err, &ue) {
