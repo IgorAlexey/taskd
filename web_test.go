@@ -772,7 +772,18 @@ func TestWebUICopyPrimitivesButton(t *testing.T) {
 		t.Fatal("expected primRow visibility toggled in web/index.html")
 	}
 }
-
+func TestWebUICopyAssetButton(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="copy-asset-btn"`) {
+		t.Fatal("expected #copy-asset-btn in web/index.html")
+	}
+	if !strings.Contains(ui, `id="detail-task-asset-row"`) {
+		t.Fatal("expected #detail-task-asset-row in web/index.html")
+	}
+	if !strings.Contains(ui, `copyToClipboard(t.asset_path || '', copyAssetBtn, 'asset path')`) {
+		t.Fatal("expected copyToClipboard call for asset_path in web/index.html")
+	}
+}
 func TestWebUICanonicalizeSelectedTaskIDFromPrefix(t *testing.T) {
 	ui := string(uiHTML)
 	if !strings.Contains(ui, "if (t && t.id && t.id !== id)") {

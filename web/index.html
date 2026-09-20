@@ -2263,7 +2263,7 @@
           <div class="metadata-row" id="detail-task-worker-row" hidden><dt class="field-label">Worker</dt><dd id="detail-task-worker" class="mono"></dd></div>
           <div class="metadata-row" id="detail-task-lease-row" hidden><dt class="field-label">Lease Expires</dt><dd id="detail-task-lease"></dd></div>
           <div class="metadata-row" id="detail-task-created-row" hidden><dt class="field-label">Created At</dt><dd id="detail-task-created"></dd></div>
-          <div class="metadata-row" id="detail-task-asset-row" hidden><dt class="field-label">Asset Path</dt><dd id="detail-task-asset" class="mono"></dd></div>
+          <div class="metadata-row" id="detail-task-asset-row" hidden><dt class="field-label">Asset Path</dt><dd class="cluster"><span class="mono" id="detail-task-asset"></span><button type="button" id="copy-asset-btn" class="copy-btn">Copy</button></dd></div>
         </dl>
         <div class="field">
           <div class="field-header">
@@ -2382,6 +2382,8 @@
       if (delBtn) delBtn.onclick = () => deleteTask(t);
       const copyBtn = document.getElementById('copy-id-btn');
       if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
+      const copyAssetBtn = document.getElementById('copy-asset-btn');
+      if (copyAssetBtn) copyAssetBtn.onclick = () => copyToClipboard(t.asset_path || '', copyAssetBtn, 'asset path');
       const copyBodyBtn = document.getElementById('copy-body-btn');
       if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
       const copyPrimBtn = document.getElementById('copy-primitives-btn');
