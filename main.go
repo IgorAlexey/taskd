@@ -858,16 +858,6 @@ type taskItem struct {
 	summaryPrefix string
 }
 
-func (t *taskItem) normalize(now int64) {
-	if t.Status == "leased" && t.LeaseExpires < now {
-		t.Status = "pending"
-	}
-	if t.Status == "pending" || t.Status == "buried" {
-		t.Worker = ""
-		t.LeaseExpires = 0
-	}
-}
-
 const summaryRunes = 50
 
 const summaryTrim = " \t\r\n"
@@ -1004,25 +994,15 @@ func mainDBName(db *sql.DB) string {
 	}
 	return ""
 }
-func newHandler(db *store, lease int) http.Handler {
-	return newHandlerWithCORS(db, lease, 0, "")
-}
-
-func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http.Handler {
-	mux := http.NewServeMux()
-	dbName := mainDBName(db.ro)
-
-	buryExhausted := func(id string) error {
-		if maxClaims <= 0 {
-			return nil
-		}
+func sweepLapsed(rw *sql.DB, maxClaims int, id string) error {
+	if maxClaims > 0 {
 		query := buryExhaustedSQL
 		args := []any{maxClaims}
 		if id != "" {
 			query += " AND id = ?"
 			args = append(args, id)
 		}
-		rows, err := db.rw.Query(query+" RETURNING id", args...)
+		rows, err := rw.Query(query+" RETURNING id", args...)
 		if err != nil {
 			return err
 		}
@@ -1041,7 +1021,27 @@ func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http
 		if len(buried) > 0 {
 			log.Printf("buried at the %d claim limit: %s", maxClaims, strings.Join(buried, " "))
 		}
-		return nil
+	}
+	query := "UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL WHERE status='leased' AND lease_expires < unixepoch()"
+	var args []any
+	if id != "" {
+		query += " AND id = ?"
+		args = append(args, id)
+	}
+	_, err := rw.Exec(query, args...)
+	return err
+}
+
+func newHandler(db *store, lease int) http.Handler {
+	return newHandlerWithCORS(db, lease, 0, "")
+}
+
+func newHandlerWithCORS(db *store, lease, maxClaims int, corsOrigin string) http.Handler {
+	mux := http.NewServeMux()
+	dbName := mainDBName(db.ro)
+
+	sweepLapsedLeases := func(id string) error {
+		return sweepLapsed(db.rw, maxClaims, id)
 	}
 
 	uiHandler := func(w http.ResponseWriter, r *http.Request) {
@@ -1176,14 +1176,14 @@ FROM tasks`
 		if req.Project == "" {
 			req.Project = "*"
 		}
-		if err := buryExhausted(""); err != nil {
+		if err := sweepLapsedLeases(""); err != nil {
 			internalError(w, err)
 			return
 		}
 		query := `UPDATE tasks SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
 WHERE id = (
   SELECT id FROM tasks
-  WHERE (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+  WHERE status='pending'
   AND (? <= 0 OR claim_count < ?)`
 		args := []any{req.Worker, lease, maxClaims, maxClaims}
 		if req.Project != "*" {
@@ -1225,13 +1225,13 @@ WHERE id = (
 		if !ok {
 			return
 		}
-		if err := buryExhausted(id); err != nil {
+		if err := sweepLapsedLeases(id); err != nil {
 			internalError(w, err)
 			return
 		}
 		query := `UPDATE tasks
 SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1
-WHERE id = ? AND (status='pending' OR (status='leased' AND lease_expires < unixepoch()))
+WHERE id = ? AND status='pending'
   AND (? <= 0 OR claim_count < ?)
 RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count`
 		var (
@@ -1486,9 +1486,14 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				summaryCol = summaryPrefixCol
 			}
 		}
-		query := fmt.Sprintf("SELECT id, asset_path, status, worker, lease_expires, priority, %s, %s, %s, project, claim_count, rowid FROM tasks", bodyCol, primCol, summaryCol)
+		query := fmt.Sprintf(`SELECT id, asset_path,
+  CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
+  CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
+  CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
+  priority, %s, %s, %s, project, claim_count, rowid FROM tasks`, bodyCol, primCol, summaryCol)
 		var where []string
 		var args []any
+		args = append(args, now, now, now)
 		if status == "pending" {
 			where = append(where, "(status = 'pending' OR (status = 'leased' AND lease_expires < ?))")
 			args = append(args, now)
@@ -1574,7 +1579,6 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			item.LeaseExpires = leaseExpires.Int64
 			item.Primitives = prim
 			next = listCursor{Rowid: rowid}
-			item.normalize(now)
 			tasks = append(tasks, item)
 		}
 		if err := rows.Err(); err != nil {
@@ -1683,7 +1687,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			leaseExpires sql.NullInt64
 			prim         []byte
 		)
-		err := db.ro.QueryRow("SELECT id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count FROM tasks WHERE id = ?", id).
+		now := time.Now().Unix()
+		err := db.ro.QueryRow(`SELECT id, asset_path,
+  CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
+  CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
+  CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
+  priority, body, primitives, project, claim_count FROM tasks WHERE id = ?`, now, now, now, id).
 			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Body, &prim, &item.Project, &item.ClaimCount)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "task not found")
@@ -1696,7 +1705,6 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		item.Worker = worker.String
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
-		item.normalize(time.Now().Unix())
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(item)
@@ -2143,7 +2151,10 @@ func runServer(ctx context.Context, l net.Listener, db *store, lease, maxClaims 
 
 	serverCtx, cancelServer := context.WithCancel(ctx)
 	defer cancelServer()
-	go runCheckpointer(serverCtx, db.rw, defaultCheckpointInterval, nil)
+	sweepFn := func() {
+		sweepLapsed(db.rw, maxClaims, "")
+	}
+	go runCheckpointer(serverCtx, db.rw, defaultCheckpointInterval, sweepFn)
 
 	errCh := make(chan error, 1)
 	go func() {

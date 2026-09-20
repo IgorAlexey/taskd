@@ -128,10 +128,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tickMsg:
 		m.now = time.Time(msg)
-		now := m.now.Unix()
-		for i := range m.tasks {
-			m.tasks[i].normalize(now)
-		}
 		m.rebuild()
 		// A walk the operator asked for is theirs to repeat: re-walking
 		// it every tick would cost the daemon a page per second for as
@@ -168,10 +164,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				selID = sel.ID
 			}
 			m.tasks = msg.tasks
-			now := m.now.Unix()
-			for i := range m.tasks {
-				m.tasks[i].normalize(now)
-			}
 			m.rebuildShown()
 			if selID != "" {
 				found := false
