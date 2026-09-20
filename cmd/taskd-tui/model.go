@@ -646,6 +646,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.msg = ""
 					return m, nil
 				}
+				if m.filter != "" {
+					return m.setFilter("")
+				}
 				return m, nil
 			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEnter:
 				m.mode = modeDetail
