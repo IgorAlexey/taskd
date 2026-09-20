@@ -5766,3 +5766,57 @@ func TestBuryAndKick(t *testing.T) {
 		t.Fatalf("bury missing id expected 404, got %d: %s", code, body)
 	}
 }
+
+func TestMissingProject(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	code, body := post(t, srv.URL+"/tasks", map[string]string{
+		"body": "test",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks without project expected 400, got %d: %s", code, body)
+	}
+	assertErrorBody(t, body, "missing project")
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "test",
+		"project": "",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with empty project expected 400, got %d: %s", code, body)
+	}
+	assertErrorBody(t, body, "missing project")
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "test",
+		"project": "   ",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with whitespace project expected 400, got %d: %s", code, body)
+	}
+	assertErrorBody(t, body, "missing project")
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "test",
+		"project": "foo bar",
+	})
+	if code != http.StatusBadRequest {
+		t.Fatalf("POST /tasks with malformed project expected 400, got %d: %s", code, body)
+	}
+	assertErrorBody(t, body, "invalid project")
+
+	code, body = post(t, srv.URL+"/tasks", map[string]string{
+		"body":    "test",
+		"project": "valid-project",
+	})
+	if code != http.StatusCreated {
+		t.Fatalf("POST /tasks with valid project expected 201, got %d: %s", code, body)
+	}
+}

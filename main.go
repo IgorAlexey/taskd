@@ -813,6 +813,10 @@ FROM tasks`
 			writeError(w, http.StatusBadRequest, "missing asset_path or body")
 			return
 		}
+		if req.Project == "" {
+			writeError(w, http.StatusBadRequest, "missing project")
+			return
+		}
 		if !validProject(req.Project) {
 			writeError(w, http.StatusBadRequest, "invalid project")
 			return
