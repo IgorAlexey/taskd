@@ -730,3 +730,106 @@ func TestClaimWaitCloseStoreUnblocksCleanly(t *testing.T) {
 		t.Fatal("waiter did not unblock on store close")
 	}
 }
+func TestClaimWaitReceivesPatchedProjectTask(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	createBody, _ := json.Marshal(map[string]string{"body": "task-patch", "project": "projA"})
+	resp, err := srv.Client().Post(srv.URL+"/tasks", "application/json", bytes.NewReader(createBody))
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		t.Fatalf("create status = %d, want 201", resp.StatusCode)
+	}
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created task failed: %v", err)
+	}
+
+	type result struct {
+		status  int
+		body    string
+		elapsed time.Duration
+		err     error
+	}
+	ch := make(chan result, 1)
+
+	go func() {
+		claimBody, _ := json.Marshal(map[string]any{"worker": "w-projb", "project": "projB", "wait": 5})
+		claimReq, err := http.NewRequestWithContext(ctx, http.MethodPost, srv.URL+"/tasks/claim", bytes.NewReader(claimBody))
+		if err != nil {
+			ch <- result{err: err}
+			return
+		}
+		claimReq.Header.Set("Content-Type", "application/json")
+		start := time.Now()
+		resp, err := srv.Client().Do(claimReq)
+		elapsed := time.Since(start)
+		if err != nil {
+			ch <- result{err: err, elapsed: elapsed}
+			return
+		}
+		defer resp.Body.Close()
+		var item struct {
+			Body string `json:"body"`
+		}
+		if resp.StatusCode == http.StatusOK {
+			_ = json.NewDecoder(resp.Body).Decode(&item)
+		}
+		ch <- result{status: resp.StatusCode, body: item.Body, elapsed: elapsed}
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for db.waiterCount() == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("waiter did not register in time")
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	patchBody, _ := json.Marshal(map[string]string{"project": "projB"})
+	patchReq, err := http.NewRequestWithContext(ctx, http.MethodPatch, srv.URL+"/tasks/"+created.ID, bytes.NewReader(patchBody))
+	if err != nil {
+		t.Fatalf("new request failed: %v", err)
+	}
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchResp, err := srv.Client().Do(patchReq)
+	if err != nil {
+		t.Fatalf("patch request failed: %v", err)
+	}
+	patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusNoContent {
+		t.Fatalf("patch status = %d, want 204", patchResp.StatusCode)
+	}
+
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			t.Fatalf("claim failed: %v", res.err)
+		}
+		if res.status != http.StatusOK {
+			t.Fatalf("claim status = %d, want 200", res.status)
+		}
+		if res.body != "task-patch" {
+			t.Fatalf("claim body = %q, want %q", res.body, "task-patch")
+		}
+		if res.elapsed > 2*time.Second {
+			t.Fatalf("claim took %v, want immediate wakeup without waiting for timeout", res.elapsed)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("worker was not woken up after task reassigned to project B")
+	}
+}

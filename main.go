@@ -2329,56 +2329,62 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			}
 		}
 
-		res, err := db.rw.Exec(`UPDATE tasks
+		var prevProject string
+		if req.Project != nil {
+			_ = db.ro.QueryRow("SELECT project FROM tasks WHERE id = ?", id).Scan(&prevProject)
+		}
+
+		var updatedStatus, updatedProject string
+		err := db.rw.QueryRow(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path), version = version + 1
 WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())
-  AND (? IS NULL OR version = ?)`,
-			req.Body, req.Priority, req.Project, req.AssetPath, id, req.IfVersion, req.IfVersion)
+  AND (? IS NULL OR version = ?)
+RETURNING status, project`,
+			req.Body, req.Priority, req.Project, req.AssetPath, id, req.IfVersion, req.IfVersion).
+			Scan(&updatedStatus, &updatedProject)
 		if err != nil {
-			internalError(w, err)
-			return
-		}
-		n, err := res.RowsAffected()
-		if err != nil {
-			internalError(w, err)
-			return
-		}
-		if n == 0 {
-			if req.IfVersion == nil {
-				writeTaskStateError(w, db.ro, id, "", nil)
-				return
-			}
-			var (
-				status   string
-				holder   sql.NullString
-				claims   int
-				curVer   int
-				isLeased int
-			)
-			err := db.ro.QueryRow(`SELECT status, worker, claim_count, version, (status = 'leased' AND lease_expires >= unixepoch()) FROM tasks WHERE id = ?`, id).
-				Scan(&status, &holder, &claims, &curVer, &isLeased)
 			if errors.Is(err, sql.ErrNoRows) {
-				writeError(w, http.StatusNotFound, "task not found")
+				if req.IfVersion == nil {
+					writeTaskStateError(w, db.ro, id, "", nil)
+					return
+				}
+				var (
+					status   string
+					holder   sql.NullString
+					claims   int
+					curVer   int
+					isLeased int
+				)
+				err := db.ro.QueryRow(`SELECT status, worker, claim_count, version, (status = 'leased' AND lease_expires >= unixepoch()) FROM tasks WHERE id = ?`, id).
+					Scan(&status, &holder, &claims, &curVer, &isLeased)
+				if errors.Is(err, sql.ErrNoRows) {
+					writeError(w, http.StatusNotFound, "task not found")
+					return
+				}
+				if err != nil {
+					internalError(w, err)
+					return
+				}
+				if isLeased == 1 {
+					writeAPIError(w, http.StatusConflict, leaseConflict{Error: "task is leased", Worker: holder.String, ClaimCount: claims})
+					return
+				}
+				if status == "done" {
+					writeError(w, http.StatusConflict, "task is done")
+					return
+				}
+				if curVer != *req.IfVersion {
+					writeError(w, http.StatusConflict, "version conflict")
+					return
+				}
+				writeError(w, http.StatusConflict, "task is "+status)
 				return
 			}
-			if err != nil {
-				internalError(w, err)
-				return
-			}
-			if isLeased == 1 {
-				writeAPIError(w, http.StatusConflict, leaseConflict{Error: "task is leased", Worker: holder.String, ClaimCount: claims})
-				return
-			}
-			if status == "done" {
-				writeError(w, http.StatusConflict, "task is done")
-				return
-			}
-			if curVer != *req.IfVersion {
-				writeError(w, http.StatusConflict, "version conflict")
-				return
-			}
-			writeError(w, http.StatusConflict, "task is "+status)
+			internalError(w, err)
 			return
+		}
+		if req.Project != nil && *req.Project != prevProject && updatedStatus == "pending" && updatedProject != "" {
+			db.notifyPending(updatedProject)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
