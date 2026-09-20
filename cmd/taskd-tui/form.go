@@ -906,11 +906,13 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[g/G]", "first/last"},
 		{"[ctrl-d/u]", "half page"},
 		{"[PgUp/Dn]", "page"},
+		{"[Enter]", "detail"},
+		{"[Tab]", "focus"},
+		{"[Esc]", "back/reset"},
 		{"[p/P]", "project"},
 		{"[w/W]", "worker"},
 		{"[s]", "sort"},
 		{"[/]", "search"},
-		{"[Tab]", "detail"},
 		{"[z]", "zoom"},
 		{"[n]", "new"},
 		{"[e]", "edit"},
@@ -918,7 +920,6 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[ctrl-s]", "save form"},
 		{"[?]", "help"},
 	}
-
 	col2 := []keyRef{
 		{"[0-5]", "filter (status)"},
 		{"+/-", "priority"},

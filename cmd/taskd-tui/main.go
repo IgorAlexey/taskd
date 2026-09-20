@@ -258,7 +258,9 @@ Keyboard shortcuts:
   p, P                cycle project filter forward / backward
   w, W                cycle worker filter forward / backward
   /                   search / filter by query
+  Enter               activate detail pane
   Tab                 switch focus to detail pane
+  Esc                 reset filters / exit panes
   z                   toggle detail zoom
   n                   create new task
   e                   edit selected task

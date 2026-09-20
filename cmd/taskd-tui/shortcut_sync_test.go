@@ -24,14 +24,16 @@ func TestShortcutDocsSync(t *testing.T) {
 		t.Fatalf("printUsage missing copy shortcut; want substring %q", wantCopy)
 	}
 
-	const wantNote = "a                   add note"
-	if !strings.Contains(usage, wantNote) {
-		t.Fatalf("printUsage missing add note shortcut; want substring %q", wantNote)
-	}
-
-	const wantProject = "p, P"
-	if !strings.Contains(usage, wantProject) {
-		t.Fatalf("printUsage missing p, P shortcut; want substring %q", wantProject)
+	for _, want := range []string{
+		"a                   add note",
+		"s                   cycle sort",
+		"p, P                cycle project filter forward / backward",
+		"Esc                 reset filters / exit panes",
+		"Enter               activate detail pane",
+	} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("printUsage missing %q", want)
+		}
 	}
 
 	m := newModel(config{icons: true}, nil)
@@ -58,8 +60,10 @@ func TestShortcutDocsSync(t *testing.T) {
 	if !strings.Contains(helpContent, "[0-5]") || !strings.Contains(helpContent, "filter (status)") {
 		t.Errorf("help modal missing [0-5] filter (status); got:\n%s", helpContent)
 	}
-	if !strings.Contains(helpContent, "[s]") || !strings.Contains(helpContent, "sort") {
-		t.Errorf("help modal missing [s] sort; got:\n%s", helpContent)
+	for _, key := range []string{"[s]", "[Esc]", "[Enter]"} {
+		if !strings.Contains(helpContent, key) {
+			t.Errorf("help modal missing %s; got:\n%s", key, helpContent)
+		}
 	}
 
 	m.mode = modeTable
