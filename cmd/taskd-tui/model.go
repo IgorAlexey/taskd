@@ -853,6 +853,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
+	if msg.Mod&tea.ModCtrl != 0 && msg.Code == 'y' {
+		m, cmd := m.actionCopyPrimitives()
+		return m, cmd, true
+	}
 	key := msg.Text
 	if key == "" {
 		switch msg.Code {
@@ -2036,6 +2040,19 @@ func (m model) actionCopyID() (model, tea.Cmd) {
 		return m.copyToClipboard(t.ID, "copied to clipboard")
 	}
 	return m, nil
+}
+
+func (m model) actionCopyPrimitives() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	prim := strings.TrimSpace(string(t.Primitives))
+	if prim == "" || prim == "null" {
+		cmd := m.setMsg("nothing to copy")
+		return m, cmd
+	}
+	return m.copyToClipboard(prim, "copied result to clipboard")
 }
 
 func (m model) actionCopyBody() (model, tea.Cmd) {

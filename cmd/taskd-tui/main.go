@@ -340,6 +340,7 @@ Keyboard shortcuts:
   x                   complete selected task
   X                   purge completed tasks
   y/Y                 copy task ID / body to clipboard
+  ctrl-y              copy primitives result to clipboard
   ctrl-s              submit form
   r                   force refresh
   ?                   show help overlay

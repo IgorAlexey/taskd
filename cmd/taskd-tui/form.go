@@ -1235,6 +1235,7 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		{"[E]", "editor"},
 		{"[a]", "note"},
 		{"[ctrl-s]", "save form"},
+		{"[ctrl-y]", "copy result"},
 		{"[?]", "help"},
 	}
 	col2 := []keyRef{
