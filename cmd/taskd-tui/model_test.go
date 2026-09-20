@@ -907,8 +907,8 @@ func TestPollReplyForAnotherProjectIsDropped(t *testing.T) {
 		t.Fatalf("project = %q, want beta", m.project)
 	}
 	m, _ = send(t, m, pollMsg{project: "alpha", tasks: []task{{ID: "a2", Project: "alpha", Status: "pending"}}, etag: `"alpha-v2"`, changed: true})
-	if m.polling || m.etag != "" || len(m.tasks) != 1 || m.tasks[0].ID != "a1" {
-		t.Fatalf("reply for alpha must not touch a beta model: polling=%v etag=%q tasks=%v", m.polling, m.etag, m.tasks)
+	if !m.polling || m.etag != "" || len(m.tasks) != 1 || m.tasks[0].ID != "a1" {
+		t.Fatalf("reply for alpha must not touch a beta model nor clear the in-flight flag: polling=%v etag=%q tasks=%v", m.polling, m.etag, m.tasks)
 	}
 	m, _ = send(t, m, pollMsg{project: "beta", tasks: []task{{ID: "b1", Project: "beta", Status: "pending"}}, etag: `"beta"`, changed: true})
 	if m.etag != `"beta"` || len(m.shown) != 1 {

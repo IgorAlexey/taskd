@@ -143,29 +143,17 @@ func (m model) View() tea.View {
 		h = 24
 	}
 
-	if m.mode == modeForm {
-		box := m.form.View(w, h, m.theme)
-		placed := lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
-		v := tea.NewView(placed)
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		return v
+	var overlay string
+	switch m.mode {
+	case modeForm:
+		overlay = m.form.View(w, h, m.theme)
+	case modeConfirm:
+		overlay = m.confirm.View(w, h, m.theme)
+	case modeHelp:
+		overlay = helpView(w, h, m.theme)
 	}
-	if m.mode == modeConfirm {
-		box := m.confirm.View(w, h, m.theme)
-		placed := lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
-		v := tea.NewView(placed)
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		return v
-	}
-	if m.mode == modeHelp {
-		box := helpView(w, h, m.theme)
-		placed := lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, box)
-		v := tea.NewView(placed)
-		v.AltScreen = true
-		v.MouseMode = tea.MouseModeCellMotion
-		return v
+	if overlay != "" {
+		return frame(lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, overlay), h)
 	}
 
 	tRows, dRows := m.layout()
@@ -766,14 +754,21 @@ func (m model) View() tea.View {
 		allLines = append(allLines, strings.Repeat(" ", w))
 		allLines = append(allLines, detailLines...)
 	}
-	allLines = append(allLines, footerLine)
-	// Cut the frame to the terminal, dropping lines above the footer
-	// first so it survives until there is no room for it at all.
-	if len(allLines) > h {
-		allLines = append(allLines[:h-1], footerLine)
+	// Drop lines above the footer first so it survives until there is
+	// no room for it at all.
+	if len(allLines) >= h {
+		allLines = allLines[:h-1]
 	}
+	allLines = append(allLines, footerLine)
+	return frame(strings.Join(allLines, "\n"), h)
+}
 
-	content := strings.Join(allLines, "\n")
+// frame wraps rendered content in the program's view, cut to the
+// terminal height so no mode can scroll the alt screen.
+func frame(content string, h int) tea.View {
+	if lines := strings.Split(content, "\n"); len(lines) > h {
+		content = strings.Join(lines[:h], "\n")
+	}
 	v := tea.NewView(content)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion

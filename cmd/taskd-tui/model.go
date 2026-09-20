@@ -88,11 +88,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tickCmd(m.cfg.refresh), poll)
 
 	case pollMsg:
-		m.polling = false
 		if msg.project != m.project {
-			// Reply to a query for a project that is no longer selected.
+			// Reply to a query that is no longer selected; the poll
+			// for the current project is still on the wire.
 			return m, nil
 		}
+		m.polling = false
 		if msg.changed {
 			m.etag = msg.etag
 			selID := ""
@@ -395,12 +396,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 					m.project = next
 				}
-				m.etag = "" // the tag names the previous project's list
+				// The tag and the counts describe the previous project's
+				// list; a poll for the new one is a different query, not
+				// duplicate work, so the in-flight guard yields to it.
+				m.etag, m.stats, m.hasStats, m.polling = "", stats{}, false, false
 				m.rebuild()
-				// A different query, not duplicate work: bypass the
-				// in-flight guard; a stale reply is dropped by its stamp.
-				m.polling = true
-				poll := pollCmd(m.client, m.project, m.etag)
+				poll := m.startPoll()
 				return m, poll
 			case msg.Text == "/":
 				m.mode = modeSearch

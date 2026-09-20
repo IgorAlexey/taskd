@@ -323,21 +323,22 @@ func TestGlyphModesUseTheirOwnTextGlyphs(t *testing.T) {
 }
 
 func TestFrameNeverExceedsTerminalHeight(t *testing.T) {
+	modes := []mode{modeTable, modeSearch, modeDetail, modeZoom, modeForm, modeConfirm, modeHelp}
 	for h := 1; h <= 40; h++ {
-		for _, zoom := range []bool{false, true} {
+		for _, md := range modes {
 			m := newModel(config{}, nil)
 			m.glyph = asciiGlyphs
 			m, _ = send(t, m, tea.WindowSizeMsg{Width: 100, Height: h})
 			m, _ = send(t, m, pollMsg{tasks: []task{{ID: "a", Project: "p", Status: "pending", Body: "p: t\n\nbody"}}, changed: true})
-			if zoom {
-				m.mode = modeZoom
-			}
+			m.mode = md
+			m.form = newCreateForm("p", 100)
+			m.confirm = confirmModel{text: "Delete?", button: "delete"}
 			lines := strings.Split(ansi.Strip(m.View().Content), "\n")
 			if len(lines) != h {
-				t.Fatalf("height %d zoom=%v rendered %d lines", h, zoom, len(lines))
+				t.Fatalf("height %d mode %d rendered %d lines", h, md, len(lines))
 			}
-			if !strings.Contains(lines[h-1], "q quit") {
-				t.Fatalf("height %d zoom=%v lost the footer: %q", h, zoom, lines[h-1])
+			if md == modeTable && !strings.Contains(lines[h-1], "q quit") {
+				t.Fatalf("height %d lost the footer: %q", h, lines[h-1])
 			}
 		}
 	}
