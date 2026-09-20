@@ -26,6 +26,7 @@ const document = {
   getElementById: id => els[id] || null,
   querySelector: () => null,
   querySelectorAll: () => [],
+  addEventListener() {},
   createElement: () => ({
     dataset: {},
     style: {},

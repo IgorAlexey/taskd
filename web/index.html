@@ -866,6 +866,10 @@
         clearInterval(refreshTimer);
         refreshTimer = null;
       }
+      if (document.visibilityState === 'hidden') {
+        renderConnection();
+        return;
+      }
       const cb = document.getElementById('auto-refresh');
       if (!cb || !cb.checked) {
         retryAt = 0;
@@ -878,13 +882,27 @@
     }
 
     function refreshTick() {
-      if (Date.now() < retryAt) {
+      if (!retryAt || Date.now() < retryAt) {
         if (offline) renderConnection();
         return;
       }
       if (refreshInFlight) return;
       if (offline) retryDelay = Math.min(retryDelay * 2, RETRY_MAX_MS);
       loadAll();
+    }
+
+    function onVisibilityChange() {
+      if (document.visibilityState === 'hidden') {
+        if (refreshTimer) {
+          clearInterval(refreshTimer);
+          refreshTimer = null;
+        }
+        return;
+      }
+      const cb = document.getElementById('auto-refresh');
+      if (cb && cb.checked) {
+        loadAll();
+      }
     }
 
     async function fetchRaw(url, opts) {
@@ -2011,6 +2029,7 @@
       scheduleRefresh();
       if (cb) cb.onchange = setupAutoRefresh;
     }
+    document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('popstate', () => {
       applyURLState();
       loadTasks();
