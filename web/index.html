@@ -6,35 +6,37 @@
 <title>taskd queue</title>
 <style>
   :root {
-    --bg: #0d1117;
-    --surface: #161b22;
-    --border: #30363d;
-    --text: #c9d1d9;
-    --text-muted: #8b949e;
-    --accent: #58a6ff;
-    --accent-hover: #79c0ff;
-    --pending: #d29922;
-    --leased: #1f6feb;
-    --done: #238636;
-    --danger: #f85149;
-    --buried: #a371f7;
-    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --bg: #14161b;             /* canvas / background (1.11:1 on surface, 1.00:1 on bg) */
+    --surface: #1c2027;        /* surface: panels, cards (1.00:1 on surface, 1.11:1 on bg) */
+    --surface-raised: #252b35; /* raised surface: modals, popovers (1.15:1 on surface, 1.27:1 on bg) */
+    --border: #4a5568;         /* visible rule / border (2.17:1 on surface, 2.40:1 on bg) */
+    --text: #e8ecf1;           /* body text (13.77:1 on surface, 15.25:1 on bg) */
+    --text-muted: #8b949e;     /* quiet text (5.31:1 on surface, 5.88:1 on bg) */
+    --accent: #e5a54b;         /* accent: brand warm amber (7.64:1 on surface, 8.46:1 on bg) */
+    --accent-hover: #f0b869;   /* accent hover (9.15:1 on surface, 10.14:1 on bg) */
+    --pending: #f0a638;        /* status: pending (7.95:1 on surface, 8.80:1 on bg) */
+    --leased: #60a5fa;         /* status: leased (6.43:1 on surface, 7.12:1 on bg) */
+    --done: #3fb950;           /* status: done (6.43:1 on surface, 7.12:1 on bg) */
+    --danger: #f87171;         /* status: danger / failed (5.91:1 on surface, 6.54:1 on bg) */
+    --buried: #a78bfa;         /* status: buried (6.00:1 on surface, 6.65:1 on bg) */
+    --font: system-ui, sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   }
   @media (prefers-color-scheme: light) {
     :root {
-      --bg: #ffffff;
-      --surface: #f6f8fa;
-      --border: #d0d7de;
-      --text: #1f2328;
-      --text-muted: #656d76;
-      --accent: #0969da;
-      --accent-hover: #218bff;
-      --pending: #9a6700;
-      --leased: #0969da;
-      --done: #1a7f37;
-      --danger: #cf222e;
-      --buried: #8250df;
+      --bg: #f8fafc;             /* canvas / background (1.05:1 on surface, 1.00:1 on bg) */
+      --surface: #ffffff;        /* surface: panels, cards (1.00:1 on surface, 1.05:1 on bg) */
+      --surface-raised: #f1f5f9; /* raised surface: modals, popovers (1.10:1 on surface, 1.05:1 on bg) */
+      --border: #94a3b8;         /* visible rule / border (2.56:1 on surface, 2.45:1 on bg) */
+      --text: #0f172a;           /* body text (17.85:1 on surface, 17.06:1 on bg) */
+      --text-muted: #475569;     /* quiet text (7.58:1 on surface, 7.24:1 on bg) */
+      --accent: #b45309;         /* accent: warm amber-700 (5.02:1 on surface, 4.80:1 on bg) */
+      --accent-hover: #92400e;   /* accent hover (7.09:1 on surface, 6.78:1 on bg) */
+      --pending: #b45309;        /* status: pending (5.02:1 on surface, 4.80:1 on bg) */
+      --leased: #1d4ed8;         /* status: leased (6.70:1 on surface, 6.41:1 on bg) */
+      --done: #15803d;           /* status: done (5.02:1 on surface, 4.79:1 on bg) */
+      --danger: #b91c1c;         /* status: danger / failed (6.47:1 on surface, 6.18:1 on bg) */
+      --buried: #6d28d9;         /* status: buried (7.10:1 on surface, 6.79:1 on bg) */
     }
   }
   @media (prefers-reduced-motion: reduce) {
@@ -163,18 +165,18 @@
   }
   button {
     cursor: pointer;
-    background: #21262d;
+    background: var(--surface-raised);
     font-weight: 500;
     transition: background 0.15s ease;
   }
-  button:hover { background: #30363d; }
+  button:hover { background: var(--border); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
   button[data-variant="primary"] {
     background: var(--done);
-    border-color: rgba(240,246,252,0.1);
-    color: #ffffff;
+    border-color: rgba(255,255,255,0.1);
+    color: var(--bg);
   }
-  button[data-variant="primary"]:hover { background: #2ea043; }
+  button[data-variant="primary"]:hover { filter: brightness(1.1); }
   button[data-variant="secondary"] {
     background: transparent;
     border-color: var(--border);
@@ -186,10 +188,10 @@
   }
   button[data-variant="warning"] {
     color: var(--danger);
-    border-color: rgba(248, 81, 73, 0.4);
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
   }
   button[data-variant="warning"]:hover {
-    background: rgba(248, 81, 73, 0.15);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
   }
   .copy-btn {
     padding: 2px 8px;
@@ -220,12 +222,12 @@
   }
   .card:hover {
     border-color: var(--accent);
-    background: #1c2128;
+    background: var(--surface-raised);
   }
   .stat-val {
     font-size: 22px;
     font-weight: 700;
-    color: #f0f6fc;
+    color: var(--text);
     margin-top: 4px;
     font-variant-numeric: tabular-nums;
   }
@@ -260,7 +262,7 @@
   .panel-header {
     margin: 0;
     padding: 10px 14px;
-    background: #1c2128;
+    background: var(--surface-raised);
     border-bottom: 1px solid var(--border);
     display: flex;
     justify-content: space-between;
@@ -278,7 +280,7 @@
     gap: 8px;
     padding: 10px 14px;
     border-bottom: 1px solid var(--border);
-    background: #161b22;
+    background: var(--surface);
     align-items: center;
     flex-wrap: wrap;
   }
@@ -340,11 +342,11 @@
   tbody tr[data-state="selected"] th,
   tbody tr[aria-selected="true"] td,
   tbody tr[aria-selected="true"] th {
-    background: rgba(88,166,255,0.1);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
   }
   tbody tr:focus-within td,
   tbody tr:focus-within th {
-    background: rgba(88,166,255,0.18);
+    background: color-mix(in srgb, var(--accent) 20%, transparent);
   }
   tbody tr:not([data-task-id]) td {
     text-align: center;
@@ -378,10 +380,10 @@
     text-transform: uppercase;
     letter-spacing: 0.08em;
   }
-  .badge[data-status="pending"] { background: rgba(210,153,34,0.15); color: var(--pending); border: 1px solid var(--pending); }
-  .badge[data-status="leased"] { background: rgba(31,111,235,0.15); color: var(--leased); border: 1px solid var(--leased); }
-  .badge[data-status="done"] { background: rgba(35,134,54,0.15); color: var(--done); border: 1px solid var(--done); }
-  .badge[data-status="buried"] { background: rgba(163,113,247,0.15); color: var(--buried); border: 1px solid var(--buried); }
+  .badge[data-status="pending"] { background: color-mix(in srgb, var(--pending) 15%, transparent); color: var(--pending); border: 1px solid var(--pending); }
+  .badge[data-status="leased"] { background: color-mix(in srgb, var(--leased) 15%, transparent); color: var(--leased); border: 1px solid var(--leased); }
+  .badge[data-status="done"] { background: color-mix(in srgb, var(--done) 15%, transparent); color: var(--done); border: 1px solid var(--done); }
+  .badge[data-status="buried"] { background: color-mix(in srgb, var(--buried) 15%, transparent); color: var(--buried); border: 1px solid var(--buried); }
   .mono { font-family: var(--mono); font-size: 12px; }
   .sidebar-section {
     padding: 14px;
@@ -473,7 +475,7 @@
     overflow-wrap: anywhere;
   }
   pre {
-    background: #0d1117;
+    background: var(--bg);
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 8px;
@@ -490,7 +492,7 @@
     max-width: 480px;
     width: 100%;
   }
-  #purge-modal::backdrop { background: rgba(1,4,9,0.88); }
+  #purge-modal::backdrop { background: rgba(0, 0, 0, 0.7); }
   .modal-panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -539,7 +541,7 @@
     background: transparent;
     padding: 16px;
   }
-  #body-overlay::backdrop { background: rgba(1,4,9,0.88); }
+  #body-overlay::backdrop { background: rgba(0, 0, 0, 0.7); }
   .body-overlay-panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -578,7 +580,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    background: rgba(248,81,73,0.15);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
     border: 1px solid var(--danger);
     color: var(--danger);
     padding: 8px 12px;
@@ -588,7 +590,7 @@
   }
   .noscript-banner {
     display: block;
-    background: rgba(248,81,73,0.15);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
     border: 1px solid var(--danger);
     color: var(--danger);
     padding: 8px 12px;
@@ -608,13 +610,13 @@
     margin-left: 8px;
   }
   .error-banner-dismiss:hover {
-    color: #ff7b72;
+    color: var(--text);
   }
   #connection-status {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: rgba(248,81,73,0.15);
+    background: color-mix(in srgb, var(--danger) 15%, transparent);
     border: 1px solid var(--danger);
     color: var(--danger);
     padding: 2px 10px;
@@ -631,7 +633,7 @@
   }
   .error-summary {
     display: block;
-    background: rgba(248,81,73,0.1);
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
     border: 2px solid var(--danger);
     border-radius: 6px;
     padding: 12px;
@@ -663,11 +665,11 @@
     font-weight: 500;
   }
   .error-summary-list a:hover {
-    color: #ff7b72;
+    color: var(--text);
   }
   .success-summary {
     display: block;
-    background: rgba(35,134,54,0.1);
+    background: color-mix(in srgb, var(--done) 12%, transparent);
     border: 2px solid var(--done);
     border-radius: 6px;
     padding: 12px;
@@ -694,7 +696,7 @@
   .field input[aria-invalid="true"],
   .field textarea[aria-invalid="true"] {
     border-color: var(--danger);
-    background: rgba(248,81,73,0.06);
+    background: color-mix(in srgb, var(--danger) 6%, transparent);
   }
   .hint {
     display: block;
