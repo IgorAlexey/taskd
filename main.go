@@ -1144,6 +1144,26 @@ type taskDetail struct {
 	Notes []taskNote `json:"notes"`
 }
 
+func fetchTaskNotes(q queryer, taskID string) ([]taskNote, error) {
+	notes := make([]taskNote, 0)
+	rows, err := q.Query("SELECT id, created_at, author, text FROM notes WHERE task_id = ? ORDER BY id ASC", taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n taskNote
+		if err := rows.Scan(&n.ID, &n.CreatedAt, &n.Author, &n.Text); err != nil {
+			return nil, err
+		}
+		notes = append(notes, n)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return notes, nil
+}
+
 const summaryRunes = 50
 
 const summaryTrim = " \t\r\n"
@@ -2108,28 +2128,27 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
 
-		notes := make([]taskNote, 0)
-		noteRows, err := db.ro.Query("SELECT id, created_at, author, text FROM notes WHERE task_id = ? ORDER BY id ASC", item.ID)
+		notes, err := fetchTaskNotes(db.ro, item.ID)
 		if err != nil {
-			internalError(w, err)
-			return
-		}
-		defer noteRows.Close()
-		for noteRows.Next() {
-			var n taskNote
-			if err := noteRows.Scan(&n.ID, &n.CreatedAt, &n.Author, &n.Text); err != nil {
-				internalError(w, err)
-				return
-			}
-			notes = append(notes, n)
-		}
-		if err := noteRows.Err(); err != nil {
 			internalError(w, err)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(taskDetail{taskItem: item, Notes: notes})
+	}
+	getNotesHandler := func(w http.ResponseWriter, r *http.Request) {
+		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
+		if !ok {
+			return
+		}
+		notes, err := fetchTaskNotes(db.ro, id)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(notes)
 	}
 	createNoteHandler := func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
@@ -2442,6 +2461,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 		http.MethodPost: {handler: kickIDHandler},
 	})
 	handleMethods(mux, "/tasks/{id}/notes", map[string]route{
+		http.MethodGet:  {handler: getNotesHandler},
 		http.MethodPost: {handler: createNoteHandler},
 	})
 	handleMethods(mux, "/tasks/{id}", map[string]route{
@@ -2555,6 +2575,7 @@ HTTP Endpoints:
   POST   /tasks/{id}/bury    park a blocked task (requires worker, optional priority, optional claim_count)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task (?force=1 to delete done task)
+  GET    /tasks/{id}/notes   retrieve task notes collection
   POST   /tasks/{id}/notes   append a note (requires author, text)
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   GET    /projects           list active projects

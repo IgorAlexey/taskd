@@ -337,3 +337,110 @@ PRAGMA user_version = 9;`
 		t.Fatalf("expected 201 Created on migrated db, got %d", res.StatusCode)
 	}
 }
+func TestGetTaskNotesEndpoint(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 30))
+	defer srv.Close()
+
+	createRes, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(`{"id":"task-getnotes-123","body":"spec","project":"p1"}`))
+	if err != nil {
+		t.Fatalf("create task failed: %v", err)
+	}
+	createRes.Body.Close()
+
+	emptyRes, err := http.Get(srv.URL + "/tasks/task-getnotes-123/notes")
+	if err != nil {
+		t.Fatalf("get empty notes failed: %v", err)
+	}
+	defer emptyRes.Body.Close()
+	if emptyRes.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for empty notes, got %d", emptyRes.StatusCode)
+	}
+	if ct := emptyRes.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
+		t.Fatalf("expected application/json Content-Type, got %q", ct)
+	}
+	var emptyNotes []taskNote
+	if err := json.NewDecoder(emptyRes.Body).Decode(&emptyNotes); err != nil {
+		t.Fatalf("decode empty notes failed: %v", err)
+	}
+	if len(emptyNotes) != 0 {
+		t.Fatalf("expected 0 notes, got %d", len(emptyNotes))
+	}
+
+	postRes1, err := http.Post(srv.URL+"/tasks/task-getnotes-123/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"note one"}`))
+	if err != nil {
+		t.Fatalf("post note 1 failed: %v", err)
+	}
+	postRes1.Body.Close()
+
+	postRes2, err := http.Post(srv.URL+"/tasks/task-getnotes-123/notes", "application/json", bytes.NewBufferString(`{"author":"bob","text":"note two"}`))
+	if err != nil {
+		t.Fatalf("post note 2 failed: %v", err)
+	}
+	postRes2.Body.Close()
+
+	getRes, err := http.Get(srv.URL + "/tasks/task-getnotes-123/notes")
+	if err != nil {
+		t.Fatalf("get notes failed: %v", err)
+	}
+	defer getRes.Body.Close()
+	if getRes.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d", getRes.StatusCode)
+	}
+	var notes []taskNote
+	if err := json.NewDecoder(getRes.Body).Decode(&notes); err != nil {
+		t.Fatalf("decode notes failed: %v", err)
+	}
+	if len(notes) != 2 {
+		t.Fatalf("expected 2 notes, got %d", len(notes))
+	}
+	if notes[0].Author != "alice" || notes[0].Text != "note one" {
+		t.Fatalf("unexpected note 0: %+v", notes[0])
+	}
+	if notes[1].Author != "bob" || notes[1].Text != "note two" {
+		t.Fatalf("unexpected note 1: %+v", notes[1])
+	}
+	if notes[0].ID >= notes[1].ID {
+		t.Fatalf("expected notes ordered by id ASC, got %d >= %d", notes[0].ID, notes[1].ID)
+	}
+
+	prefRes, err := http.Get(srv.URL + "/tasks/task-getnotes/notes")
+	if err != nil {
+		t.Fatalf("get notes by prefix failed: %v", err)
+	}
+	defer prefRes.Body.Close()
+	if prefRes.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 OK for prefix, got %d", prefRes.StatusCode)
+	}
+
+	notFoundRes, err := http.Get(srv.URL + "/tasks/nonexistent-id/notes")
+	if err != nil {
+		t.Fatalf("get nonexistent notes failed: %v", err)
+	}
+	notFoundRes.Body.Close()
+	if notFoundRes.StatusCode != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d", notFoundRes.StatusCode)
+	}
+
+	putReq, err := http.NewRequest(http.MethodPut, srv.URL+"/tasks/task-getnotes-123/notes", nil)
+	if err != nil {
+		t.Fatalf("new put request failed: %v", err)
+	}
+	putRes, err := http.DefaultClient.Do(putReq)
+	if err != nil {
+		t.Fatalf("put request failed: %v", err)
+	}
+	defer putRes.Body.Close()
+	if putRes.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed, got %d", putRes.StatusCode)
+	}
+	allow := putRes.Header.Get("Allow")
+	if !strings.Contains(allow, "GET") || !strings.Contains(allow, "POST") {
+		t.Fatalf("expected Allow header to contain GET and POST, got %q", allow)
+	}
+}
