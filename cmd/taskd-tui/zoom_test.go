@@ -72,7 +72,7 @@ func TestZoomTaskBody(t *testing.T) {
 	*tasksPtr = taskList
 	mu.Unlock()
 
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

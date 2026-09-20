@@ -126,7 +126,7 @@ type ui struct {
 	form   *tview.Form
 	modal  *tview.Modal
 	filter string
-	// project and workerFilter are the active scope. The event goroutine
+	// project, workerFilter, and query are the active scope. The event goroutine
 	// is their only writer and takes projectMu; readers on other
 	// goroutines use proj() or scope().
 	projectMu      sync.Mutex
@@ -139,6 +139,8 @@ type ui struct {
 	width          int
 	all            []task
 	shown          []task
+	total          int
+	maxRows        int
 	inScope        int
 	passFilter     int
 	projects       []string
@@ -152,12 +154,15 @@ type ui struct {
 	shownBody      string
 	refreshing     atomic.Bool
 	disconnected   atomic.Bool
+	expanded       atomic.Bool
 	pollInterval   time.Duration
 	// loaded reports whether an answer for the live filter has landed.
 	// Adopting a filter clears it; any answer sets it, including a failed
 	// one, so a filter nobody fetches cannot wedge the table.
-	loaded bool
-	zoomed bool
+	loaded     bool
+	zoomed     bool
+	jumpBottom bool
+	paintWide  bool
 }
 
 func (u *ui) proj() string {
@@ -166,10 +171,18 @@ func (u *ui) proj() string {
 	return u.project
 }
 
-func (u *ui) scope() (string, string) {
+func (u *ui) scope() (string, string, string) {
 	u.projectMu.Lock()
 	defer u.projectMu.Unlock()
-	return u.project, u.workerFilter
+	return u.project, u.workerFilter, u.query
+}
+
+func (u *ui) setQuery(q string) {
+	u.projectMu.Lock()
+	u.query = q
+	u.projectMu.Unlock()
+	u.render(u.all)
+	go u.refresh(u.proj())
 }
 
 func (u *ui) setProj(project string) {
@@ -177,6 +190,7 @@ func (u *ui) setProj(project string) {
 	defer u.projectMu.Unlock()
 	u.project = project
 	u.loaded = false
+	u.expanded.Store(false)
 }
 
 func (u *ui) setWorker(worker string) {
@@ -184,12 +198,18 @@ func (u *ui) setWorker(worker string) {
 	defer u.projectMu.Unlock()
 	u.workerFilter = worker
 	u.loaded = false
+	u.expanded.Store(false)
 }
 
 func (u *ui) getJSON(path string, out any) error {
+	_, err := u.getJSONTotal(path, out)
+	return err
+}
+
+func (u *ui) getJSONTotal(path string, out any) (int, error) {
 	resp, err := client.Get(u.url + path)
 	if err != nil {
-		return err
+		return -1, err
 	}
 	defer resp.Body.Close()
 	label, _, _ := strings.Cut(path, "?")
@@ -197,32 +217,67 @@ func (u *ui) getJSON(path string, out any) error {
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
 		body := strings.TrimSpace(string(b))
 		if body != "" {
-			return fmt.Errorf("GET %s: %s: %s", label, resp.Status, body)
+			return -1, fmt.Errorf("GET %s: %s: %s", label, resp.Status, body)
 		}
-		return fmt.Errorf("GET %s: %s", label, resp.Status)
+		return -1, fmt.Errorf("GET %s: %s", label, resp.Status)
 	}
-	return json.NewDecoder(resp.Body).Decode(out)
+	total := -1
+	if h := resp.Header.Get("X-Total-Count"); h != "" {
+		if n, convErr := strconv.Atoi(strings.TrimSpace(h)); convErr == nil {
+			total = n
+		}
+	}
+	return total, json.NewDecoder(resp.Body).Decode(out)
 }
 
-// fetch scopes the queue to project and worker. The daemon owns the worker
-// filter so the 500-row window holds that worker's tasks, not a slice of
-// everyone's.
-func (u *ui) fetch(project, worker string) ([]task, error) {
-	q := url.Values{"limit": {"500"}}
+// daemonMaxLimit mirrors the ?limit= bound enforced by listTasksHandler in
+// the daemon; a wider window is answered with 400 invalid limit.
+const (
+	fetchPageSize  = 500
+	daemonMaxLimit = 1000
+)
+
+func searchTextFor(t task) string {
+	return strings.ToLower(t.Body + "\x00" + t.AssetPath + "\x00" + t.Worker + "\x00" + t.ID + "\x00" + t.Project)
+}
+
+func (u *ui) wide(query string) bool {
+	return query != "" || u.expanded.Load()
+}
+
+// fetch scopes the queue to project, worker, and query. The daemon owns those
+// filters and the search, so one request carries the whole window: a poll pays
+// for fetchPageSize rows, and only a live search or an operator who asked for
+// the bottom of a truncated queue widens it to maxRows. The wide window is
+// deliberately sticky until the scope changes or g goes back to the top,
+// because narrowing it under a cursor past row 500 would yank the selection.
+func (u *ui) fetch(project, worker, query string) ([]task, int, error) {
+	limit := fetchPageSize
+	if u.wide(query) {
+		limit = u.maxRows
+	}
+	q := url.Values{"limit": {strconv.Itoa(limit)}}
 	if project != "" {
 		q.Set("project", project)
 	}
 	if worker != "" {
 		q.Set("worker", worker)
 	}
-	var ts []task
-	if err := u.getJSON("/tasks?"+q.Encode(), &ts); err != nil {
-		return nil, err
+	if query != "" {
+		q.Set("q", query)
 	}
-	for i := range ts {
-		ts[i].searchText = strings.ToLower(ts[i].Body + "\x00" + ts[i].AssetPath + "\x00" + ts[i].Worker + "\x00" + ts[i].ID)
+	var all []task
+	total, err := u.getJSONTotal("/tasks?"+q.Encode(), &all)
+	if err != nil {
+		return nil, -1, err
 	}
-	return ts, nil
+	for i := range all {
+		all[i].searchText = searchTextFor(all[i])
+	}
+	if total < 0 {
+		total = len(all)
+	}
+	return all, total, nil
 }
 
 func (u *ui) fetchProjects() ([]string, error) {
@@ -433,7 +488,7 @@ func (u *ui) render(all []task) {
 	qLower := strings.ToLower(u.query)
 	for i := range all {
 		if all[i].searchText == "" {
-			all[i].searchText = strings.ToLower(all[i].Body + "\x00" + all[i].AssetPath + "\x00" + all[i].Worker + "\x00" + all[i].ID)
+			all[i].searchText = searchTextFor(all[i])
 		}
 		t := all[i]
 		if u.project != "" && t.Project != u.project {
@@ -487,6 +542,13 @@ func (u *ui) render(all []task) {
 			row = i + 1
 		}
 	}
+	if u.jumpBottom && u.paintWide {
+		if len(u.shown) > 0 {
+			row = len(u.shown)
+		}
+		u.jumpBottom = false
+	}
+	u.paintWide = false
 	off, coff := u.table.GetOffset()
 	curRow, _ := u.table.GetSelection()
 	if curRow != row {
@@ -576,6 +638,9 @@ func (u *ui) renderStatus() {
 	counts := fmt.Sprintf("pending %d  leased %d  buried %d  done %d",
 		u.stats.Pending, u.stats.Leased, u.stats.Buried, u.stats.Done)
 	idx := fmt.Sprintf("  row %d of %d", u.selectedRow(), len(u.shown))
+	if u.total > len(u.all) {
+		idx += fmt.Sprintf("  fetched %d of %d", len(u.all), u.total)
+	}
 	var prefix string
 	if u.disconnected.Load() {
 		if u.origin != "" {
@@ -686,32 +751,35 @@ func (u *ui) showBody() {
 // never lost, and an answer for a filter the operator has already left is
 // thrown away instead of clobbering the new one.
 func (u *ui) refresh(project string) {
-	_, worker := u.scope()
+	_, worker, query := u.scope()
 	for {
 		if !u.refreshing.CompareAndSwap(false, true) {
 			return
 		}
-		u.refreshOnce(project, worker)
+		wide := u.expanded.Load()
+		u.refreshOnce(project, worker, query)
 		// Read after the release above: a keypress whose CAS failed
 		// published its scope first, so it cannot be missed here.
-		curProject, curWorker := u.scope()
-		if curProject == project && curWorker == worker {
+		curProject, curWorker, curQuery := u.scope()
+		if curProject == project && curWorker == worker && curQuery == query && u.expanded.Load() == wide {
 			return
 		}
-		project, worker = curProject, curWorker
+		project, worker, query = curProject, curWorker, curQuery
 	}
 }
 
 // refreshOnce fetches one round for project and paints it if the operator
 // has not moved on.
-func (u *ui) refreshOnce(project, worker string) {
+func (u *ui) refreshOnce(project, worker, query string) {
 	defer u.refreshing.Store(false)
-	ts, err := u.fetch(project, worker)
+	wide := u.wide(query)
+	ts, total, err := u.fetch(project, worker, query)
 	if err != nil {
 		u.disconnected.Store(true)
 		u.app.QueueUpdateDraw(func() {
 			u.setMsg(err.Error())
-			if u.project != project || u.workerFilter != worker {
+			u.jumpBottom = false
+			if u.project != project || u.workerFilter != worker || u.query != query {
 				return
 			}
 			u.loaded = true
@@ -729,7 +797,7 @@ func (u *ui) refreshOnce(project, worker string) {
 		} else {
 			u.projects = ps
 		}
-		if u.project != project || u.workerFilter != worker {
+		if u.project != project || u.workerFilter != worker || u.query != query {
 			return
 		}
 		u.loaded = true
@@ -740,16 +808,19 @@ func (u *ui) refreshOnce(project, worker string) {
 		} else {
 			u.hasServerStats = false
 		}
+		u.total = total
+		u.paintWide = wide
 		u.render(ts)
 	})
 }
 
 func (u *ui) act(method, path string, body any, success string, callbacks ...func(err error)) {
-	project, worker := u.project, u.workerFilter
+	project, worker, query := u.scope()
 	go func() {
 		err := u.call(method, path, body)
 		msg := success
-		ts, fetchErr := u.fetch(project, worker)
+		wide := u.wide(query)
+		ts, total, fetchErr := u.fetch(project, worker, query)
 		var ps []string
 		var projErr error
 		var st stats
@@ -774,7 +845,7 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			}
 			if fetchErr != nil {
 				u.disconnected.Store(true)
-				if project == u.project && worker == u.workerFilter {
+				if project == u.project && worker == u.workerFilter && query == u.query {
 					u.loaded = true
 					u.showBody()
 					u.renderStatus()
@@ -785,7 +856,7 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			if projErr == nil {
 				u.projects = ps
 			}
-			if project != u.project || worker != u.workerFilter {
+			if project != u.project || worker != u.workerFilter || query != u.query {
 				return
 			}
 			u.loaded = true
@@ -796,6 +867,8 @@ func (u *ui) act(method, path string, body any, success string, callbacks ...fun
 			} else {
 				u.hasServerStats = false
 			}
+			u.total = total
+			u.paintWide = wide
 			u.render(ts)
 		})
 	}()
@@ -1196,8 +1269,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		switch ev.Key() {
 		case tcell.KeyEscape:
 			u.searching = false
-			u.query = ""
-			u.render(u.all)
+			u.setQuery("")
 			return nil
 		case tcell.KeyEnter:
 			u.searching = false
@@ -1206,17 +1278,14 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		case tcell.KeyBackspace, tcell.KeyBackspace2:
 			if len(u.query) > 0 {
 				_, size := utf8.DecodeLastRuneInString(u.query)
-				u.query = u.query[:len(u.query)-size]
-				u.render(u.all)
+				u.setQuery(u.query[:len(u.query)-size])
 			}
 			return nil
 		case tcell.KeyCtrlU:
-			u.query = ""
-			u.render(u.all)
+			u.setQuery("")
 			return nil
 		case tcell.KeyCtrlW:
-			u.query = deleteWord(u.query)
-			u.render(u.all)
+			u.setQuery(deleteWord(u.query))
 			return nil
 		case tcell.KeyDown, tcell.KeyCtrlN:
 			if len(u.shown) > 0 {
@@ -1232,8 +1301,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case tcell.KeyRune:
 			if ev.Rune() != 0 {
-				u.query += string(ev.Rune())
-				u.render(u.all)
+				u.setQuery(u.query + string(ev.Rune()))
 			}
 			return nil
 		default:
@@ -1244,8 +1312,7 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 	switch ev.Key() {
 	case tcell.KeyEscape:
 		if u.query != "" {
-			u.query = ""
-			u.render(u.all)
+			u.setQuery("")
 			return nil
 		}
 	case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyEnter:
@@ -1281,9 +1348,15 @@ func (u *ui) keys(ev *tcell.EventKey) *tcell.EventKey {
 		if len(u.shown) > 0 {
 			u.table.Select(1, 0)
 		}
+		u.expanded.Store(false)
 	case 'G':
 		if len(u.shown) > 0 {
 			u.table.Select(len(u.shown), 0)
+		}
+		if len(u.all) < u.total && len(u.all) < u.maxRows {
+			u.expanded.Store(true)
+			u.jumpBottom = true
+			go u.refresh(u.proj())
 		}
 	case '0', '1', '2', '3', '4', '5':
 		u.filter = []string{"", "pending", "leased", "done", "live", "buried"}[ev.Rune()-'0']
@@ -1690,6 +1763,7 @@ func newUI(url, project string, icons bool, worker string) *ui {
 		icons:        icons,
 		worker:       worker,
 		filter:       "live",
+		maxRows:      daemonMaxLimit,
 		pollInterval: time.Second,
 		app:          tview.NewApplication().EnableMouse(true),
 	}

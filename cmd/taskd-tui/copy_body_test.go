@@ -9,7 +9,7 @@ import (
 
 func TestCopyTaskBody(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}

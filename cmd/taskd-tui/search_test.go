@@ -8,8 +8,7 @@ import (
 )
 
 func TestSearchFilter(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false, "")
-	u.filter = ""
+	u, _, _ := stub(t)
 	all := []task{
 		{ID: "aaaa1111", Project: "proj-a", Status: "pending", Body: "rebuild zebra manifest", Worker: "worker1"},
 		{ID: "bbbb2222", Project: "proj-b", Status: "leased", Body: "deploy pipeline", Worker: "ZEBRA-runner"},
@@ -72,7 +71,7 @@ func TestSearchFilter(t *testing.T) {
 
 func TestSearchSwallowsCommands(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +105,7 @@ func TestSearchSwallowsCommands(t *testing.T) {
 }
 
 func TestSearchBackspaceAndClear(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false, "")
+	u, _, _ := stub(t)
 	all := []task{
 		{ID: "aaaa1111", Body: "first zebra"},
 		{ID: "bbbb2222", Body: "second"},
@@ -158,7 +157,7 @@ func TestSearchBackspaceAndClear(t *testing.T) {
 	}
 }
 func TestSearchEnterAccepts(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false, "")
+	u, _, _ := stub(t)
 	all := []task{
 		{ID: "aaaa1111", Body: "alpha task"},
 		{ID: "bbbb2222", Body: "beta task"},
@@ -198,7 +197,7 @@ func TestSearchEnterAccepts(t *testing.T) {
 }
 
 func TestSearchNavigationKeys(t *testing.T) {
-	u := newUI("http://localhost:8080", "", false, "")
+	u, _, _ := stub(t)
 	all := []task{
 		{ID: "task-1", Body: "alpha first"},
 		{ID: "task-2", Body: "alpha second"},
@@ -294,5 +293,51 @@ func TestSearchNavigationKeys(t *testing.T) {
 	}
 	if ret := u.keys(tcell.NewEventKey(tcell.KeyCtrlP, 0, 0)); ret != nil {
 		t.Fatalf("expected nil on empty shown for KeyCtrlP, got %v", ret)
+	}
+}
+
+func TestSearchMatchesProject(t *testing.T) {
+	u, _, _ := stub(t)
+	all := []task{
+		{ID: "id000001", Project: "alpha-svc", Status: "pending", Body: "rotate keys"},
+		{ID: "id000002", Project: "alpha-svc", Status: "done", Body: "ship release"},
+		{ID: "id000003", Project: "beta-svc", Status: "pending", Body: "resize disk"},
+	}
+	u.render(all)
+	if len(u.shown) != 3 {
+		t.Fatalf("expected 3 tasks before search, got %d", len(u.shown))
+	}
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '/', 0))
+	for _, r := range "alpha-svc" {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, r, 0))
+	}
+	if u.query != "alpha-svc" {
+		t.Fatalf("query is %q, want alpha-svc", u.query)
+	}
+	if len(u.shown) != 2 {
+		t.Fatalf("project query matched %d tasks, want 2", len(u.shown))
+	}
+	for _, tk := range u.shown {
+		if tk.Project != "alpha-svc" {
+			t.Fatalf("task %s from project %q leaked into project search", tk.ID, tk.Project)
+		}
+	}
+}
+
+func TestSearchMatchesAssetPath(t *testing.T) {
+	u, _, _ := stub(t)
+	all := []task{
+		{ID: "id000001", Project: "queue", Status: "pending", Body: "one", AssetPath: "/srv/assets/report.pdf"},
+		{ID: "id000002", Project: "queue", Status: "pending", Body: "two", AssetPath: "/srv/assets/logo.png"},
+	}
+	u.render(all)
+
+	u.keys(tcell.NewEventKey(tcell.KeyRune, '/', 0))
+	for _, r := range "report.pdf" {
+		u.keys(tcell.NewEventKey(tcell.KeyRune, r, 0))
+	}
+	if len(u.shown) != 1 || u.shown[0].ID != "id000001" {
+		t.Fatalf("asset_path query matched %+v, want only id000001", u.shown)
 	}
 }

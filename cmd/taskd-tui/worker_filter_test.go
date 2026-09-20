@@ -99,7 +99,7 @@ func statusPane(u *ui) string {
 }
 
 func workerScope(u *ui) string {
-	_, worker := u.scope()
+	_, worker, _ := u.scope()
 	return worker
 }
 
@@ -241,13 +241,13 @@ func TestTUIWorkerFilter(t *testing.T) {
 		t.Cleanup(srv.Close)
 
 		u := newUI(srv.URL, "", false, "")
-		if _, err := u.fetch("proj-a", "w1"); err != nil {
+		if _, _, err := u.fetch("proj-a", "w1", ""); err != nil {
 			t.Fatalf("fetch: %v", err)
 		}
 		if lastQuery != "limit=500&project=proj-a&worker=w1" {
 			t.Fatalf("unexpected query %q", lastQuery)
 		}
-		if _, err := u.fetch("", ""); err != nil {
+		if _, _, err := u.fetch("", "", ""); err != nil {
 			t.Fatalf("fetch: %v", err)
 		}
 		if lastQuery != "limit=500" {

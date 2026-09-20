@@ -31,7 +31,7 @@ func TestFetchProjectQuery(t *testing.T) {
 	u := newUI(srv.URL, "", false, "")
 
 	// Default: no project filter queries limit=500 and returns all tasks
-	tasks, err := u.fetch("", "")
+	tasks, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -43,7 +43,7 @@ func TestFetchProjectQuery(t *testing.T) {
 	}
 
 	// Active project: queries limit=500 and project=proj-b
-	tasks, err = u.fetch("proj-b", "")
+	tasks, _, err = u.fetch("proj-b", "", "")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestFetchProjectQuery(t *testing.T) {
 	// before the operator cycled must keep fetching the project it began
 	// with, so its answer can be recognised as stale and dropped.
 	u.project = "proj-a"
-	tasks, err = u.fetch("proj-b", "")
+	tasks, _, err = u.fetch("proj-b", "", "")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}
@@ -72,7 +72,7 @@ func TestFetchProjectQuery(t *testing.T) {
 
 	// Active status filter in UI must NOT be passed to server to preserve counts
 	u.project, u.filter = "proj-b", "pending"
-	tasks, err = u.fetch("proj-b", "")
+	tasks, _, err = u.fetch("proj-b", "", "")
 	if err != nil {
 		t.Fatalf("fetch failed: %v", err)
 	}

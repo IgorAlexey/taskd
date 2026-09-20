@@ -126,27 +126,31 @@ func TestStatsBacklogExceedsPagination(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
+	var pending, leased, doneCount int
 	query(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'l', 0))
+		pending, leased, doneCount = u.stats.Pending, u.stats.Leased, u.stats.Done
 	})
-	if u.stats.Pending != 600 || u.stats.Leased != 25 || u.stats.Done != 50 {
-		t.Fatalf("keystroke 'l' vaporized stats: %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
+	if pending != 600 || leased != 25 || doneCount != 50 {
+		t.Fatalf("keystroke 'l' vaporized stats: %d/%d/%d", pending, leased, doneCount)
 	}
 
 	query(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyRune, '/', 0))
 		u.keys(tcell.NewEventKey(tcell.KeyRune, 'a', 0))
+		pending, leased, doneCount = u.stats.Pending, u.stats.Leased, u.stats.Done
 	})
-	if u.stats.Pending != 600 || u.stats.Leased != 25 || u.stats.Done != 50 {
-		t.Fatalf("search keystrokes vaporized stats: %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
+	if pending != 600 || leased != 25 || doneCount != 50 {
+		t.Fatalf("search keystrokes vaporized stats: %d/%d/%d", pending, leased, doneCount)
 	}
 
 	query(func() {
 		u.keys(tcell.NewEventKey(tcell.KeyEscape, 0, 0))
 		u.keys(tcell.NewEventKey(tcell.KeyRune, '0', 0))
+		pending, leased, doneCount = u.stats.Pending, u.stats.Leased, u.stats.Done
 	})
-	if u.stats.Pending != 600 || u.stats.Leased != 25 || u.stats.Done != 50 {
-		t.Fatalf("keystroke '0' vaporized stats: %d/%d/%d", u.stats.Pending, u.stats.Leased, u.stats.Done)
+	if pending != 600 || leased != 25 || doneCount != 50 {
+		t.Fatalf("keystroke '0' vaporized stats: %d/%d/%d", pending, leased, doneCount)
 	}
 }
 

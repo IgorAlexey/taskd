@@ -112,7 +112,7 @@ func TestTUICompleteExpiredLeasedTaskFallback(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	ts, err := h.u.fetch("", "")
+	ts, _, err := h.u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

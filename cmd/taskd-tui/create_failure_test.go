@@ -33,7 +33,7 @@ func TestCreateFormKeepOpenOnFailure(t *testing.T) {
 
 	u := newUI(srv.URL, "proj-test", false, "")
 	u.projects = []string{"proj-test"}
-	ts, err := u.fetch("proj-test", "")
+	ts, _, err := u.fetch("proj-test", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

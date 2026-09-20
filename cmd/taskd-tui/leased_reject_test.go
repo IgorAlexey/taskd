@@ -58,7 +58,7 @@ func TestTUIDeleteLeasedTaskRejection(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	ts, err := h.u.fetch("", "")
+	ts, _, err := h.u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestTUICompleteLeasedTaskRejection(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	ts, err := h.u.fetch("", "")
+	ts, _, err := h.u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestEditRefusedOnLeased(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	ts, err := h.u.fetch("", "")
+	ts, _, err := h.u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -234,7 +234,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	ts, err := h.u.fetch("", "")
+	ts, _, err := h.u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 	}
 	h.mu.Unlock()
 
-	ts, err = h.u.fetch("", "")
+	ts, _, err = h.u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

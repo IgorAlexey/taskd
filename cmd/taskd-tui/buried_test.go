@@ -11,7 +11,7 @@ import (
 
 func TestTUIBuriedAndKick(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

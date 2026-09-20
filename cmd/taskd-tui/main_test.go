@@ -472,7 +472,7 @@ func eventually(t *testing.T, fn func() bool) {
 
 func TestRenderAndKeys(t *testing.T) {
 	u, tasks, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -546,7 +546,7 @@ func TestRenderAndKeys(t *testing.T) {
 	if (*tasks)[1].Priority != 7 {
 		t.Fatalf("priority not patched: %+v", (*tasks)[1])
 	}
-	ts, _ = u.fetch("", "")
+	ts, _, _ = u.fetch("", "", "")
 	u.render(ts)
 	if sel, _ = u.selected(); sel.ID != "bbbbbbb2" {
 		t.Fatalf("cursor moved to %s", sel.ID)
@@ -559,7 +559,7 @@ func TestRenderAndKeys(t *testing.T) {
 
 func TestCreateForm(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -693,7 +693,7 @@ func TestCreateForm(t *testing.T) {
 
 func TestMouseSupport(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -800,7 +800,7 @@ func TestPriorityKeyAdjust(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	u := newUI(srv.URL, "", false, "")
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 1 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -814,7 +814,7 @@ func TestPriorityKeyAdjust(t *testing.T) {
 		return patches == 1 && tasks[0].Priority == 0
 	})
 
-	ts, _ = u.fetch("", "")
+	ts, _, _ = u.fetch("", "", "")
 	u.render(ts)
 	u.table.Select(1, 0)
 
@@ -826,7 +826,7 @@ func TestPriorityKeyAdjust(t *testing.T) {
 		return patches == 2 && tasks[0].Priority == 1
 	})
 
-	ts, _ = u.fetch("", "")
+	ts, _, _ = u.fetch("", "", "")
 	u.render(ts)
 	u.table.Select(1, 0)
 
@@ -837,7 +837,7 @@ func TestPriorityKeyAdjust(t *testing.T) {
 		return patches == 3 && tasks[0].Priority == 0
 	})
 
-	ts, _ = u.fetch("", "")
+	ts, _, _ = u.fetch("", "", "")
 	u.render(ts)
 	u.table.Select(1, 0)
 
@@ -852,7 +852,7 @@ func TestPriorityKeyAdjust(t *testing.T) {
 
 func TestBodyFocusAndScroll(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -951,7 +951,7 @@ func TestBodyFocusAndScroll(t *testing.T) {
 
 func TestDeleteConfirm(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1125,7 +1125,7 @@ func TestDeleteConfirm(t *testing.T) {
 
 func TestEditForm(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1331,7 +1331,7 @@ func TestEditFormAssetOnly(t *testing.T) {
 	(*tasks)[0].Body = ""
 	(*tasks)[0].AssetPath = "orig/asset.txt"
 	mu.Unlock()
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1414,7 +1414,7 @@ func TestEditFormPriorityOnly(t *testing.T) {
 	(*tasks)[0].AssetPath = "keep/asset.txt"
 	(*tasks)[0].Body = "keep body"
 	mu.Unlock()
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1635,7 +1635,7 @@ func TestTUIWorkerFlag(t *testing.T) {
 
 func TestGotoTopAndBottom(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -1862,7 +1862,7 @@ func TestSelectionClamping(t *testing.T) {
 
 func TestTUIStatusLayout(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1996,7 +1996,7 @@ func TestTUIStatusLayout(t *testing.T) {
 		}
 	}
 	mu.Unlock()
-	ts, err = u.fetch("", "")
+	ts, _, err = u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2080,7 +2080,7 @@ func TestTUIStatusLayout(t *testing.T) {
 
 func TestCopyTaskID(t *testing.T) {
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -2152,7 +2152,7 @@ func TestFetchServerError(t *testing.T) {
 		t.Cleanup(srv.Close)
 
 		u := newUI(srv.URL, "", false, "")
-		ts, err := u.fetch("", "")
+		ts, _, err := u.fetch("", "", "")
 		if err == nil {
 			t.Fatal("expected error from non-200 response, got nil")
 		}
@@ -2178,7 +2178,7 @@ func TestFetchServerError(t *testing.T) {
 		t.Cleanup(srv.Close)
 
 		u := newUI(srv.URL, "", false, "")
-		_, err := u.fetch("", "")
+		_, _, err := u.fetch("", "", "")
 		if err == nil {
 			t.Fatal("expected error from 502 response, got nil")
 		}
@@ -2197,7 +2197,7 @@ func TestFetchServerError(t *testing.T) {
 		t.Cleanup(srv.Close)
 
 		u := newUI(srv.URL, "", false, "")
-		_, err := u.fetch("", "")
+		_, _, err := u.fetch("", "", "")
 		if err == nil {
 			t.Fatal("expected error from 503 response, got nil")
 		}
@@ -2259,7 +2259,7 @@ func TestFetchServerError(t *testing.T) {
 		t.Cleanup(srv.Close)
 
 		u := newUI(srv.URL, "", false, "")
-		_, err := u.fetch("", "")
+		_, _, err := u.fetch("", "", "")
 		if err == nil {
 			t.Fatal("expected error from 500 response, got nil")
 		}
@@ -2271,7 +2271,7 @@ func TestFetchServerError(t *testing.T) {
 
 func TestCreateFormValidation(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2417,7 +2417,7 @@ func TestCreateFormValidation(t *testing.T) {
 
 func TestManualRefresh(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -2593,7 +2593,7 @@ func TestClearErrorOnReconnect(t *testing.T) {
 
 func TestCreateFormAssetPath(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2820,7 +2820,7 @@ func TestShowBodyMetadata(t *testing.T) {
 	defer func() { nowUnix = origNow }()
 
 	u, _, _ := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -2923,7 +2923,7 @@ func TestShowBodyAssetPath(t *testing.T) {
 
 func TestReleaseLeasedTask(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3037,7 +3037,7 @@ func TestReleaseLeasedTask(t *testing.T) {
 
 func TestTUICompleteTask(t *testing.T) {
 	u, tasks, mu := stub(t)
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -3214,7 +3214,7 @@ func TestCopySelectedID(t *testing.T) {
 		<-ch
 	}
 
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
@@ -3287,7 +3287,7 @@ func TestRefreshMessage(t *testing.T) {
 		<-ch
 	}
 
-	ts, err := u.fetch("", "")
+	ts, _, err := u.fetch("", "", "")
 	if err != nil || len(ts) != 3 {
 		t.Fatalf("fetch: %v %d", err, len(ts))
 	}
