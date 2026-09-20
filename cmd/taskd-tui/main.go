@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -35,6 +36,18 @@ func parseAndValidateURL(raw string) (string, error) {
 	return trimmed, nil
 }
 
+type usageError struct {
+	err error
+}
+
+func (e *usageError) Error() string { return e.err.Error() }
+
+func (e *usageError) Unwrap() error { return e.err }
+
+func usagef(format string, a ...any) *usageError {
+	return &usageError{err: fmt.Errorf(format, a...)}
+}
+
 func parseFlags(args []string) (config, error) {
 	defaultURL := os.Getenv("TASKD_URL")
 	if defaultURL == "" {
@@ -46,39 +59,99 @@ func parseFlags(args []string) (config, error) {
 
 	var (
 		cfg     config
-		rawURL  string
-		ascii   bool
-		refresh time.Duration
+		rawURL  = defaultURL
+		ascii   = defaultAscii
+		refresh = time.Second
 	)
+	cfg.project = defaultProject
+	cfg.worker = defaultWorker()
 
-	fs := flag.NewFlagSet("taskd-tui", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = func() {
-		printUsage(os.Stderr)
-	}
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		if arg == "--" {
+			if i+1 < len(args) {
+				return cfg, usagef("unexpected argument: %s", args[i+1])
+			}
+			break
+		}
+		if !strings.HasPrefix(arg, "-") || arg == "-" {
+			return cfg, usagef("unexpected argument: %s", arg)
+		}
 
-	fs.StringVar(&rawURL, "url", defaultURL, "taskd daemon URL")
-	fs.StringVar(&cfg.project, "project", defaultProject, "filter tasks by project")
-	fs.StringVar(&cfg.worker, "worker", defaultWorker(), "worker identifier for claiming tasks")
-	fs.BoolVar(&ascii, "ascii", defaultAscii, "use ASCII characters instead of Nerd Font icons")
-	fs.DurationVar(&refresh, "refresh", time.Second, "polling interval (min 250ms)")
+		token, val, hasVal := strings.Cut(arg, "=")
+		name := token
+		if strings.HasPrefix(name, "--") {
+			name = name[2:]
+		} else {
+			name = name[1:]
+		}
 
-	if err := fs.Parse(args); err != nil {
-		return cfg, err
-	}
-
-	if fs.NArg() > 0 {
-		return cfg, fmt.Errorf("unexpected argument: %s", fs.Arg(0))
+		switch name {
+		case "h", "help":
+			return cfg, flag.ErrHelp
+		case "ascii":
+			if hasVal {
+				b, err := strconv.ParseBool(val)
+				if err != nil {
+					return cfg, usagef("invalid boolean value %q for %s", val, token)
+				}
+				ascii = b
+			} else {
+				ascii = true
+			}
+		case "url":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			rawURL = val
+		case "project":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			cfg.project = val
+		case "worker":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			cfg.worker = val
+		case "refresh":
+			if !hasVal {
+				if i+1 >= len(args) {
+					return cfg, usagef("flag needs an argument: %s", token)
+				}
+				i++
+				val = args[i]
+			}
+			d, err := time.ParseDuration(val)
+			if err != nil {
+				return cfg, usagef("invalid duration %q for flag %s", val, token)
+			}
+			refresh = d
+		default:
+			return cfg, usagef("unrecognized flag %s", token)
+		}
 	}
 
 	validURL, err := parseAndValidateURL(rawURL)
 	if err != nil {
-		return cfg, err
+		return cfg, usagef("%w", err)
 	}
 	cfg.url = validURL
 
 	if refresh < 250*time.Millisecond {
-		return cfg, fmt.Errorf("refresh interval must be at least 250ms: got %v", refresh)
+		return cfg, usagef("refresh interval must be at least 250ms: got %v", refresh)
 	}
 	cfg.refresh = refresh
 	cfg.icons = !ascii
@@ -198,14 +271,24 @@ func gitCheckoutName() string {
 	return ""
 }
 
+func reportError(stderr io.Writer, err error) int {
+	var ue *usageError
+	if errors.As(err, &ue) {
+		fmt.Fprintf(stderr, "taskd-tui: %v\ntry 'taskd-tui -h' for usage\n", err)
+		return 2
+	}
+	fmt.Fprintf(stderr, "taskd-tui: %v\n", err)
+	return 1
+}
+
 func main() {
 	cfg, err := parseFlags(os.Args[1:])
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
+			printUsage(os.Stdout)
 			os.Exit(0)
 		}
-		fmt.Fprintf(os.Stderr, "taskd-tui: %v\n", err)
-		os.Exit(2)
+		os.Exit(reportError(os.Stderr, err))
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -213,7 +296,6 @@ func main() {
 
 	p := tea.NewProgram(newModel(cfg, newClient(cfg.url)), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil && !errors.Is(err, context.Canceled) {
-		fmt.Fprintf(os.Stderr, "taskd-tui: %v\n", err)
-		os.Exit(1)
+		os.Exit(reportError(os.Stderr, err))
 	}
 }
