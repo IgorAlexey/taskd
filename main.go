@@ -2586,7 +2586,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			return
 		}
 		if req.Body != nil && *req.Body != "" && strings.TrimSpace(*req.Body) == "" {
-			writeError(w, http.StatusBadRequest, "invalid body")
+			writeFieldError(w, http.StatusBadRequest, "invalid body", "body")
 			return
 		}
 		if req.AssetPath != nil {
@@ -2599,7 +2599,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		if req.Project != nil {
 			*req.Project = strings.TrimSpace(*req.Project)
 			if msg, ok := checkProject(*req.Project); !ok {
-				writeError(w, http.StatusBadRequest, msg)
+				writeFieldError(w, http.StatusBadRequest, msg, "project")
 				return
 			}
 		}

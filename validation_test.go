@@ -220,3 +220,60 @@ func TestValidProject(t *testing.T) {
 		}
 	}
 }
+func TestPatchValidationFieldErrors(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	createResp, err := http.Post(srv.URL+"/tasks", "application/json", strings.NewReader(`{"project":"p","body":"initial"}`))
+	if err != nil {
+		t.Fatalf("POST /tasks failed: %v", err)
+	}
+	defer createResp.Body.Close()
+	var created struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(createResp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode created task failed: %v", err)
+	}
+
+	cases := []struct {
+		name      string
+		payload   string
+		wantError string
+		wantField string
+	}{
+		{"invalid body", `{"body":"   "}`, "invalid body", "body"},
+		{"invalid project", `{"project":"bad proj"}`, "invalid project", "project"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPatch, srv.URL+"/tasks/"+created.ID, strings.NewReader(tc.payload))
+			if err != nil {
+				t.Fatalf("new request failed: %v", err)
+			}
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := srv.Client().Do(req)
+			if err != nil {
+				t.Fatalf("PATCH failed: %v", err)
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("status = %d, want 400", resp.StatusCode)
+			}
+			var apiErr apiError
+			if err := json.NewDecoder(resp.Body).Decode(&apiErr); err != nil {
+				t.Fatalf("decode failed: %v", err)
+			}
+			if apiErr.Error != tc.wantError || apiErr.Field != tc.wantField {
+				t.Fatalf("got error=%q field=%q, want error=%q field=%q", apiErr.Error, apiErr.Field, tc.wantError, tc.wantField)
+			}
+		})
+	}
+}
