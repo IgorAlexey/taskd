@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -221,5 +222,54 @@ func TestPendingPriorityOrdering(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("shown[%d] = %s, want %s (all: %v)", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestSortEnvVar(t *testing.T) {
+	for _, tc := range []struct {
+		env  string
+		want sortColumn
+	}{
+		{"priority", sortPriority},
+		{"status", sortStatus},
+		{"project", sortProject},
+		{"worker", sortWorker},
+		{"lease", sortLease},
+		{"Worker", sortWorker},
+		{"STATUS", sortStatus},
+	} {
+		t.Setenv("TASKD_SORT", tc.env)
+		cfg, err := parseFlags(nil)
+		if err != nil {
+			t.Fatalf("parseFlags with TASKD_SORT=%q error: %v", tc.env, err)
+		}
+		if cfg.sortCol != tc.want {
+			t.Fatalf("TASKD_SORT=%q: got %v, want %v", tc.env, cfg.sortCol, tc.want)
+		}
+	}
+
+	t.Setenv("TASKD_SORT", "worker")
+	cfgOverride, err := parseFlags([]string{"-s", "status"})
+	if err != nil {
+		t.Fatalf("unexpected error parsing override: %v", err)
+	}
+	if cfgOverride.sortCol != sortStatus {
+		t.Fatalf("expected -s flag to override TASKD_SORT, got %v", cfgOverride.sortCol)
+	}
+
+	t.Setenv("TASKD_SORT", "invalid")
+	if _, err := parseFlags(nil); err == nil {
+		t.Fatal("expected error for invalid TASKD_SORT, got nil")
+	}
+
+	var buf bytes.Buffer
+	printUsage(&buf)
+	usage := buf.String()
+	idxEnv := strings.Index(usage, "Environment variables:")
+	if idxEnv == -1 {
+		t.Fatal("printUsage missing 'Environment variables:' section")
+	}
+	if !strings.Contains(usage[idxEnv:], "TASKD_SORT") {
+		t.Fatal("printUsage missing TASKD_SORT under Environment variables")
 	}
 }

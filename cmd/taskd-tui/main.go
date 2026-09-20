@@ -101,6 +101,13 @@ func parseFlags(args []string) (config, error) {
 		}
 		refresh = d
 	}
+	if rawSort := os.Getenv("TASKD_SORT"); rawSort != "" {
+		col, ok := parseSortColumn(rawSort)
+		if !ok {
+			return cfg, usagef("invalid sort column %q for TASKD_SORT", rawSort)
+		}
+		cfg.sortCol = col
+	}
 	cfg.project = defaultProject
 	cfg.worker = defaultWorker()
 	cfg.query = defaultQuery
@@ -254,6 +261,7 @@ Environment variables:
   TASKD_QUERY         default search query filter
   TASKD_ASCII         set to 1 or true to enable ASCII mode
   TASKD_REFRESH       polling interval, min 250ms (default: 1s)
+  TASKD_SORT          initial sort column: priority, status, project, worker, lease
 
 Keyboard shortcuts:
   j/k, Up/Down        move selection
