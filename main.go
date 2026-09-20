@@ -1964,6 +1964,19 @@ func printUsage(w io.Writer) {
 	fmt.Fprintf(w, `
 HTTP Endpoints:
   GET    /tasks              list tasks
+         ?status=            pending | leased | done | buried | live
+         ?project=           exact match; project=* matches all projects
+         ?worker=            exact match; empty value selects unassigned
+         ?priority=          integer >= 0
+         ?limit=             1..1000, default 100
+         ?offset=            integer >= 0
+         ?after=             opaque cursor token from X-Next-Cursor
+         ?asset_path=        exact match
+         ?q=                 substring of id, body, project, worker, or asset_path
+         ?fields=            comma list from id, asset_path, status, worker,
+                             lease_expires, priority, body, primitives,
+                             project, claim_count, summary
+         ?columns=           alias for fields
   POST   /tasks              create a task (requires project, body/asset_path)
   POST   /tasks/claim        claim next pending task (requires worker)
   GET    /tasks/{id}         get task details
@@ -1976,9 +1989,11 @@ HTTP Endpoints:
   POST   /tasks/{id}/bury    park a blocked task (requires worker)
   POST   /tasks/{id}/kick    return a parked task to pending
   DELETE /tasks/{id}         delete task
+         ?force=             1 or true (required to delete done task)
   GET    /projects           list active projects
   GET    /workers            list active workers
   GET    /stats              task queue statistics
+         ?project=           exact match; project=* matches all projects
   GET    /ui                 web interface
 
 Examples:
