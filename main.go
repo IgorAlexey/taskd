@@ -1758,7 +1758,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, version, body
 			return
 		}
 		var prim any
-		if len(req.Primitives) > 0 {
+		if len(req.Primitives) > 0 && !bytes.Equal(bytes.TrimSpace(req.Primitives), []byte("null")) {
 			prim = string(req.Primitives)
 		}
 		if _, ok := updateLeasedOrLapsed(w, db.rw, "status='done', primitives=?, lease_expires=NULL, version = version + 1", id, req.Worker, req.ClaimCount, prim); !ok {
