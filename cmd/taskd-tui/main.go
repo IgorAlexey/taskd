@@ -19,9 +19,12 @@ import (
 )
 
 func parseAndValidateURL(raw string) (string, error) {
-	trimmed := strings.TrimRight(strings.TrimSpace(raw), "/")
+	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", errors.New("url cannot be empty")
+	}
+	if !strings.Contains(trimmed, "://") {
+		trimmed = "http://" + trimmed
 	}
 	u, err := url.Parse(trimmed)
 	if err != nil {
@@ -30,10 +33,13 @@ func parseAndValidateURL(raw string) (string, error) {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", fmt.Errorf("invalid url scheme %q: must be http or https", u.Scheme)
 	}
+	if strings.HasPrefix(u.Host, ":") {
+		u.Host = "127.0.0.1" + u.Host
+	}
 	if u.Host == "" {
 		return "", errors.New("url missing host")
 	}
-	return trimmed, nil
+	return strings.TrimRight(u.String(), "/"), nil
 }
 
 type usageError struct {

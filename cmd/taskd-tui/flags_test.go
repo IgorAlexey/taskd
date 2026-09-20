@@ -118,3 +118,42 @@ func TestParseFlags_RefreshEnv(t *testing.T) {
 		t.Fatal("printUsage missing TASKD_REFRESH under Environment variables")
 	}
 }
+
+func TestParseAndValidateURL_DefaultScheme(t *testing.T) {
+	cases := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{input: "localhost:8080", want: "http://localhost:8080"},
+		{input: "127.0.0.1:9090", want: "http://127.0.0.1:9090"},
+		{input: ":8080", want: "http://127.0.0.1:8080"},
+		{input: "https://localhost:8080", want: "https://localhost:8080"},
+		{input: "https://127.0.0.1:9090", want: "https://127.0.0.1:9090"},
+		{input: "http://localhost:8080", want: "http://localhost:8080"},
+		{input: "http://:8080", want: "http://127.0.0.1:8080"},
+		{input: "https://:8080", want: "https://127.0.0.1:8080"},
+		{input: "localhost:8080/", want: "http://localhost:8080"},
+		{input: ":8080/", want: "http://127.0.0.1:8080"},
+		{input: "ftp://localhost", wantErr: true},
+		{input: "", wantErr: true},
+		{input: "   ", wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.input, func(t *testing.T) {
+			got, err := parseAndValidateURL(tc.input)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("parseAndValidateURL(%q) succeeded, want error", tc.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseAndValidateURL(%q) unexpected error: %v", tc.input, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseAndValidateURL(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
