@@ -373,7 +373,28 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft && (m.mode == modeTable || m.mode == modeDetail || m.mode == modeZoom) {
+		if msg.Button != tea.MouseLeft {
+			return m, nil
+		}
+		if m.mode == modeSearch {
+			panes := m.panes()
+			if panes.inTable(msg.Y) {
+				sb := calcScrollbar(len(m.shown), m.offset, panes.tableRows)
+				if !(msg.X == m.width-1 && sb.hasScrollbar) {
+					idx := m.offset + (msg.Y - panes.tableTop)
+					if idx >= 0 && idx < len(m.shown) {
+						m.cursor = idx
+						m.lastRow = idx
+						m.clamp()
+						m.syncDetail()
+						m.mode = modeTable
+						return m, m.commitQuery()
+					}
+				}
+			}
+			return m, nil
+		}
+		if m.mode == modeTable || m.mode == modeDetail || m.mode == modeZoom {
 			if msg.Y == headerRows {
 				bounds := m.row1Bounds()
 				for _, tab := range bounds.tabs {

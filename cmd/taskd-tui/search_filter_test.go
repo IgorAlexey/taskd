@@ -198,3 +198,54 @@ func TestFilterTargetsDetailAndZoomPreserveShortcuts(t *testing.T) {
 		}
 	}
 }
+
+func TestMouseClickSelectDuringSearch(t *testing.T) {
+	m := newModel(config{refresh: time.Hour}, nil)
+	m.width = 80
+	m.height = 24
+	m.mode = modeTable
+	m.tasks = []task{
+		{ID: "task-1", Body: "alpha first\nfirst detail"},
+		{ID: "task-2", Body: "alpha second\nsecond detail"},
+		{ID: "task-3", Body: "alpha third\nthird detail"},
+	}
+	m.query = "alpha"
+	m.rebuildShown()
+	m.cursor = 0
+	m.clamp()
+	m.syncDetail()
+
+	up, _ := m.Update(tea.KeyPressMsg{Text: "/"})
+	m = up.(model)
+	if m.mode != modeSearch {
+		t.Fatalf("expected modeSearch, got %v", m.mode)
+	}
+
+	seqBefore := m.searchSeq
+	panes := m.panes()
+	targetRow := 1
+	clickRow := tea.MouseClickMsg{
+		Button: tea.MouseLeft,
+		X:      10,
+		Y:      panes.tableTop + targetRow,
+	}
+	up, _ = m.Update(clickRow)
+	m = up.(model)
+
+	if m.mode != modeTable {
+		t.Fatalf("mode after clicking row in modeSearch = %v, want modeTable", m.mode)
+	}
+	if m.cursor != targetRow {
+		t.Fatalf("cursor after clicking row = %d, want %d", m.cursor, targetRow)
+	}
+	if m.searchSeq <= seqBefore {
+		t.Fatalf("expected commitQuery to bump searchSeq, was %d, now %d", seqBefore, m.searchSeq)
+	}
+	if sel, ok := m.selected(); !ok || sel.ID != "task-2" {
+		t.Fatalf("selected task = %+v (ok=%v), want task-2", sel, ok)
+	}
+	if m.detailID != "task-2" || !strings.Contains(m.detail.GetContent(), "second detail") {
+		t.Fatalf("expected detail pane synced to task-2, got detailID=%q, content=%q",
+			m.detailID, m.detail.GetContent())
+	}
+}
