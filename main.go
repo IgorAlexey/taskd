@@ -1323,7 +1323,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, body, primiti
 		if len(req.Primitives) > 0 {
 			prim = string(req.Primitives)
 		}
-		query := "UPDATE tasks SET status='done', primitives=? WHERE id=? AND status='leased' AND worker=?"
+		query := "UPDATE tasks SET status='done', primitives=?, lease_expires=NULL WHERE id=? AND status='leased' AND worker=?"
 		args := []any{prim, id, req.Worker}
 		if req.ClaimCount != nil {
 			query += " AND claim_count=?"
