@@ -897,12 +897,13 @@
               <th scope="col" class="sortable" tabindex="0" data-col="priority">Priority</th>
               <th scope="col" class="sortable" tabindex="0" data-col="claim_count">Claims</th>
               <th scope="col" class="sortable" tabindex="0" data-col="worker">Worker</th>
+              <th scope="col">Lease</th>
               <th scope="col" class="sortable" tabindex="0" data-col="created_at">Created At</th>
               <th scope="col">Summary</th>
             </tr>
           </thead>
           <tbody id="task-table-body">
-            <tr><td colspan="8">Not connected</td></tr>
+            <tr><td colspan="9">Not connected</td></tr>
           </tbody>
         </table>
       </div>
@@ -1124,7 +1125,7 @@
     let currentTask = null;
     let isEditingTask = false;
     const PAGE_SIZE = 200;
-    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,asset_path,summary,created_at';
+    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,lease_expires,created_at,summary,asset_path';
     const STATUS_KEYS = ['', 'pending', 'leased', 'done', 'buried', 'live'];
     let claimWorker = '';
     try {
@@ -1142,8 +1143,78 @@
     function cleanSortDir(val) {
       return val === 'desc' ? 'desc' : (val === 'asc' ? 'asc' : '');
     }
+    const defaultDateTimeFormatter = new Intl.DateTimeFormat(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+    const defaultRelativeTimeFormatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+
     function formatTimestamp(sec) {
-      return sec ? new Date(sec * 1000).toLocaleString() : '';
+      if (!sec) return '';
+      try {
+        return defaultDateTimeFormatter.format(new Date(sec * 1000));
+      } catch (_) {
+        return String(sec);
+      }
+    }
+
+    function formatRemainingSeconds(rem) {
+      if (rem <= 0) return 'expired';
+      if (rem >= 3600) {
+        const hours = Math.floor(rem / 3600);
+        const mins = Math.floor((rem % 3600) / 60);
+        return hours + 'h' + String(mins).padStart(2, '0') + 'm';
+      }
+      const mins = Math.floor(rem / 60);
+      const secs = rem % 60;
+      return mins + 'm' + String(secs).padStart(2, '0') + 's';
+    }
+
+    /* creates <time datetime="..."> */
+    function createLeaseElement(sec) {
+      const s = Number(sec);
+      if (!Number.isFinite(s) || s <= 0) return null;
+      const d = new Date(s * 1000);
+      const iso = d.toISOString();
+      let absTitle = iso;
+      try {
+        absTitle = defaultDateTimeFormatter.format(d);
+      } catch (_) {}
+      const el = document.createElement('time');
+      el.setAttribute('datetime', iso);
+      el.setAttribute('title', absTitle);
+      const rem = s - Math.floor(Date.now() / 1000);
+      try {
+        if (rem <= 0) {
+          el.setAttribute('aria-label', 'expired');
+        } else if (rem >= 3600) {
+          el.setAttribute('aria-label', defaultRelativeTimeFormatter.format(Math.round(rem / 3600), 'hour'));
+        } else if (rem >= 60) {
+          el.setAttribute('aria-label', defaultRelativeTimeFormatter.format(Math.round(rem / 60), 'minute'));
+        } else {
+          el.setAttribute('aria-label', defaultRelativeTimeFormatter.format(rem, 'second'));
+        }
+      } catch (_) {}
+      el.textContent = formatRemainingSeconds(rem);
+      return el;
+    }
+
+    function populateLeaseContainer(container, row, sec, status) {
+      if (!container) return;
+      container.textContent = '';
+      if (status === 'leased' && sec) {
+        const el = createLeaseElement(sec);
+        if (el) {
+          if (row) row.hidden = false;
+          container.appendChild(el);
+          return;
+        }
+      }
+      if (row) row.hidden = true;
+    }
+
+    function createLeaseCell(sec, status) {
+      const td = document.createElement('td');
+      td.setAttribute('data-field', 'lease');
+      populateLeaseContainer(td, null, sec, status);
+      return td;
     }
     function updateSortHeaders() {
       const ths = document.querySelectorAll('th.sortable');
@@ -1825,6 +1896,7 @@
       tr.appendChild(createCell('priority', f.priority));
       tr.appendChild(createCell('claim_count', f.claimCount));
       tr.appendChild(createCell('worker', f.worker, 'mono'));
+      tr.appendChild(createLeaseCell(t.lease_expires, t.status));
       tr.appendChild(createCell('created_at', f.createdAt));
       tr.appendChild(createCell('summary', f.summary));
       return tr;
@@ -1852,6 +1924,7 @@
       setText(tr.querySelector('[data-field="priority"]'), f.priority);
       setText(tr.querySelector('[data-field="claim_count"]'), f.claimCount);
       setText(tr.querySelector('[data-field="worker"]'), f.worker);
+      populateLeaseContainer(tr.querySelector('[data-field="lease"]'), null, t.lease_expires, t.status);
       setText(tr.querySelector('[data-field="created_at"]'), f.createdAt);
       setText(tr.querySelector('[data-field="summary"]'), f.summary);
       const badge = tr.querySelector('[data-field="status"] .badge');
@@ -1934,7 +2007,7 @@
               emptyRow = document.createElement('tr');
               tbody.appendChild(emptyRow);
             }
-            emptyRow.innerHTML = '<td colspan="8">No tasks</td>';
+            emptyRow.innerHTML = '<td colspan="9">No tasks</td>';
             return;
           }
 
@@ -2159,7 +2232,7 @@
       if (!sec) return { display: '', iso: '' };
       try {
         const d = new Date(sec * 1000);
-        return { display: d.toLocaleString(), iso: d.toISOString() };
+        return { display: defaultDateTimeFormatter.format(d), iso: d.toISOString() };
       } catch (_) {
         return { display: String(sec), iso: '' };
       }
@@ -2263,7 +2336,6 @@
           primStr = JSON.stringify(t.primitives, null, 2);
         }
       }
-      let leaseExpStr = (t.status === 'leased' && t.lease_expires) ? formatTimestamp(t.lease_expires) : '';
       let createdAtStr = formatTimestamp(t.created_at);
       const prevScrollTop = sameTask ? pane.scrollTop : 0;
       const existingAuthor = document.getElementById('note-author');
@@ -2334,11 +2406,12 @@
           editWorkerRow.hidden = false;
           setText(document.getElementById('edit-task-worker'), t.worker);
         }
-        const editLeaseRow = document.getElementById('edit-task-lease-row');
-        if (editLeaseRow && leaseExpStr) {
-          editLeaseRow.hidden = false;
-          setText(document.getElementById('edit-task-lease'), leaseExpStr);
-        }
+        populateLeaseContainer(
+          document.getElementById('edit-task-lease'),
+          document.getElementById('edit-task-lease-row'),
+          t.lease_expires,
+          t.status
+        );
         const editCreatedRow = document.getElementById('edit-task-created-row');
         if (editCreatedRow && createdAtStr) {
           editCreatedRow.hidden = false;
@@ -2479,11 +2552,12 @@
         workerRow.hidden = false;
         setText(document.getElementById('detail-task-worker'), t.worker);
       }
-      const leaseRow = document.getElementById('detail-task-lease-row');
-      if (leaseRow && leaseExpStr) {
-        leaseRow.hidden = false;
-        setText(document.getElementById('detail-task-lease'), leaseExpStr);
-      }
+      populateLeaseContainer(
+        document.getElementById('detail-task-lease'),
+        document.getElementById('detail-task-lease-row'),
+        t.lease_expires,
+        t.status
+      );
       const createdRow = document.getElementById('detail-task-created-row');
       if (createdRow && createdAtStr) {
         createdRow.hidden = false;
