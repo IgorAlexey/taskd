@@ -878,3 +878,10 @@ func TestWebUICloseBuriedTask(t *testing.T) {
 		t.Fatal("expected #close-task-btn alongside #kick-task-btn for buried tasks in web/index.html")
 	}
 }
+func TestWebSubmitCtrlEnter(t *testing.T) {
+	ui := string(uiHTML)
+	re := regexp.MustCompile(`const\s+bodyEl\s*=\s*document\.getElementById\('form-body'\);[\s\S]*?bodyEl\.addEventListener\('keydown',\s*\(?e\)?\s*=>\s*\{[\s\S]*?e\.key\s*===\s*'Enter'\s*&&\s*\(e\.ctrlKey\s*\|\|\s*e\.metaKey\)[\s\S]*?e\.preventDefault\(\)[\s\S]*?submitTask\(\)`)
+	if !re.MatchString(ui) {
+		t.Fatal("expected #form-body keydown listener for Ctrl+Enter or Cmd+Enter invoking submitTask in web/index.html")
+	}
+}

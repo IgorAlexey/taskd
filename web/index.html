@@ -2888,6 +2888,12 @@
       const bodyEl = document.getElementById('form-body');
       if (bodyEl) {
         bodyEl.addEventListener('input', updateBodyCount);
+        bodyEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            submitTask();
+          }
+        });
         updateBodyCount();
       }
     }
