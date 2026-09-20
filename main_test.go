@@ -864,3 +864,43 @@ func TestStatsWorkerExpiredLeases(t *testing.T) {
 		t.Fatalf("stats ?worker=: got %+v, want pending:1 leased:0 total:1", sUnassigned)
 	}
 }
+
+func TestTasksAndStatsRejectInvalidProject(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	cases := []struct {
+		param   string
+		wantErr string
+	}{
+		{"?project=", "project cannot be empty"},
+		{"?project=bad*name", "invalid project"},
+	}
+
+	for _, endpoint := range []string{"/tasks", "/stats"} {
+		for _, tc := range cases {
+			resp, err := http.Get(srv.URL + endpoint + tc.param)
+			if err != nil {
+				t.Fatalf("GET %s%s failed: %v", endpoint, tc.param, err)
+			}
+			var errResp map[string]string
+			decErr := json.NewDecoder(resp.Body).Decode(&errResp)
+			resp.Body.Close()
+			if decErr != nil {
+				t.Fatalf("decode %s%s error failed: %v", endpoint, tc.param, decErr)
+			}
+			if resp.StatusCode != http.StatusBadRequest {
+				t.Fatalf("GET %s%s status = %d, want 400", endpoint, tc.param, resp.StatusCode)
+			}
+			if got := errResp["error"]; got != tc.wantErr {
+				t.Fatalf("GET %s%s error = %q, want %q", endpoint, tc.param, got, tc.wantErr)
+			}
+		}
+	}
+}

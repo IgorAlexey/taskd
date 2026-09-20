@@ -1209,6 +1209,21 @@ func validProject(p string) bool {
 	}
 	return true
 }
+func validateProjectFilter(w http.ResponseWriter, q url.Values) (string, bool) {
+	if !q.Has("project") {
+		return "", true
+	}
+	project := q.Get("project")
+	if project == "" {
+		writeError(w, http.StatusBadRequest, "project cannot be empty")
+		return "", false
+	}
+	if project != "*" && !validProject(project) {
+		writeError(w, http.StatusBadRequest, "invalid project")
+		return "", false
+	}
+	return project, true
+}
 
 //go:embed web/index.html
 var uiHTML []byte
@@ -1351,7 +1366,10 @@ func newHandlerWithCORS(db *store, lease int, corsOrigin string) http.Handler {
 	})
 	statsHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
-		project := q.Get("project")
+		project, ok := validateProjectFilter(w, q)
+		if !ok {
+			return
+		}
 		now := time.Now().Unix()
 		query := `SELECT
   COUNT(CASE WHEN status = 'pending' OR (status = 'leased' AND lease_expires < ?) THEN 1 END),
@@ -1768,7 +1786,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, "invalid status")
 			return
 		}
-		project := q.Get("project")
+		project, ok := validateProjectFilter(w, q)
+		if !ok {
+			return
+		}
 		var priorityFilter *int
 		if q.Has("priority") {
 			v, err := strconv.Atoi(q.Get("priority"))
