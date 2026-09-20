@@ -1482,7 +1482,7 @@ FROM tasks`
 		if req.Worker, ok = checkWorker(w, req.Worker); !ok {
 			return
 		}
-		if req.Wait != nil && *req.Wait < 0 {
+		if req.Wait != nil && !(*req.Wait >= 0 && *req.Wait <= 86400) {
 			writeError(w, http.StatusBadRequest, "invalid wait")
 			return
 		}

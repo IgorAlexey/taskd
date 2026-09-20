@@ -90,15 +90,25 @@ func TestClaimWaitInvalidWaitReturns400(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	claimBody, _ := json.Marshal(map[string]any{"worker": "w1", "project": "w", "wait": -1})
-	resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimBody))
-	if err != nil {
-		t.Fatalf("claim failed: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	for _, wait := range []any{-1, 1e12, 86401} {
+		body, _ := json.Marshal(map[string]any{"worker": "w1", "project": "w", "wait": wait})
+		resp, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(body))
+		if err != nil {
+			t.Fatalf("claim failed: %v", err)
+		}
+		if resp.StatusCode != http.StatusBadRequest {
+			resp.Body.Close()
+			t.Fatalf("wait=%v: status = %d, want 400", wait, resp.StatusCode)
+		}
+		var errResp map[string]string
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			resp.Body.Close()
+			t.Fatalf("decode failed: %v", err)
+		}
+		resp.Body.Close()
+		if errResp["error"] != "invalid wait" {
+			t.Fatalf("error = %q, want %q", errResp["error"], "invalid wait")
+		}
 	}
 }
 
