@@ -848,7 +848,7 @@
               <label for="form-priority">Priority</label>
               <div class="hint" id="form-priority-hint">1 is top, blank for default</div>
               <span class="field-error" id="form-priority-error" hidden></span>
-              <input type="number" id="form-priority" value="" aria-invalid="false" aria-describedby="form-priority-hint form-priority-error">
+              <input type="number" id="form-priority" min="0" step="1" inputmode="numeric" value="" aria-invalid="false" aria-describedby="form-priority-hint form-priority-error">
             </div>
             <div class="field">
               <label for="form-body">Body</label>
@@ -2632,6 +2632,7 @@
     // The daemon's validProject and validTaskID accept the same byte set, so
     // the form refuses what POST /tasks would answer with a bare 400.
     const NAME_RE = /^[A-Za-z0-9._-]+$/;
+    const DIGITS_RE = /^[0-9]+$/;
 
     function projectError(proj) {
       if (!proj) {
@@ -2673,6 +2674,18 @@
       }
       return null;
     }
+    function priorityError(el) {
+      if (!el) return null;
+      if (el.validity && el.validity.badInput) {
+        return { fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' };
+      }
+      const val = el.value.trim();
+      if (val === '') return null;
+      if (!DIGITS_RE.test(val)) {
+        return { fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' };
+      }
+      return null;
+    }
     async function submitTask(e) {
       if (e && e.preventDefault) e.preventDefault();
       const submitBtn = document.getElementById('submit-task-btn');
@@ -2688,7 +2701,6 @@
       const proj = projEl ? projEl.value.trim() : '';
       const body = bodyEl ? bodyEl.value : '';
       const prioText = prioEl ? prioEl.value.trim() : '';
-      const prio = prioText === '' ? null : parseInt(prioText, 10);
       const asset = assetEl ? assetEl.value.trim() : '';
       const customId = idEl ? idEl.value.trim() : '';
 
@@ -2701,8 +2713,9 @@
       if (bodyErr) {
         errors.push(bodyErr);
       }
-      if (prio !== null && (!Number.isInteger(prio) || prio < 0)) {
-        errors.push({ fieldId: 'form-priority', message: 'Priority must be a whole number, 0 or greater' });
+      const prioErr = priorityError(prioEl);
+      if (prioErr) {
+        errors.push(prioErr);
       }
       if (customId !== '') {
         const idErr = customIdError(customId);
@@ -2720,10 +2733,9 @@
         project: proj,
         body: body
       };
-      if (prio !== null) payload.priority = prio;
+      if (prioText !== '') payload.priority = parseInt(prioText, 10);
       if (asset) payload.asset_path = asset;
       if (customId) payload.id = customId;
-
       if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.setAttribute('aria-busy', 'true');
