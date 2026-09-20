@@ -207,3 +207,141 @@ func TestWorkerFilter(t *testing.T) {
 		}
 	})
 }
+func TestWorkerFilterStats(t *testing.T) {
+	var gotWorkerParam string
+	var gotWorkerKey bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/stats") {
+			gotWorkerKey = r.URL.Query().Has("worker")
+			gotWorkerParam = r.URL.Query().Get("worker")
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"pending":1,"leased":2,"done":3,"buried":0,"total":6}`))
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/tasks") {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		if r.URL.Path == "/projects" || r.URL.Path == "/workers" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	cl := newClient(srv.URL)
+	sc := listScope{
+		filter: listFilter{
+			project: "proj1",
+			worker:  "worker-alpha",
+		},
+		pages: 1,
+	}
+	cmd := pollCmd(cl, sc, "", 1)
+	msg := cmd().(pollMsg)
+	if msg.err != nil {
+		t.Fatalf("pollCmd failed: %v", msg.err)
+	}
+	if !gotWorkerKey || gotWorkerParam != "worker-alpha" {
+		t.Fatalf("expected pollCmd to request worker=worker-alpha, got key=%v param=%q", gotWorkerKey, gotWorkerParam)
+	}
+	if msg.stats.Total != 6 || msg.stats.Pending != 1 {
+		t.Fatalf("unexpected stats in pollMsg: %+v", msg.stats)
+	}
+
+	gotWorkerKey = false
+	gotWorkerParam = ""
+	st, err := cl.getStats("proj1", "worker-alpha")
+	if err != nil {
+		t.Fatalf("getStats failed: %v", err)
+	}
+	if !gotWorkerKey || gotWorkerParam != "worker-alpha" {
+		t.Fatalf("expected getStats to request worker=worker-alpha, got key=%v param=%q", gotWorkerKey, gotWorkerParam)
+	}
+	if st.Total != 6 {
+		t.Fatalf("unexpected stats from getStats: %+v", st)
+	}
+
+	gotWorkerKey = false
+	gotWorkerParam = ""
+	sMsg := statsCmd(cl, "proj1", "worker-alpha")().(statsMsg)
+	if sMsg.err != nil {
+		t.Fatalf("statsCmd failed: %v", sMsg.err)
+	}
+	if !gotWorkerKey || gotWorkerParam != "worker-alpha" {
+		t.Fatalf("expected statsCmd to request worker=worker-alpha, got key=%v param=%q", gotWorkerKey, gotWorkerParam)
+	}
+}
+
+func TestTUIWorkerFilterStats(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/stats") {
+			w.Header().Set("Content-Type", "application/json")
+			worker := r.URL.Query().Get("worker")
+			if worker == "worker-alpha" {
+				w.Write([]byte(`{"pending":5,"leased":7,"done":9,"buried":0,"total":21}`))
+			} else {
+				w.Write([]byte(`{"pending":100,"leased":200,"done":300,"buried":0,"total":600}`))
+			}
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, "/tasks") {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		if r.URL.Path == "/projects" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte("[]"))
+			return
+		}
+		if r.URL.Path == "/workers" {
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`["worker-alpha", "worker-beta"]`))
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	m := newModel(config{icons: false, refresh: time.Hour}, nil)
+	m.client = newClient(srv.URL)
+	m.width = 120
+	m.height = 24
+	m.workers = []string{"worker-alpha", "worker-beta"}
+
+	cmd := m.rescope()
+	msg := cmd()
+	res, _ := m.Update(msg)
+	m = res.(model)
+
+	res, cmd = m.Update(tea.KeyPressMsg{Text: "w"})
+	m = res.(model)
+	if m.worker != "worker-alpha" {
+		t.Fatalf("expected worker-alpha, got %q", m.worker)
+	}
+	if cmd != nil {
+		pollRes := cmd()
+		res, _ = m.Update(pollRes)
+		m = res.(model)
+	}
+
+	content := ansi.Strip(m.View().Content)
+	lines := strings.Split(content, "\n")
+	if len(lines) < 2 {
+		t.Fatalf("expected at least 2 lines, got %d", len(lines))
+	}
+	tabsLine := lines[1]
+	if !strings.Contains(tabsLine, "0 all 21") {
+		t.Fatalf("expected tabs to show '0 all 21' for worker-alpha, got: %s", tabsLine)
+	}
+	if !strings.Contains(tabsLine, "1 pending 5") {
+		t.Fatalf("expected tabs to show '1 pending 5' for worker-alpha, got: %s", tabsLine)
+	}
+	if !strings.Contains(tabsLine, "2 leased 7") {
+		t.Fatalf("expected tabs to show '2 leased 7' for worker-alpha, got: %s", tabsLine)
+	}
+}

@@ -187,10 +187,17 @@ func (c *client) list(sc listScope, etag string) (listResult, error) {
 	return out, nil
 }
 
-func (c *client) getStats(project string) (stats, error) {
+func (c *client) getStats(project, worker string) (stats, error) {
 	relPath := "/stats"
+	q := url.Values{}
 	if project != "" {
-		relPath += "?project=" + url.QueryEscape(project)
+		q.Set("project", project)
+	}
+	if worker != "" {
+		q.Set("worker", worker)
+	}
+	if encoded := q.Encode(); encoded != "" {
+		relPath += "?" + encoded
 	}
 	u := c.base + relPath
 	req, err := http.NewRequest(http.MethodGet, u, nil)
@@ -310,7 +317,7 @@ func pollCmd(c *client, sc listScope, etag string, seq uint64) tea.Cmd {
 		wg.Add(3)
 		go func() {
 			defer wg.Done()
-			st, stErr = c.getStats(sc.filter.project)
+			st, stErr = c.getStats(sc.filter.project, sc.filter.worker)
 		}()
 		go func() {
 			defer wg.Done()
@@ -332,9 +339,9 @@ func pollCmd(c *client, sc listScope, etag string, seq uint64) tea.Cmd {
 
 // statsCmd refreshes the counters alone. A paged snapshot must not be
 // re-walked on every tick, but the header has no reason to go stale with it.
-func statsCmd(c *client, project string) tea.Cmd {
+func statsCmd(c *client, project, worker string) tea.Cmd {
 	return func() tea.Msg {
-		st, err := c.getStats(project)
+		st, err := c.getStats(project, worker)
 		return statsMsg{stats: st, err: err}
 	}
 }

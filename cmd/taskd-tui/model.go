@@ -210,7 +210,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var poll tea.Cmd
 		switch {
 		case m.pages > 1:
-			poll = statsCmd(m.client, m.project)
+			poll = statsCmd(m.client, m.project, m.worker)
 		case !m.polling:
 			poll = m.startPoll()
 		}
