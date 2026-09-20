@@ -63,6 +63,13 @@ func parseFlags(args []string) (config, error) {
 		ascii   = defaultAscii
 		refresh = time.Second
 	)
+	if raw := os.Getenv("TASKD_REFRESH"); raw != "" {
+		d, err := time.ParseDuration(raw)
+		if err != nil {
+			return cfg, usagef("invalid duration %q for TASKD_REFRESH", raw)
+		}
+		refresh = d
+	}
 	cfg.project = defaultProject
 	cfg.worker = defaultWorker()
 
@@ -177,6 +184,7 @@ Environment variables:
   TASKD_PROJECT       default project filter
   TASKD_WORKER        worker identifier for claiming tasks
   TASKD_ASCII         set to 1 or true to enable ASCII mode
+  TASKD_REFRESH       polling interval, min 250ms (default: 1s)
 
 Keyboard shortcuts:
   j/k, Up/Down        move selection

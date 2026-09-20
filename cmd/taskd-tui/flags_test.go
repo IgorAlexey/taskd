@@ -6,6 +6,7 @@ import (
 	"flag"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTUIFlagErrors(t *testing.T) {
@@ -72,5 +73,48 @@ func TestTUIRuntimeErrorExitsOne(t *testing.T) {
 	}
 	if strings.Contains(stderr.String(), "try 'taskd-tui -h'") {
 		t.Fatalf("runtime error should carry no usage hint, got %q", stderr.String())
+	}
+}
+
+func TestParseFlags_RefreshEnv(t *testing.T) {
+	t.Setenv("TASKD_REFRESH", "500ms")
+	cfg, err := parseFlags(nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.refresh != 500*time.Millisecond {
+		t.Fatalf("refresh: got %v, want 500ms", cfg.refresh)
+	}
+
+	cfgOverride, err := parseFlags([]string{"-refresh", "2s"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfgOverride.refresh != 2*time.Second {
+		t.Fatalf("refresh override: got %v, want 2s", cfgOverride.refresh)
+	}
+
+	t.Setenv("TASKD_REFRESH", "invalid")
+	if _, err := parseFlags(nil); err == nil {
+		t.Fatal("expected error for invalid TASKD_REFRESH, got nil")
+	}
+
+	t.Setenv("TASKD_REFRESH", "100ms")
+	if _, err := parseFlags(nil); err == nil {
+		t.Fatal("expected error for TASKD_REFRESH < 250ms, got nil")
+	}
+
+	var buf bytes.Buffer
+	printUsage(&buf)
+	usage := buf.String()
+	if !strings.Contains(usage, "TASKD_REFRESH") {
+		t.Fatal("printUsage missing TASKD_REFRESH")
+	}
+	idxEnv := strings.Index(usage, "Environment variables:")
+	if idxEnv == -1 {
+		t.Fatal("printUsage missing 'Environment variables:' section")
+	}
+	if !strings.Contains(usage[idxEnv:], "TASKD_REFRESH") {
+		t.Fatal("printUsage missing TASKD_REFRESH under Environment variables")
 	}
 }
