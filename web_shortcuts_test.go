@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -98,5 +99,40 @@ func TestWebUIStatusFilterShortcuts(t *testing.T) {
 	}
 	if !strings.Contains(ui, "!e.ctrlKey && !e.metaKey && !e.altKey") {
 		t.Fatal("expected modifier key guard for status filter shortcuts")
+	}
+}
+
+func TestWebUIFooterShortcutButtons(t *testing.T) {
+	ui := string(uiHTML)
+
+	legendStart := strings.Index(ui, `class="shortcut-legend`)
+	if legendStart == -1 {
+		t.Fatal("expected .shortcut-legend in web/index.html")
+	}
+	legendEnd := strings.Index(ui[legendStart:], "</div>")
+	if legendEnd == -1 {
+		t.Fatal("expected closing div for .shortcut-legend")
+	}
+	legend := ui[legendStart : legendStart+legendEnd]
+
+	matches := regexp.MustCompile(`<button\b[^>]*>.*?</button>`).FindAllString(legend, -1)
+	var hasSearchHandler, hasRefreshHandler bool
+	for _, btn := range matches {
+		if strings.Contains(btn, `class="shortcut-btn"`) && strings.Contains(btn, "<kbd>/</kbd>") && strings.Contains(btn, "Search") {
+			if strings.Contains(btn, "onclick=") {
+				hasSearchHandler = true
+			}
+		}
+		if strings.Contains(btn, `class="shortcut-btn"`) && strings.Contains(btn, "<kbd>r</kbd>") && strings.Contains(btn, "Refresh") {
+			if strings.Contains(btn, "onclick=") {
+				hasRefreshHandler = true
+			}
+		}
+	}
+	if !hasSearchHandler {
+		t.Error("expected Search shortcut button in footer legend to have an onclick handler")
+	}
+	if !hasRefreshHandler {
+		t.Error("expected Refresh shortcut button in footer legend to have an onclick handler")
 	}
 }

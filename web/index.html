@@ -955,8 +955,8 @@
   <footer class="app-footer">
     <div class="shortcut-legend cluster">
       <button type="button" class="shortcut-btn" onclick="openShortcutsModal()" aria-label="Open keyboard shortcuts help"><kbd>?</kbd> Shortcuts</button>
-      <span><kbd>/</kbd> Search</span>
-      <span><kbd>r</kbd> Refresh</span>
+      <button type="button" class="shortcut-btn" onclick="document.getElementById('filter-search').focus()"><kbd>/</kbd> Search</button>
+      <button type="button" class="shortcut-btn" onclick="loadAll()"><kbd>r</kbd> Refresh</button>
       <span><kbd>↑</kbd><kbd>↓</kbd> Table navigation</span>
     </div>
   </footer>
