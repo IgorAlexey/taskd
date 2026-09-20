@@ -30,6 +30,8 @@ var (
 	claimCalls   []string
 	touchMu      sync.Mutex
 	touchCalls   []string
+	patchMu      sync.Mutex
+	patchCalls   []string
 )
 
 type closeCall struct {
@@ -55,6 +57,12 @@ func doneCallsSnapshot() []doneCall {
 	return slices.Clone(doneCalls)
 }
 
+func patchCallsSnapshot() []string {
+	patchMu.Lock()
+	defer patchMu.Unlock()
+	return slices.Clone(patchCalls)
+}
+
 func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	t.Helper()
 	var mu sync.Mutex
@@ -76,16 +84,33 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 	doneMu.Lock()
 	doneCalls = nil
 	doneMu.Unlock()
+	patchMu.Lock()
+	patchCalls = nil
+	patchMu.Unlock()
 	tasks := []task{
 		{ID: "aaaaaaa1", Project: "proj-b", Status: "pending", Priority: 2, Body: "first task\n\nWhy: a"},
 		{ID: "bbbbbbb2", Project: "proj-a", Status: "leased", Worker: "w1", LeaseExpires: 1 << 40, Priority: 1, Body: "second"},
 		{ID: "ccccccc3", Project: "proj-b", Status: "done", Body: "third", Primitives: json.RawMessage(`{"commit":"x"}`)},
 	}
+	normalize := func(in []task) []task {
+		now := time.Now().Unix()
+		out := slices.Clone(in)
+		for i := range out {
+			if out[i].Status == "leased" && out[i].LeaseExpires < now {
+				out[i].Status = "pending"
+			}
+			if out[i].Status == "pending" || out[i].Status == "buried" {
+				out[i].Worker = ""
+				out[i].LeaseExpires = 0
+			}
+		}
+		return out
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /tasks", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		defer mu.Unlock()
-		json.NewEncoder(w).Encode(tasks)
+		json.NewEncoder(w).Encode(normalize(tasks))
 	})
 	mux.HandleFunc("GET /projects", func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
@@ -103,7 +128,7 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 		defer mu.Unlock()
 		project := r.URL.Query().Get("project")
 		var pending, leased, done, total int
-		for _, t := range tasks {
+		for _, t := range normalize(tasks) {
 			if project != "" && project != "*" && t.Project != project {
 				continue
 			}
@@ -133,6 +158,9 @@ func stub(t *testing.T) (*ui, *[]task, *sync.Mutex) {
 			AssetPath *string `json:"asset_path"`
 		}
 		json.NewDecoder(r.Body).Decode(&p)
+		patchMu.Lock()
+		patchCalls = append(patchCalls, r.URL.RequestURI())
+		patchMu.Unlock()
 		mu.Lock()
 		defer mu.Unlock()
 		for i := range tasks {
@@ -1879,8 +1907,16 @@ func TestTUIStatusLayout(t *testing.T) {
 			(*tasks)[i].Status = "pending"
 			(*tasks)[i].LeaseExpires = 0
 		}
+		if (*tasks)[i].ID == "bbbbbbb2" {
+			(*tasks)[i].LeaseExpires = time.Now().Unix() - 10
+		}
 	}
 	mu.Unlock()
+	ts, err = u.fetch("", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	query(func() { u.render(ts) })
 
 	sim.InjectKey(tcell.KeyRune, 'j', 0)
 	// 3. Action success feedback: lower priority (-) on a P1 task

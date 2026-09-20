@@ -354,6 +354,16 @@ func (t task) activelyLeased(now int64) bool {
 	return t.Status == "leased" && t.LeaseExpires >= now
 }
 
+func (t task) frozenReason(now int64) string {
+	if t.Status == "done" {
+		return "done task"
+	}
+	if t.activelyLeased(now) {
+		return "actively leased task"
+	}
+	return ""
+}
+
 // emptyState is the placeholder shown when no task is visible, so the
 // operator can tell an empty queue apart from a filter that hid every
 // task, and knows which key clears the filter that did it.
@@ -1283,8 +1293,16 @@ func (u *ui) actionKeys(ev *tcell.EventKey) bool {
 		go u.cycleWorker()
 	case '+', '=', '-':
 		if ok {
-			d := map[rune]int{'+': -1, '=': -1, '-': 1}[ev.Rune()]
+			if f := t.frozenReason(time.Now().Unix()); f != "" {
+				u.setMsg("cannot adjust priority on " + f)
+				break
+			}
+			d := -1
+			if ev.Rune() == '-' {
+				d = 1
+			}
 			if d < 0 && t.Priority == 0 {
+				u.setMsg("already at highest priority")
 				break
 			}
 			pri := t.Priority + d
@@ -1342,12 +1360,8 @@ func (u *ui) actionKeys(ev *tcell.EventKey) bool {
 		u.showCreateForm()
 	case 'e':
 		if ok {
-			if t.Status == "done" {
-				u.setMsg("cannot edit done task")
-				break
-			}
-			if t.activelyLeased(time.Now().Unix()) {
-				u.setMsg("cannot edit actively leased task")
+			if f := t.frozenReason(time.Now().Unix()); f != "" {
+				u.setMsg("cannot edit " + f)
 				break
 			}
 			u.showEditForm(t)

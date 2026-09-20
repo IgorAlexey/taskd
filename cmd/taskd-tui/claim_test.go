@@ -162,6 +162,7 @@ func TestClaimKeyConflict(t *testing.T) {
 		if (*h.tasks)[i].ID == "aaaaaaa1" {
 			(*h.tasks)[i].Status = "leased"
 			(*h.tasks)[i].Worker = "other-worker"
+			(*h.tasks)[i].LeaseExpires = 1 << 40
 		}
 	}
 	h.mu.Unlock()
