@@ -1,7 +1,5 @@
 'use strict';
 const fs = require('fs');
-const src = fs.readFileSync(process.argv[2], 'utf8');
-const script = src.slice(src.indexOf('<script>') + 8, src.lastIndexOf('</script>'));
 
 function makeElement(tag) {
   const children = [];
@@ -11,6 +9,8 @@ function makeElement(tag) {
   const el = {
     tagName: tag.toUpperCase(),
     children,
+    options: children,
+    selectedIndex: 0,
     dataset: {},
     setAttribute(k, v) { attrs[k] = String(v); },
     getAttribute(k) { return attrs[k] || null; },
@@ -36,78 +36,137 @@ function makeElement(tag) {
         if (i >= 0) this.parent.children.splice(i, 1);
       }
     },
-    querySelector(sel) { return makeElement('div'); },
-    querySelectorAll(sel) { return children.filter(c => c.dataset && c.dataset.taskId); },
+    querySelector(sel) { return null; },
+    querySelectorAll(sel) { return []; },
     addEventListener(evt, fn) { listeners[evt] = fn; },
     dispatchEvent(evt) { if (listeners[evt.type]) listeners[evt.type](evt); },
-    closest(sel) { return el; },
+    closest(sel) {
+      if (sel.includes('th.sortable')) {
+        return (el.className && el.className.includes('sortable')) ? el : null;
+      }
+      return el;
+    },
+    get value() {
+      if (tag.toLowerCase() === 'select') {
+        const opt = children[el.selectedIndex];
+        return opt ? opt.value : '';
+      }
+      return text;
+    },
+    set value(v) {
+      if (tag.toLowerCase() === 'select') {
+        const idx = children.findIndex(o => o.value === v);
+        el.selectedIndex = idx >= 0 ? idx : 0;
+      } else {
+        text = String(v);
+      }
+    },
     set textContent(v) { text = String(v); children.length = 0; },
     get textContent() { return text; },
   };
   return el;
 }
 
-const tbody = makeElement('tbody');
-tbody.id = 'task-table-body';
+function setupHarness(htmlPath, initialSearch = '') {
+  const src = fs.readFileSync(htmlPath, 'utf8');
+  const script = src.slice(src.indexOf('<script>') + 8, src.lastIndexOf('</script>'));
 
-const thead = makeElement('thead');
-thead.id = 'task-table-head';
+  const tbody = makeElement('tbody');
+  tbody.id = 'task-table-body';
 
-const thPrio = makeElement('th');
-thPrio.className = 'sortable';
-thPrio.dataset.col = 'priority';
+  const thead = makeElement('thead');
+  thead.id = 'task-table-head';
 
-const els = {
-  'task-table-body': tbody,
-  'task-table-head': thead,
-  'queue-count': makeElement('span'),
-};
+  const cols = ['id', 'project', 'status', 'priority', 'claim_count', 'worker'];
+  const headers = {};
+  for (const col of cols) {
+    const th = makeElement('th');
+    th.className = 'sortable';
+    th.dataset.col = col;
+    thead.appendChild(th);
+    headers[col] = th;
+  }
 
-const document = {
-  activeElement: null,
-  getElementById: id => els[id] || null,
-  querySelectorAll: sel => (sel.includes('th') ? [thPrio] : []),
-  querySelector: () => null,
-  addEventListener() {},
-  createElement: makeElement,
-};
-
-const requestedURLs = [];
-const fetchStub = async (url) => {
-  requestedURLs.push(url);
-  return {
-    ok: true,
-    status: 200,
-    headers: { get: () => 'application/json' },
-    text: async () => '[]',
-    json: async () => [],
+  const els = {
+    'task-table-body': tbody,
+    'task-table-head': thead,
+    'queue-count': makeElement('span'),
+    'filter-project': makeElement('select'),
+    'filter-priority': makeElement('input'),
+    'filter-search': makeElement('input'),
+    'filter-worker': makeElement('select'),
+    'form-project': makeElement('input'),
+    'form-project-list': makeElement('datalist'),
   };
-};
 
-const api = new Function(
-  'document', 'location', 'history', 'window', 'fetch', 'console',
-  'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'AbortSignal',
-  script + '\nreturn { setupTableSorting, sort };'
-)(
-  document, { pathname: '/ui', search: '', hash: '' },
-  { pushState() {}, replaceState() {} }, { addEventListener() {} },
-  fetchStub, { log() {}, error() {} },
-  () => 0, () => {}, () => 1, () => {},
-  Date,
-  { timeout: () => new AbortController().signal }
-);
+  const allThs = Object.values(headers);
+  const document = {
+    activeElement: null,
+    getElementById: id => els[id] || null,
+    querySelectorAll: sel => (sel.includes('th') ? allThs : []),
+    querySelector: sel => null,
+    addEventListener() {},
+    createElement: makeElement,
+  };
 
-(async () => {
-  api.setupTableSorting();
+  const requestedURLs = [];
+  const fetchStub = async (url) => {
+    requestedURLs.push(url);
+    return {
+      ok: true,
+      status: 200,
+      headers: { get: () => 'application/json' },
+      text: async () => '[]',
+      json: async () => [],
+    };
+  };
 
-  await api.sort('priority');
-  const url1 = requestedURLs[requestedURLs.length - 1];
+  const loc = { pathname: '/ui', search: initialSearch, hash: '' };
+  const replacedStates = [];
+  const historyObj = {
+    pushState(state, title, url) {
+      const qIdx = url.indexOf('?');
+      loc.search = qIdx >= 0 ? url.slice(qIdx) : '';
+    },
+    replaceState(state, title, url) {
+      replacedStates.push({ state, title, url });
+      const qIdx = url.indexOf('?');
+      loc.search = qIdx >= 0 ? url.slice(qIdx) : '';
+    },
+  };
 
-  await api.sort('priority');
-  const url2 = requestedURLs[requestedURLs.length - 1];
+  const api = new Function(
+    'document', 'location', 'history', 'window', 'fetch', 'console',
+    'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'AbortSignal',
+    script + '\nreturn { setupTableSorting, sort, applyURLState, readURLState, currentURLState, syncURL, loadTasks };'
+  )(
+    document, loc,
+    historyObj, { addEventListener() {} },
+    fetchStub, { log() {}, error() {} },
+    () => 0, () => {}, () => 1, () => {},
+    Date,
+    { timeout: () => new AbortController().signal }
+  );
 
-  await api.sort('claim_count');
-  const url3 = requestedURLs[requestedURLs.length - 1];
+  return { api, headers, location: loc, requestedURLs, replacedStates };
+}
 
-  process.stdout.write(JSON.stringify({ url1, url2, url3 }));
-})();
+if (require.main === module) {
+  (async () => {
+    const { api, requestedURLs } = setupHarness(process.argv[2]);
+    api.setupTableSorting();
+
+    await api.sort('priority');
+    const url1 = requestedURLs[requestedURLs.length - 1];
+
+    await api.sort('priority');
+    const url2 = requestedURLs[requestedURLs.length - 1];
+
+    await api.sort('claim_count');
+    const url3 = requestedURLs[requestedURLs.length - 1];
+
+    process.stdout.write(JSON.stringify({ url1, url2, url3 }));
+  })();
+}
+
+module.exports = { setupHarness, makeElement };

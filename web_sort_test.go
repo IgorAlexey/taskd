@@ -54,6 +54,51 @@ func TestWebUITableSorting(t *testing.T) {
 		t.Errorf("url3 = %q, want sort=claim_count&order=asc", got.URL3)
 	}
 }
+func TestWebUISortURLState(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/table_sort_url.js", "web/index.html").CombinedOutput()
+	if err != nil {
+		t.Fatalf("table sort url harness failed: %v\noutput:\n%s", err, out)
+	}
+
+	var got struct {
+		InitialAriaSort  string `json:"initialAriaSort"`
+		InitialLoadedURL string `json:"initialLoadedURL"`
+		ClickedSearch1   string `json:"clickedSearch1"`
+		ClickedAriaSort1 string `json:"clickedAriaSort1"`
+		ClickedSearch2   string `json:"clickedSearch2"`
+		ClickedAriaSort2 string `json:"clickedAriaSort2"`
+		ReplaceCount     int    `json:"replaceCount"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.InitialAriaSort != "descending" {
+		t.Errorf("initial aria-sort = %q, want descending", got.InitialAriaSort)
+	}
+	if !strings.Contains(got.InitialLoadedURL, "sort=priority") || !strings.Contains(got.InitialLoadedURL, "order=desc") {
+		t.Errorf("initial loaded URL = %q, want sort=priority&order=desc", got.InitialLoadedURL)
+	}
+	if !strings.Contains(got.ClickedSearch1, "sort=priority") || !strings.Contains(got.ClickedSearch1, "order=asc") {
+		t.Errorf("clickedSearch1 = %q, want sort=priority&order=asc", got.ClickedSearch1)
+	}
+	if got.ClickedAriaSort1 != "ascending" {
+		t.Errorf("clickedAriaSort1 = %q, want ascending", got.ClickedAriaSort1)
+	}
+	if !strings.Contains(got.ClickedSearch2, "sort=claim_count") || !strings.Contains(got.ClickedSearch2, "order=asc") {
+		t.Errorf("clickedSearch2 = %q, want sort=claim_count&order=asc", got.ClickedSearch2)
+	}
+	if got.ClickedAriaSort2 != "ascending" {
+		t.Errorf("clickedAriaSort2 = %q, want ascending", got.ClickedAriaSort2)
+	}
+	if got.ReplaceCount < 2 {
+		t.Errorf("replaceCount = %d, want at least 2", got.ReplaceCount)
+	}
+}
 
 func TestServerTasksSort(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)

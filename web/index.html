@@ -931,7 +931,13 @@
     let lastRenderedTasksURL = '';
     let sortCol = '';
     let sortDir = 'asc';
-
+    const SORT_COLS = ['id', 'project', 'status', 'priority', 'claim_count', 'worker'];
+    function cleanSortCol(val) {
+      return (val && typeof val === 'string' && SORT_COLS.includes(val)) ? val : '';
+    }
+    function cleanSortDir(val) {
+      return val === 'desc' ? 'desc' : (val === 'asc' ? 'asc' : '');
+    }
     function updateSortHeaders() {
       const ths = document.querySelectorAll('th.sortable');
       for (const th of ths) {
@@ -945,6 +951,8 @@
     }
 
     function sort(col) {
+      col = cleanSortCol(col);
+      if (!col) return;
       if (sortCol === col) {
         sortDir = (sortDir === 'asc' ? 'desc' : 'asc');
       } else {
@@ -953,6 +961,7 @@
       }
       updateSortHeaders();
       currentPage = 1;
+      syncURL(false);
       return loadTasks();
     }
 
@@ -985,12 +994,15 @@
     let pendingProject = '';
     function readURLState() {
       const q = new URLSearchParams(location.search);
+      const sort = cleanSortCol(q.get('sort'));
       return {
         project: q.get('project') || '',
         status: q.get('status') || '',
         priority: q.get('priority') || '',
         worker: q.has('worker') ? q.get('worker') : null,
         q: q.get('q') || '',
+        sort: sort,
+        order: sort ? (cleanSortDir(q.get('order')) || 'asc') : '',
         task: q.get('task') || '',
         page: q.get('page') || ''
       };
@@ -1025,6 +1037,8 @@
         priority: cleanPriority(prioEl ? prioEl.value : ''),
         worker: getWorkerFilter(),
         q: searchEl ? searchEl.value.trim() : '',
+        sort: sortCol || '',
+        order: sortCol ? sortDir : '',
         task: selectedTaskId || ''
       };
       if (currentPage > 1) state.page = String(currentPage);
@@ -1039,6 +1053,8 @@
       if (state.priority) q.set('priority', state.priority);
       if (state.worker !== null && state.worker !== undefined) q.set('worker', state.worker);
       if (state.q) q.set('q', state.q);
+      if (state.sort) q.set('sort', state.sort);
+      if (state.order) q.set('order', state.order);
       if (state.task) q.set('task', state.task);
       if (state.page) q.set('page', state.page);
       const query = q.toString();
@@ -1165,6 +1181,9 @@
       selectedTaskId = state.task || null;
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
+      sortCol = state.sort;
+      sortDir = state.order || 'asc';
+      updateSortHeaders();
       if (!selectedTaskId) resetTaskDetails();
       else loadTaskDetails(selectedTaskId);
       syncFilterProjectToForm();
