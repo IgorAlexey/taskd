@@ -670,8 +670,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, cmd
 				}
 				if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-					cmd := m.setMsg("cannot complete actively leased task")
-					return m, cmd
+					if m.cfg.worker == "" {
+						cmd := m.setMsg("worker not configured")
+						return m, cmd
+					}
+					if t.Worker != m.cfg.worker {
+						cmd := m.setMsg("task leased by another worker")
+						return m, cmd
+					}
+					m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/done", t, map[string]any{"worker": m.cfg.worker})
+					return m, nil
 				}
 				m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
 				return m, nil
