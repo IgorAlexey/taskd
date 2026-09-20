@@ -3024,7 +3024,11 @@
         clearFormErrors();
         showError(null);
         const createdId = (res && res.id) || customId;
-        if (createdId) showFormSuccess(createdId);
+        if (createdId) {
+          showFormSuccess(createdId);
+          selectedTaskId = createdId;
+          syncURL(true);
+        }
         if (bodyEl) {
           bodyEl.focus();
         } else if (projEl) {

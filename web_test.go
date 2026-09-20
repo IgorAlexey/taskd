@@ -937,3 +937,33 @@ func TestWebUIKeyboardShortcuts(t *testing.T) {
 		t.Fatal("expected isInputTarget to check editable inputs")
 	}
 }
+
+func TestWebSubmitTaskSelectsNewTask(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/submit_select.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("harness failed: %v", err)
+	}
+
+	var got struct {
+		SelectedTaskId    string `json:"selectedTaskId"`
+		DetailsFetchCount int    `json:"detailsFetchCount"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if got.SelectedTaskId != "task-created-456" {
+		t.Errorf("expected selectedTaskId 'task-created-456', got %q", got.SelectedTaskId)
+	}
+	if got.DetailsFetchCount != 1 {
+		t.Errorf("expected exactly 1 details fetch without duplication, got %d", got.DetailsFetchCount)
+	}
+}
