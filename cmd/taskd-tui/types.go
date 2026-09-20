@@ -171,6 +171,11 @@ type row1Bounds struct {
 	proj   [2]int
 	worker [2]int
 }
+type footerTarget struct {
+	action string
+	start  int
+	end    int
+}
 type paneLayout struct {
 	tableTop   int
 	tableRows  int

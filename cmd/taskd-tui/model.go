@@ -404,7 +404,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseClickMsg:
-		if msg.Button == tea.MouseLeft {
+		if msg.Button == tea.MouseLeft && (m.mode == modeTable || m.mode == modeDetail || m.mode == modeZoom) {
 			if msg.Y == headerRows {
 				bounds := m.row1Bounds()
 				for _, tab := range bounds.tabs {
@@ -423,6 +423,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return m, m.rescope()
 				}
 				return m, nil
+			}
+			if m.height > 0 && msg.Y == m.height-1 {
+				return m.handleFooterClick(msg.X)
 			}
 
 			panes := m.panes()
@@ -517,19 +520,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case modeDetail, modeZoom:
 			switch {
 			case msg.Code == tea.KeyTab || msg.Code == tea.KeyEscape:
-				m.mode = modeTable
-				return m, nil
+				return m.actionBack()
 			case msg.Text == "z":
-				if m.mode == modeZoom {
-					m.mode = modeTable
-				} else {
-					m.mode = modeZoom
-				}
-				m.clamp()
-				m.detail.SetHeight(m.detailViewportHeight())
-				return m, nil
+				return m.actionToggleZoom()
 			case msg.Text == "q":
-				return m, tea.Quit
+				return m.actionQuit()
 			case msg.Text == "j":
 				m.detail.ScrollDown(1)
 				return m, nil
@@ -549,9 +544,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.detail.HalfPageUp()
 				return m, nil
 			case msg.Text == "?":
-				m.help = newHelpModel(m.width, m.height, m.mode, m.theme)
-				m.mode = modeHelp
-				return m, nil
+				return m.actionHelp()
 			default:
 				if m, cmd, ok := m.handleAction(msg); ok {
 					return m, cmd
@@ -654,17 +647,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mode = modeDetail
 				return m, nil
 			case msg.Text == "z":
-				m.mode = modeZoom
-				m.clamp()
-				m.detail.SetHeight(m.detailViewportHeight())
-				return m, nil
+				return m.actionToggleZoom()
 			case msg.Text == "r":
 				poll := m.startPoll()
 				return m, poll
 			case msg.Text == "?":
-				m.help = newHelpModel(m.width, m.height, m.mode, m.theme)
-				m.mode = modeHelp
-				return m, nil
+				return m.actionHelp()
 			}
 		}
 	default:
@@ -694,52 +682,36 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 
 	switch key {
 	case "n":
-		var cmd tea.Cmd
-		m.form, cmd = newCreateForm(m.project)
-		m.form.fit(m.width, m.height, m.theme)
-		m.mode = modeForm
-		m.formSeq = 0
+		m, cmd := m.actionCreate()
 		return m, cmd, true
-
-	case "e", "c", "u", "t", "b", "K", "D", "x", "y", "Y", "+", "-", "=":
+	case "e":
+		m, cmd := m.actionEdit()
+		return m, cmd, true
+	case "+", "=":
+		m, cmd := m.actionPriRaise()
+		return m, cmd, true
+	case "-":
+		m, cmd := m.actionPriLower()
+		return m, cmd, true
+	case "D":
+		m, cmd := m.actionDelete()
+		return m, cmd, true
+	case "x":
+		m, cmd := m.actionComplete()
+		return m, cmd, true
+	case "y":
+		m, cmd := m.actionCopyID()
+		return m, cmd, true
+	case "Y":
+		m, cmd := m.actionCopyBody()
+		return m, cmd, true
+	case "c", "u", "t", "b", "K":
 		t, ok := m.selected()
 		if !ok {
 			return m, nil, true
 		}
 		switch key {
-		case "e":
-			if t.Status == "done" {
-				cmd := m.setMsg("cannot edit done task")
-				return m, cmd, true
-			}
-			if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-				cmd := m.setMsg("cannot edit actively leased task")
-				return m, cmd, true
-			}
-			var cmd tea.Cmd
-			m.form, cmd = newEditForm(t)
-			m.form.fit(m.width, m.height, m.theme)
-			m.mode = modeForm
-			m.formSeq = 0
-			return m, cmd, true
-		case "+", "=":
-			if t.Priority == 0 {
-				return m, nil, true
-			}
-			pri := t.Priority - 1
-			if pri < 1 {
-				pri = 1
-			}
-			if pri != t.Priority {
-				return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri)), true
-			}
-			return m, nil, true
-		case "-":
-			pri := t.Priority + 1
-			if pri != t.Priority {
-				return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri)), true
-			}
-			return m, nil, true
+
 		case "c":
 			if t.Status != "pending" {
 				cmd := m.setMsg("task is not pending")
@@ -794,40 +766,7 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 			}
 			m.confirmTask("Kick", "kicked", "POST", "/tasks/"+t.ID+"/kick", t, nil)
 			return m, nil, true
-		case "D":
-			if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-				cmd := m.setMsg("cannot delete actively leased task")
-				return m, cmd, true
-			}
-			path := "/tasks/" + t.ID
-			if t.Status == "done" {
-				path += "?force=1"
-			}
-			m.confirmTask("Delete", "deleted", "DELETE", path, t, nil)
-			return m, nil, true
-		case "x":
-			if t.Status == "done" {
-				cmd := m.setMsg("task is already done")
-				return m, cmd, true
-			}
-			if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
-				if m.cfg.worker == "" {
-					cmd := m.setMsg("worker not configured")
-					return m, cmd, true
-				}
-				if t.Worker != m.cfg.worker {
-					cmd := m.setMsg("task leased by another worker")
-					return m, cmd, true
-				}
-				m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/done", t, map[string]any{"worker": m.cfg.worker})
-				return m, nil, true
-			}
-			m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
-			return m, nil, true
-		case "y":
-			return m, copyToClipboard(t.ID), true
-		case "Y":
-			return m, copyToClipboard(t.Body), true
+
 		}
 	}
 	return m, nil, false
@@ -1216,4 +1155,199 @@ func cycleWorker(current string, workers []string, delta int) string {
 		return ""
 	}
 	return workers[idx-1]
+}
+func (m model) handleFooterClick(x int) (tea.Model, tea.Cmd) {
+	targets := m.footerTargets()
+	w := m.width
+	frw := lipgloss.Width(m.footRight())
+	var footLeftW int
+	items := m.footerItems()
+	for _, it := range items {
+		footLeftW += ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1]) + 2
+	}
+	if footLeftW > 0 {
+		footLeftW -= 2
+	}
+	maxLeft := w
+	if footLeftW+frw+1 > w {
+		maxLeft = max(0, w-frw-1)
+	}
+	if x >= maxLeft {
+		return m, nil
+	}
+	for _, target := range targets {
+		if x >= target.start && x < target.end {
+			switch target.action {
+			case "create":
+				return m.actionCreate()
+			case "edit":
+				return m.actionEdit()
+			case "pri_raise":
+				return m.actionPriRaise()
+			case "pri_lower":
+				return m.actionPriLower()
+			case "delete":
+				return m.actionDelete()
+			case "complete":
+				return m.actionComplete()
+			case "copy_id":
+				return m.actionCopyID()
+			case "copy_body":
+				return m.actionCopyBody()
+			case "zoom":
+				return m.actionToggleZoom()
+			case "quit":
+				return m.actionQuit()
+			case "help":
+				return m.actionHelp()
+			case "back":
+				return m.actionBack()
+			case "project":
+				return m.cycleProject()
+			case "worker":
+				m.worker = cycleWorker(m.worker, m.workers, 1)
+				return m, m.rescope()
+			}
+		}
+	}
+	return m, nil
+}
+
+func (m model) actionCreate() (model, tea.Cmd) {
+	var cmd tea.Cmd
+	m.form, cmd = newCreateForm(m.project)
+	m.form.fit(m.width, m.height, m.theme)
+	m.mode = modeForm
+	m.formSeq = 0
+	return m, cmd
+}
+
+func (m model) actionEdit() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status == "done" {
+		cmd := m.setMsg("cannot edit done task")
+		return m, cmd
+	}
+	if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+		cmd := m.setMsg("cannot edit actively leased task")
+		return m, cmd
+	}
+	var cmd tea.Cmd
+	m.form, cmd = newEditForm(t)
+	m.form.fit(m.width, m.height, m.theme)
+	m.mode = modeForm
+	m.formSeq = 0
+	return m, cmd
+}
+
+func (m model) actionPriRaise() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok || t.Priority == 0 {
+		return m, nil
+	}
+	pri := t.Priority - 1
+	if pri < 1 {
+		pri = 1
+	}
+	if pri != t.Priority {
+		return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
+	}
+	return m, nil
+}
+
+func (m model) actionPriLower() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	pri := t.Priority + 1
+	if pri != t.Priority {
+		return m, actCmd(m.client, "PATCH", "/tasks/"+t.ID, map[string]any{"priority": pri}, fmt.Sprintf("priority set to %d", pri))
+	}
+	return m, nil
+}
+
+func (m model) actionDelete() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+		cmd := m.setMsg("cannot delete actively leased task")
+		return m, cmd
+	}
+	path := "/tasks/" + t.ID
+	if t.Status == "done" {
+		path += "?force=1"
+	}
+	m.confirmTask("Delete", "deleted", "DELETE", path, t, nil)
+	return m, nil
+}
+
+func (m model) actionComplete() (model, tea.Cmd) {
+	t, ok := m.selected()
+	if !ok {
+		return m, nil
+	}
+	if t.Status == "done" {
+		cmd := m.setMsg("task is already done")
+		return m, cmd
+	}
+	if t.Status == "leased" && t.LeaseExpires >= m.now.Unix() {
+		if m.cfg.worker == "" {
+			cmd := m.setMsg("worker not configured")
+			return m, cmd
+		}
+		if t.Worker != m.cfg.worker {
+			cmd := m.setMsg("task leased by another worker")
+			return m, cmd
+		}
+		m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/done", t, map[string]any{"worker": m.cfg.worker})
+		return m, nil
+	}
+	m.confirmTask("Complete", "completed", "POST", "/tasks/"+t.ID+"/close", t, nil)
+	return m, nil
+}
+
+func (m model) actionCopyID() (model, tea.Cmd) {
+	if t, ok := m.selected(); ok {
+		return m, copyToClipboard(t.ID)
+	}
+	return m, nil
+}
+
+func (m model) actionCopyBody() (model, tea.Cmd) {
+	if t, ok := m.selected(); ok {
+		return m, copyToClipboard(t.Body)
+	}
+	return m, nil
+}
+
+func (m model) actionToggleZoom() (model, tea.Cmd) {
+	if m.mode == modeZoom {
+		m.mode = modeTable
+	} else {
+		m.mode = modeZoom
+	}
+	m.clamp()
+	m.detail.SetHeight(m.detailViewportHeight())
+	return m, nil
+}
+
+func (m model) actionHelp() (model, tea.Cmd) {
+	m.help = newHelpModel(m.width, m.height, m.mode, m.theme)
+	m.mode = modeHelp
+	return m, nil
+}
+
+func (m model) actionQuit() (model, tea.Cmd) {
+	return m, tea.Quit
+}
+
+func (m model) actionBack() (model, tea.Cmd) {
+	m.mode = modeTable
+	return m, nil
 }

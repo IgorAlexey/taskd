@@ -774,19 +774,7 @@ func (m model) View() tea.View {
 		}
 	}
 
-	// 8. Footer (1 row)
-	pos := 0
-	if len(m.shown) > 0 && m.cursor >= 0 {
-		pos = m.cursor + 1
-	}
-	posStr := fmt.Sprintf("%d/%d", pos, len(m.shown))
-	if m.more && m.total > len(m.tasks) {
-		posStr += fmt.Sprintf("  %d of %d", len(m.tasks), m.total)
-	}
-	if m.pages > 1 {
-		posStr += "  paged (g live)"
-	}
-	footRight := m.theme.dim.Render(posStr)
+	footRight := m.footRight()
 	frw := lipgloss.Width(footRight)
 	var footLeft string
 	if m.msg != "" {
@@ -798,13 +786,7 @@ func (m model) View() tea.View {
 	} else if m.mode == modeSearch {
 		footLeft = m.theme.accent.Render("/") + m.query + m.theme.accent.Render(m.glyph.caret)
 	} else if m.mode == modeDetail || m.mode == modeZoom {
-		items := [][2]string{
-			{"j/k", "scroll"},
-			{"Tab", "back"},
-			{"z", "zoom"},
-			{"y/Y", "copy"},
-			{"q", "quit"},
-		}
+		items := m.footerItems()
 		var parts []string
 		for _, it := range items {
 			parts = append(parts, m.theme.accent.Render(it[0])+" "+m.theme.dim.Render(it[1]))
@@ -817,19 +799,7 @@ func (m model) View() tea.View {
 		q := trunc(m.query, max(0, w-frw-overhead), m.glyph.ellipsis)
 		footLeft = fmt.Sprintf("%s \"%s\" %s", tag, m.theme.bold.Render(q), hint)
 	} else {
-		items := [][2]string{
-			{"j/k", "move"},
-			{"0-4", "filter"},
-			{"p", "project"},
-			{"w", "worker"},
-			{"n", "new"},
-			{"e", "edit"},
-			{"+/-", "pri"},
-			{"D", "delete"},
-			{"y/Y", "copy"},
-			{"z", "zoom"},
-			{"q", "quit"},
-		}
+		items := m.footerItems()
 		var parts []string
 		for _, it := range items {
 			parts = append(parts, m.theme.accent.Render(it[0])+" "+m.theme.dim.Render(it[1]))
@@ -920,4 +890,95 @@ func (m model) emptyState() string {
 		return fmt.Sprintf("No task matches %q (0 of %d). Press 'Esc' to clear.", m.query, corpus)
 	}
 	return "No tasks match filter."
+}
+func (m model) footerItems() [][2]string {
+	if m.mode == modeDetail || m.mode == modeZoom {
+		return [][2]string{
+			{"j/k", "scroll"},
+			{"Tab", "back"},
+			{"z", "zoom"},
+			{"y/Y", "copy"},
+			{"q", "quit"},
+			{"?", "help"},
+		}
+	}
+	return [][2]string{
+		{"j/k", "move"},
+		{"0-4", "filter"},
+		{"p", "project"},
+		{"w", "worker"},
+		{"n", "new"},
+		{"e", "edit"},
+		{"+/-", "pri"},
+		{"D", "delete"},
+		{"y/Y", "copy"},
+		{"x", "complete"},
+		{"z", "zoom"},
+		{"q", "quit"},
+		{"?", "help"},
+	}
+}
+
+func (m model) footRight() string {
+	pos := 0
+	if len(m.shown) > 0 && m.cursor >= 0 {
+		pos = m.cursor + 1
+	}
+	posStr := fmt.Sprintf("%d/%d", pos, len(m.shown))
+	if m.more && m.total > len(m.tasks) {
+		posStr += fmt.Sprintf("  %d of %d", len(m.tasks), m.total)
+	}
+	if m.pages > 1 {
+		posStr += "  paged (g live)"
+	}
+	return m.theme.dim.Render(posStr)
+}
+
+func (m model) footerTargets() []footerTarget {
+	if m.msg != "" || m.mode == modeSearch || m.query != "" {
+		return nil
+	}
+	if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+		return nil
+	}
+	items := m.footerItems()
+	var targets []footerTarget
+	x := 0
+	for _, it := range items {
+		w := ansi.StringWidth(it[0]) + 1 + ansi.StringWidth(it[1])
+		switch it[0] {
+		case "p":
+			targets = append(targets, footerTarget{action: "project", start: x, end: x + w})
+		case "w":
+			targets = append(targets, footerTarget{action: "worker", start: x, end: x + w})
+		case "n":
+			targets = append(targets, footerTarget{action: "create", start: x, end: x + w})
+		case "e":
+			targets = append(targets, footerTarget{action: "edit", start: x, end: x + w})
+		case "+/-":
+			targets = append(targets,
+				footerTarget{action: "pri_raise", start: x, end: x + 2},
+				footerTarget{action: "pri_lower", start: x + 2, end: x + w},
+			)
+		case "D":
+			targets = append(targets, footerTarget{action: "delete", start: x, end: x + w})
+		case "x":
+			targets = append(targets, footerTarget{action: "complete", start: x, end: x + w})
+		case "y/Y":
+			targets = append(targets,
+				footerTarget{action: "copy_id", start: x, end: x + 2},
+				footerTarget{action: "copy_body", start: x + 2, end: x + w},
+			)
+		case "z":
+			targets = append(targets, footerTarget{action: "zoom", start: x, end: x + w})
+		case "q":
+			targets = append(targets, footerTarget{action: "quit", start: x, end: x + w})
+		case "?":
+			targets = append(targets, footerTarget{action: "help", start: x, end: x + w})
+		case "Tab":
+			targets = append(targets, footerTarget{action: "back", start: x, end: x + w})
+		}
+		x += w + 2
+	}
+	return targets
 }

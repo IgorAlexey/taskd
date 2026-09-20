@@ -1,6 +1,9 @@
 package main
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -378,5 +381,194 @@ func TestClickScrollbarTrack(t *testing.T) {
 		if shortModel.cursor != 2 {
 			t.Fatalf("expected row 2 selected when no scrollbar, got cursor %d", shortModel.cursor)
 		}
+	}
+}
+
+func TestClickFooterShortcuts(t *testing.T) {
+	m := setupTestModel()
+	m.width = 140
+
+	renderedLines := strings.Split(m.View().Content, "\n")
+	if len(renderedLines) == 0 {
+		t.Fatal("expected rendered lines")
+	}
+	footerLine := ansi.Strip(renderedLines[len(renderedLines)-1])
+
+	tokens := []string{
+		"n new",
+		"e edit",
+		"+/- pri",
+		"D delete",
+		"x complete",
+		"y/Y copy",
+		"z zoom",
+		"q quit",
+		"? help",
+	}
+
+	for _, tok := range tokens {
+		if !strings.Contains(footerLine, tok) {
+			t.Fatalf("footer missing token %q in:\n%s", tok, footerLine)
+		}
+	}
+
+	clickAt := func(md model, x int) (model, tea.Cmd) {
+		res, cmd := md.Update(tea.MouseClickMsg{
+			X:      x,
+			Y:      md.height - 1,
+			Button: tea.MouseLeft,
+		})
+		return res.(model), cmd
+	}
+
+	idxN := strings.Index(footerLine, "n new")
+	modN, _ := clickAt(m, idxN)
+	if modN.mode != modeForm || modN.form.editing {
+		t.Fatalf("expected create form mode after clicking 'n new', got mode %v", modN.mode)
+	}
+
+	idxE := strings.Index(footerLine, "e edit")
+	modE, _ := clickAt(m, idxE)
+	if modE.mode != modeForm || !modE.form.editing {
+		t.Fatalf("expected edit form mode after clicking 'e edit', got mode %v", modE.mode)
+	}
+
+	idxD := strings.Index(footerLine, "D delete")
+	modD, _ := clickAt(m, idxD)
+	if modD.mode != modeConfirm || modD.confirm.button != "delete" {
+		t.Fatalf("expected confirm delete mode after clicking 'D delete', got mode %v confirm %+v", modD.mode, modD.confirm)
+	}
+
+	idxX := strings.Index(footerLine, "x complete")
+	modX, _ := clickAt(m, idxX)
+	if modX.mode != modeConfirm || modX.confirm.button != "complete" {
+		t.Fatalf("expected confirm complete mode after clicking 'x complete', got mode %v confirm %+v", modX.mode, modX.confirm)
+	}
+
+	idxZ := strings.Index(footerLine, "z zoom")
+	modZ, _ := clickAt(m, idxZ)
+	if modZ.mode != modeZoom {
+		t.Fatalf("expected zoom mode after clicking 'z zoom', got mode %v", modZ.mode)
+	}
+	footerZoom := ansi.Strip(strings.Split(modZ.View().Content, "\n")[len(renderedLines)-1])
+	idxZInZoom := strings.Index(footerZoom, "z zoom")
+	modZBack, _ := clickAt(modZ, idxZInZoom)
+	if modZBack.mode != modeTable {
+		t.Fatalf("expected table mode after clicking 'z zoom' again, got mode %v", modZBack.mode)
+	}
+
+	idxHelp := strings.Index(footerLine, "? help")
+	modHelp, _ := clickAt(m, idxHelp)
+	if modHelp.mode != modeHelp {
+		t.Fatalf("expected help mode after clicking '? help', got mode %v", modHelp.mode)
+	}
+
+	idxPri := strings.Index(footerLine, "+/- pri")
+	var lastPatchedPri int
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch && strings.HasPrefix(r.URL.Path, "/tasks/") {
+			var body map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			if p, ok := body["priority"].(float64); ok {
+				lastPatchedPri = int(p)
+			}
+			w.WriteHeader(http.StatusOK)
+		}
+	}))
+	defer ts.Close()
+
+	mPri := setupTestModel()
+	mPri.width = 140
+	mPri.client = newClient(ts.URL)
+	mPri.tasks[0].Priority = 5
+	_, cmdPriUp := clickAt(mPri, idxPri)
+	if cmdPriUp == nil {
+		t.Fatal("expected actCmd after clicking '+' in priority shortcut")
+	}
+	cmdPriUp()
+	if lastPatchedPri != 4 {
+		t.Fatalf("expected priority 4 after clicking '+', got %d", lastPatchedPri)
+	}
+	_, cmdPriDown := clickAt(mPri, idxPri+2)
+	if cmdPriDown == nil {
+		t.Fatal("expected actCmd after clicking '-' in priority shortcut")
+	}
+	cmdPriDown()
+	if lastPatchedPri != 6 {
+		t.Fatalf("expected priority 6 after clicking '-', got %d", lastPatchedPri)
+	}
+
+	idxCopy := strings.Index(footerLine, "y/Y copy")
+	_, cmdCopyID := clickAt(m, idxCopy)
+	if cmdCopyID == nil {
+		t.Fatal("expected clipboard cmd after clicking 'y' in copy shortcut")
+	}
+	_, cmdCopyBody := clickAt(m, idxCopy+2)
+	if cmdCopyBody == nil {
+		t.Fatal("expected clipboard cmd after clicking 'Y' in copy shortcut")
+	}
+	_, cmdCopyLabel := clickAt(m, idxCopy+4)
+	if cmdCopyLabel == nil {
+		t.Fatal("expected clipboard cmd after clicking label in copy shortcut")
+	}
+
+	idxP := strings.Index(footerLine, "p project")
+	modP, _ := clickAt(m, idxP)
+	if modP.project == m.project && len(m.projects) > 0 {
+		t.Fatalf("expected project to cycle on click, got %q", modP.project)
+	}
+
+	idxW := strings.Index(footerLine, "w worker")
+	modW, _ := clickAt(m, idxW)
+	if modW.worker == m.worker && len(m.workers) > 0 {
+		t.Fatalf("expected worker to cycle on click, got %q", modW.worker)
+	}
+	idxJK := strings.Index(footerLine, "j/k move")
+	_, cmdJK := clickAt(m, idxJK)
+	if cmdJK != nil {
+		t.Fatal("expected no action when clicking 'j/k move' shortcut")
+	}
+
+	idxFilt := strings.Index(footerLine, "0-4 filter")
+	_, cmdFilt := clickAt(m, idxFilt)
+	if cmdFilt != nil {
+		t.Fatal("expected no action when clicking '0-4 filter' shortcut")
+	}
+
+	idxQ := strings.Index(footerLine, "q quit")
+	_, cmdQuit := clickAt(m, idxQ)
+	if cmdQuit == nil {
+		t.Fatal("expected quit cmd after clicking 'q quit'")
+	}
+	quitMsg := cmdQuit()
+	if _, ok := quitMsg.(tea.QuitMsg); !ok {
+		t.Fatalf("expected QuitMsg after clicking 'q quit', got %T (%v)", quitMsg, quitMsg)
+	}
+	idxGap := idxN + len("n new")
+	modGap, _ := clickAt(m, idxGap)
+	if modGap.mode != modeTable {
+		t.Fatalf("expected click in gap between tokens ignored, got mode %v", modGap.mode)
+	}
+
+	mZero := setupTestModel()
+	mZero.height = 0
+	modZero, _ := mZero.Update(tea.MouseClickMsg{
+		X:      idxN,
+		Y:      23,
+		Button: tea.MouseLeft,
+	})
+	if modZero.(model).mode != modeTable {
+		t.Fatalf("expected click ignored when height <= 0, got mode %v", modZero.(model).mode)
+	}
+
+	mHelp := setupTestModel()
+	mHelp.mode = modeHelp
+	modHelpClick, _ := mHelp.Update(tea.MouseClickMsg{
+		X:      idxD,
+		Y:      mHelp.height - 1,
+		Button: tea.MouseLeft,
+	})
+	if modHelpClick.(model).mode != modeHelp {
+		t.Fatalf("expected click on footer ignored in modeHelp, got mode %v", modHelpClick.(model).mode)
 	}
 }
