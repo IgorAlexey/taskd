@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -153,5 +154,78 @@ func TestTasksOrder(t *testing.T) {
 	defer pAscResp.Body.Close()
 	if pAscResp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200 for compatible cursor between default and order=asc, got %d", pAscResp.StatusCode)
+	}
+}
+
+func TestClaimOrderFIFO(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	zBody, _ := json.Marshal(map[string]any{"id": "z-task", "body": "z", "priority": 3, "project": "testfifo"})
+	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(zBody))
+	if err != nil {
+		t.Fatalf("create z-task failed: %v", err)
+	}
+	resp.Body.Close()
+
+	aBody, _ := json.Marshal(map[string]any{"id": "a-task", "body": "a", "priority": 3, "project": "testfifo"})
+	resp, err = http.Post(srv.URL+"/tasks", "application/json", bytes.NewReader(aBody))
+	if err != nil {
+		t.Fatalf("create a-task failed: %v", err)
+	}
+	resp.Body.Close()
+
+	claimPayload, _ := json.Marshal(map[string]string{"worker": "w1", "project": "testfifo"})
+
+	resp1, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimPayload))
+	if err != nil {
+		t.Fatalf("first claim failed: %v", err)
+	}
+	defer resp1.Body.Close()
+	var claim1 struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp1.Body).Decode(&claim1); err != nil {
+		t.Fatalf("decode first claim: %v", err)
+	}
+	if claim1.ID != "z-task" {
+		t.Fatalf("first claimed = %q, want z-task", claim1.ID)
+	}
+
+	resp2, err := http.Post(srv.URL+"/tasks/claim", "application/json", bytes.NewReader(claimPayload))
+	if err != nil {
+		t.Fatalf("second claim failed: %v", err)
+	}
+	defer resp2.Body.Close()
+	var claim2 struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(resp2.Body).Decode(&claim2); err != nil {
+		t.Fatalf("decode second claim: %v", err)
+	}
+	if claim2.ID != "a-task" {
+		t.Fatalf("second claimed = %q, want a-task", claim2.ID)
+	}
+
+	var (
+		selectID, ord, from int
+		detail              string
+	)
+	err = db.ro.QueryRow(`EXPLAIN QUERY PLAN SELECT id FROM tasks WHERE status='pending' AND project='testfifo' ORDER BY priority ASC, created_at ASC LIMIT 1`).
+		Scan(&selectID, &ord, &from, &detail)
+	if err != nil {
+		t.Fatalf("explain query plan: %v", err)
+	}
+	if strings.Contains(detail, "TEMP B-TREE") {
+		t.Fatalf("claim query uses temp b-tree: %s", detail)
+	}
+	if !strings.Contains(detail, "idx_tasks_pending_project") {
+		t.Fatalf("claim query does not use index: %s", detail)
 	}
 }

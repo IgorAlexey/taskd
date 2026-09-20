@@ -215,8 +215,8 @@ PRAGMA user_version = 8;`
 	if err := store.ro.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("query user_version failed: %v", err)
 	}
-	if version != 9 {
-		t.Fatalf("expected schema version 9, got %d", version)
+	if version < 9 {
+		t.Fatalf("expected schema version >= 9, got %d", version)
 	}
 
 	var indexExists int

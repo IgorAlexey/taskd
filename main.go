@@ -74,7 +74,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10}
 
 const schemaVersion = len(migrations) + 1
 
@@ -329,8 +329,8 @@ func openRW(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("unsupported schema version %d (this binary supports %d)", version, schemaVersion)
 	}
 	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
-CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, id ASC) WHERE status = 'pending';
-CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, id ASC) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';
 CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks (project, status, priority ASC);
 CREATE INDEX IF NOT EXISTS idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;
@@ -641,6 +641,28 @@ func migrateV9(db *sql.DB) error {
 	stmts := []string{
 		"CREATE INDEX IF NOT EXISTS idx_tasks_done ON tasks (project) WHERE status = 'done';",
 		"PRAGMA user_version = 9;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+func migrateV10(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"DROP INDEX IF EXISTS idx_tasks_pending;",
+		"DROP INDEX IF EXISTS idx_tasks_pending_project;",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';",
+		"PRAGMA user_version = 10;",
 	}
 	for _, stmt := range stmts {
 		if _, err := tx.Exec(stmt); err != nil {
@@ -1420,7 +1442,7 @@ WHERE id = (
 			args = append(args, req.Project)
 		}
 		query += `
-  ORDER BY priority ASC, id ASC
+  ORDER BY priority ASC, created_at ASC
   LIMIT 1
 ) RETURNING id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, created_at`
 
