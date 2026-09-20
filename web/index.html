@@ -2924,8 +2924,21 @@
 
     function setupAutoRefresh() {
       const cb = document.getElementById('auto-refresh');
+      if (cb) {
+        try {
+          const saved = localStorage.getItem('taskd-auto-refresh');
+          if (saved !== null) {
+            cb.checked = saved === 'true';
+          }
+        } catch (_) {}
+        cb.onchange = () => {
+          try {
+            localStorage.setItem('taskd-auto-refresh', String(cb.checked));
+          } catch (_) {}
+          scheduleRefresh();
+        };
+      }
       scheduleRefresh();
-      if (cb) cb.onchange = setupAutoRefresh;
     }
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('popstate', () => {

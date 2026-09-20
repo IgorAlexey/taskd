@@ -894,3 +894,12 @@ func TestWebSubmitCtrlEnter(t *testing.T) {
 		t.Fatal("expected #form-body keydown listener for Ctrl+Enter or Cmd+Enter invoking submitTask in web/index.html")
 	}
 }
+func TestWebUIPersistAutoRefresh(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `localStorage.getItem('taskd-auto-refresh')`) {
+		t.Fatal("expected localStorage.getItem('taskd-auto-refresh') in web/index.html")
+	}
+	if !strings.Contains(ui, `localStorage.setItem('taskd-auto-refresh', String(`) {
+		t.Fatal("expected localStorage.setItem('taskd-auto-refresh', ...) in web/index.html")
+	}
+}
