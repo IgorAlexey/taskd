@@ -806,7 +806,7 @@ func (m model) View() tea.View {
 			{"j/k", "scroll"},
 			{"Tab", "back"},
 			{"z", "zoom"},
-			{"Y", "copy"},
+			{"y/Y", "copy"},
 			{"q", "quit"},
 		}
 		var parts []string
@@ -830,7 +830,7 @@ func (m model) View() tea.View {
 			{"e", "edit"},
 			{"+/-", "pri"},
 			{"D", "delete"},
-			{"Y", "copy"},
+			{"y/Y", "copy"},
 			{"z", "zoom"},
 			{"q", "quit"},
 		}
