@@ -5,69 +5,78 @@ import (
 )
 
 type glyphs struct {
-	pending string
-	leased  string
-	done    string
-	buried  string
-	refresh string
-	branch  string
-	host    string
-	server  string
-	dot     string
-	db      string
-	folder  string
-	hash    string
-	pillL   string
-	pillR   string
-	cursor  string
-	barOn   string
-	barOff  string
-	track   string
-	thumb   string
+	pending  string
+	leased   string
+	done     string
+	buried   string
+	refresh  string
+	branch   string
+	host     string
+	server   string
+	dot      string
+	db       string
+	folder   string
+	hash     string
+	pillL    string
+	pillR    string
+	cursor   string
+	barOn    string
+	barOff   string
+	track    string
+	thumb    string
+	ellipsis string
+	rule     string
+	caret    string
 }
 
 var nerdGlyphs = glyphs{
-	pending: "\uf10c",
-	leased:  "\uf023",
-	done:    "\uf00c",
-	buried:  "\uf1c6",
-	refresh: "\uf021",
-	branch:  "\ue0a0",
-	host:    "\uf109",
-	server:  "\uf233",
-	dot:     "\uf111",
-	db:      "\uf1c0",
-	folder:  "\uf07b",
-	hash:    "\uf292",
-	pillL:   "\ue0b6",
-	pillR:   "\ue0b4",
-	cursor:  "▎",
-	barOn:   "━",
-	barOff:  "━",
-	track:   "│",
-	thumb:   "┃",
+	pending:  "\uf10c",
+	leased:   "\uf023",
+	done:     "\uf00c",
+	buried:   "\uf1c6",
+	refresh:  "\uf021",
+	branch:   "\ue0a0",
+	host:     "\uf109",
+	server:   "\uf233",
+	dot:      "\uf111",
+	db:       "\uf1c0",
+	folder:   "\uf07b",
+	hash:     "\uf292",
+	pillL:    "\ue0b6",
+	pillR:    "\ue0b4",
+	cursor:   "▎",
+	barOn:    "━",
+	barOff:   "━",
+	track:    "│",
+	thumb:    "┃",
+	ellipsis: "…",
+	rule:     "─",
+	caret:    "▏",
 }
 
 var asciiGlyphs = glyphs{
-	pending: "o",
-	leased:  "*",
-	done:    "v",
-	buried:  "_",
-	refresh: "~",
-	branch:  "&",
-	host:    "@",
-	server:  "#",
-	dot:     "*",
-	db:      "db",
-	folder:  "/",
-	hash:    "#",
-	pillL:   "[",
-	pillR:   "]",
-	cursor:  ">",
-	barOn:   "=",
-	barOff:  "-",
-	track:   "|",
-	thumb:   "#",
+	pending:  "o",
+	leased:   "*",
+	done:     "v",
+	buried:   "_",
+	refresh:  "~",
+	branch:   "&",
+	host:     "@",
+	server:   "#",
+	dot:      "*",
+	db:       "db",
+	folder:   "/",
+	hash:     "#",
+	pillL:    "[",
+	pillR:    "]",
+	cursor:   ">",
+	barOn:    "=",
+	barOff:   "-",
+	track:    "|",
+	thumb:    "#",
+	ellipsis: "...",
+	rule:     "-",
+	caret:    "_",
 }
 
 type theme struct {

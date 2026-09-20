@@ -262,6 +262,7 @@ func (m model) View() tea.View {
 		}
 		maxScope := 0
 		maxWorker := 0
+		maxClaims := 0
 		for _, idx := range m.shown {
 			if idx >= 0 && idx < len(m.tasks) {
 				t := m.tasks[idx]
@@ -278,6 +279,12 @@ func (m model) View() tea.View {
 						maxWorker = ww
 					}
 				}
+				if t.ClaimCount > 1 {
+					cw := ansi.StringWidth(m.glyph.refresh + " " + strconv.Itoa(t.ClaimCount))
+					if cw > maxClaims {
+						maxClaims = cw
+					}
+				}
 			}
 		}
 		wScope := max(maxScope, 5)
@@ -288,7 +295,7 @@ func (m model) View() tea.View {
 		if wWorker > 14 {
 			wWorker = 14
 		}
-		wClaims := 3
+		wClaims := maxClaims
 		wLease := 8
 		wLeft := 7
 		wID := 7
@@ -298,8 +305,9 @@ func (m model) View() tea.View {
 		if wScope > 0 {
 			fixedWidth += wScope + 1
 		}
-		fixedWidth += 1 // space after title
-		fixedWidth += wClaims
+		if wClaims > 0 {
+			fixedWidth += 1 + wClaims
+		}
 		if wWorker > 0 {
 			fixedWidth += 1 + wWorker
 		}
@@ -324,8 +332,10 @@ func (m model) View() tea.View {
 			colH.WriteString(" ")
 		}
 		colH.WriteString(padRight("title", wTitle))
-		colH.WriteString(" ")
-		colH.WriteString(padRight("", wClaims))
+		if wClaims > 0 {
+			colH.WriteString(" ")
+			colH.WriteString(padRight("", wClaims))
+		}
 		if wWorker > 0 {
 			colH.WriteString(" ")
 			workerHead := "worker"
@@ -376,10 +386,7 @@ func (m model) View() tea.View {
 				thumbStart = 0
 			}
 
-			ellipsis := "…"
-			if m.glyph.cursor == ">" {
-				ellipsis = "..."
-			}
+			ellipsis := m.glyph.ellipsis
 
 			for i := 0; i < tRows; i++ {
 				shownIdx := m.offset + i
@@ -535,8 +542,10 @@ func (m model) View() tea.View {
 					rowBody.WriteString(" ")
 				}
 				rowBody.WriteString(titleStyled)
-				rowBody.WriteString(" ")
-				rowBody.WriteString(claimsStyled)
+				if wClaims > 0 {
+					rowBody.WriteString(" ")
+					rowBody.WriteString(claimsStyled)
+				}
 				if wWorker > 0 {
 					rowBody.WriteString(" ")
 					rowBody.WriteString(workerStyled)
@@ -563,10 +572,7 @@ func (m model) View() tea.View {
 	}
 
 	// 7. Detail pane (detailRows() rows)
-	ruleChar := "─"
-	if m.glyph.cursor == ">" {
-		ruleChar = "-"
-	}
+	ruleChar := m.glyph.rule
 
 	detailLines := make([]string, 0, dRows)
 	curTask, hasTask := m.selected()
@@ -691,11 +697,7 @@ func (m model) View() tea.View {
 			footLeft = m.theme.accent.Render(m.msg)
 		}
 	} else if m.mode == modeSearch {
-		curChar := "▏"
-		if m.glyph.cursor == ">" {
-			curChar = "_"
-		}
-		footLeft = m.theme.accent.Render("/") + m.query + m.theme.accent.Render(curChar)
+		footLeft = m.theme.accent.Render("/") + m.query + m.theme.accent.Render(m.glyph.caret)
 	} else if m.mode == modeDetail || m.mode == modeZoom {
 		items := [][2]string{
 			{"j/k", "scroll"},

@@ -27,6 +27,9 @@ func newModel(cfg config, c *client) model {
 		mode:    modeTable,
 		now:     time.Now(),
 		detail:  vp,
+		// Init starts the first poll; mark it in flight so the first
+		// tick does not start a second one alongside it.
+		polling: true,
 	}
 	vw := m.width - 2
 	if vw < 1 {
@@ -83,19 +86,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pollMsg:
 		m.polling = false
-		if msg.err != nil {
-			m.connected = false
-			m.lastErr = msg.err.Error()
-			return m, nil
-		}
-		m.connected = true
-		m.lastErr = ""
-		m.stats = msg.stats
-		m.hasStats = true
-		if msg.projects != nil {
-			m.projects = msg.projects
-		}
 		if msg.changed {
+			// The client already stored the new ETag, so this body is the
+			// only chance to see it even when a later leg of the poll
+			// failed; dropping it would strand the list until it changes
+			// again.
 			selID := ""
 			if sel, ok := m.selected(); ok {
 				selID = sel.ID
@@ -112,6 +107,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.clamp()
 			m.syncDetail()
+		}
+		if msg.err != nil {
+			m.connected = false
+			m.lastErr = msg.err.Error()
+			return m, nil
+		}
+		m.connected = true
+		m.lastErr = ""
+		m.stats = msg.stats
+		m.hasStats = true
+		if msg.projects != nil {
+			m.projects = msg.projects
 		}
 		return m, nil
 
@@ -199,16 +206,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case modeConfirm:
 			switch {
-			case msg.Code == tea.KeyEnter || msg.Text == "y" || msg.Text == "Y":
+			case msg.Text == "y" || msg.Text == "Y":
 				m.mode = modeTable
 				return m, actCmd(m.client, m.confirm.method, m.confirm.path, m.confirm.body, m.confirm.success)
-			case msg.Code == tea.KeyEscape || msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
+			case msg.Code == tea.KeyEnter || msg.Code == tea.KeyEscape ||
+				msg.Text == "n" || msg.Text == "N" || msg.Text == "q":
+				// Bare Enter cancels: a destructive action needs an
+				// explicit y.
 				m.mode = modeTable
 				return m, nil
 			}
 			return m, nil
 
 		case modeHelp:
+			if msg.Mod == tea.ModCtrl && (msg.Code == 'c' || msg.Code == 'C') {
+				return m, tea.Quit
+			}
 			m.mode = modeTable
 			return m, nil
 

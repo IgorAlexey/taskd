@@ -228,3 +228,95 @@ func TestHelpers(t *testing.T) {
 		t.Errorf("leaseLeft 1h01m = %q, want \"1h01m\"", got)
 	}
 }
+
+// A two digit claim count needs four cells ("~ 12"); a hardcoded three wide
+// column used to overrun the row and clip the id.
+func TestClaimsColumnFitsTwoDigitCount(t *testing.T) {
+	fixedNow := time.Unix(1700000000, 0)
+	m := model{
+		cfg:    config{url: "http://localhost:8080", refresh: 2 * time.Second},
+		theme:  newTheme(true),
+		glyph:  asciiGlyphs,
+		width:  100,
+		height: 30,
+		now:    fixedNow,
+		tasks: []task{
+			{ID: "task0011111", Project: "taskd", Status: "pending", Priority: 1, Body: "taskd: first pending task"},
+			{ID: "task0022222", Project: "taskd", Status: "pending", Priority: 2, ClaimCount: 12, Body: "taskd: task retried twelve times"},
+		},
+		shown:     []int{0, 1},
+		cursor:    0,
+		stats:     stats{Pending: 2, Total: 2, LeaseSeconds: 3600},
+		connected: true,
+	}
+
+	lines := strings.Split(ansi.Strip(m.View().Content), "\n")
+	for i, line := range lines {
+		if w := ansi.StringWidth(line); w != 100 {
+			t.Errorf("line %d has display width %d, want 100: %q", i, w, line)
+		}
+	}
+
+	row := lines[4+1] // second table row: the task with ClaimCount 12
+	if !strings.Contains(row, asciiGlyphs.refresh+" 12") {
+		t.Errorf("row does not show the claim count %q: %q", asciiGlyphs.refresh+" 12", row)
+	}
+	if !strings.HasSuffix(row, "task002") {
+		t.Errorf("row does not end with the 7 char id: %q", row)
+	}
+}
+
+func TestGlyphModesUseTheirOwnTextGlyphs(t *testing.T) {
+	fixedNow := time.Unix(1700000000, 0)
+	base := model{
+		cfg:    config{url: "http://localhost:8080", refresh: 2 * time.Second},
+		theme:  newTheme(true),
+		width:  100,
+		height: 30,
+		now:    fixedNow,
+		tasks: []task{
+			{
+				ID:       "task0011111",
+				Project:  "taskd",
+				Status:   "pending",
+				Priority: 1,
+				Body:     "taskd: an extraordinarily long title that certainly exceeds the width of the title column in the table",
+			},
+		},
+		shown:     []int{0},
+		cursor:    0,
+		stats:     stats{Pending: 1, Total: 1, LeaseSeconds: 3600},
+		connected: true,
+	}
+
+	cases := []struct {
+		name  string
+		glyph glyphs
+		other glyphs
+	}{
+		{"ascii", asciiGlyphs, nerdGlyphs},
+		{"nerd", nerdGlyphs, asciiGlyphs},
+	}
+	for _, c := range cases {
+		m := base
+		m.glyph = c.glyph
+		out := ansi.Strip(m.View().Content)
+		if !strings.Contains(out, c.glyph.ellipsis) {
+			t.Errorf("%s: truncated title does not use ellipsis %q", c.name, c.glyph.ellipsis)
+		}
+		if strings.Contains(out, c.other.ellipsis) {
+			t.Errorf("%s: output uses the other mode's ellipsis %q", c.name, c.other.ellipsis)
+		}
+		if !strings.Contains(out, strings.Repeat(c.glyph.rule, 2)) {
+			t.Errorf("%s: detail rule does not use %q", c.name, c.glyph.rule)
+		}
+
+		mSearch := m
+		mSearch.mode = modeSearch
+		mSearch.query = "abc"
+		searchOut := ansi.Strip(mSearch.View().Content)
+		if !strings.Contains(searchOut, "/abc"+c.glyph.caret) {
+			t.Errorf("%s: search footer does not use caret %q: %q", c.name, c.glyph.caret, searchOut)
+		}
+	}
+}

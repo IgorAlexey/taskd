@@ -495,3 +495,400 @@ func TestTitleOfAndWorkerParts(t *testing.T) {
 		t.Errorf("workerParts('soloworker') = (%q, %q), want ('', 'soloworker')", host, checkout)
 	}
 }
+
+// send applies one message through Update and casts the result back.
+func send(t *testing.T, m model, msg tea.Msg) (model, tea.Cmd) {
+	t.Helper()
+	updated, cmd := m.Update(msg)
+	next, ok := updated.(model)
+	if !ok {
+		t.Fatalf("Update returned %T, want model", updated)
+	}
+	return next, cmd
+}
+
+func TestPollWithErrorStillAppliesChangedTasksAndKeepsCursorByID(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = send(t, m, pollMsg{changed: false, stats: stats{Pending: 7, Total: 30}})
+	m, _ = send(t, m, tea.KeyPressMsg{Text: "j"})
+	m, _ = send(t, m, tea.KeyPressMsg{Text: "j"})
+	if sel, ok := m.selected(); !ok || sel.ID != "task-02" {
+		t.Fatalf("expected task-02 selected, got %q", sel.ID)
+	}
+
+	// The client stored the new ETag before the stats leg failed, so the
+	// body must land even though the poll reports an error.
+	reversed := make([]task, len(m.tasks))
+	for i := range m.tasks {
+		reversed[i] = m.tasks[len(m.tasks)-1-i]
+	}
+	m, _ = send(t, m, pollMsg{tasks: reversed, changed: true, err: fmt.Errorf("stats: connection refused")})
+
+	sel, ok := m.selected()
+	if !ok {
+		t.Fatalf("expected a selected task after the failed poll")
+	}
+	if sel.ID != "task-02" {
+		t.Errorf("cursor should follow task-02 across the reorder, got %q", sel.ID)
+	}
+	if m.tasks[0].ID != "task-29" {
+		t.Errorf("failed poll dropped the new list: tasks[0] = %q", m.tasks[0].ID)
+	}
+	if m.connected {
+		t.Errorf("failed poll should mark the model disconnected")
+	}
+	if m.lastErr != "stats: connection refused" {
+		t.Errorf("lastErr = %q, want the poll error", m.lastErr)
+	}
+	if m.stats.Pending != 7 {
+		t.Errorf("failed poll should keep the last good stats, got %+v", m.stats)
+	}
+	if len(m.projects) != 3 {
+		t.Errorf("failed poll should keep the last good projects, got %v", m.projects)
+	}
+}
+
+func TestInitialPollCountsAsInFlightSoFirstTickDoesNotDoublePoll(t *testing.T) {
+	m := newModel(config{refresh: time.Second}, nil)
+	if !m.polling {
+		t.Fatalf("newModel must record the poll Init starts")
+	}
+
+	m, cmd := send(t, m, tickMsg(time.Now()))
+	if cmd == nil {
+		t.Errorf("tick must schedule the next tick")
+	}
+	if !m.polling {
+		t.Errorf("tick before the first pollMsg must not start a second poll")
+	}
+
+	m, _ = send(t, m, pollMsg{tasks: []task{{ID: "task-00", Status: "pending"}}, changed: true})
+	if m.polling {
+		t.Fatalf("pollMsg must clear the in-flight flag")
+	}
+
+	m, cmd = send(t, m, tickMsg(time.Now()))
+	if cmd == nil {
+		t.Errorf("tick after a finished poll must return commands")
+	}
+	if !m.polling {
+		t.Errorf("tick after a finished poll must start the next poll")
+	}
+}
+
+func TestDeleteKeyOpensConfirmWhereEnterCancelsAndYConfirms(t *testing.T) {
+	m := newTestModel(t)
+	confirming, _ := send(t, m, tea.KeyPressMsg{Text: "D"})
+	if confirming.mode != modeConfirm {
+		t.Fatalf("D should open the confirm overlay, got mode %v", confirming.mode)
+	}
+	if confirming.confirm.button != "delete" || confirming.confirm.method != "DELETE" {
+		t.Fatalf("unexpected confirm target: %+v", confirming.confirm)
+	}
+
+	cancels := []struct {
+		name string
+		key  tea.KeyPressMsg
+	}{
+		{"enter", tea.KeyPressMsg{Code: tea.KeyEnter}},
+		{"n", tea.KeyPressMsg{Text: "n"}},
+		{"esc", tea.KeyPressMsg{Code: tea.KeyEscape}},
+		{"q", tea.KeyPressMsg{Text: "q"}},
+	}
+	for _, c := range cancels {
+		after, cmd := send(t, confirming, c.key)
+		if after.mode != modeTable {
+			t.Errorf("%s should close the confirm overlay, got mode %v", c.name, after.mode)
+		}
+		if cmd != nil {
+			t.Errorf("%s must not run the destructive action", c.name)
+		}
+	}
+
+	for _, key := range []tea.KeyPressMsg{{Text: "y"}, {Text: "Y"}} {
+		after, cmd := send(t, confirming, key)
+		if after.mode != modeTable {
+			t.Errorf("%s should close the confirm overlay, got mode %v", key.Text, after.mode)
+		}
+		if cmd == nil {
+			t.Errorf("%s must run the destructive action", key.Text)
+		}
+	}
+}
+
+func TestCompleteKeyOnPendingTaskOpensCompleteConfirm(t *testing.T) {
+	m := newTestModel(t)
+	m, cmd := send(t, m, tea.KeyPressMsg{Text: "x"})
+	if m.mode != modeConfirm {
+		t.Fatalf("x on a pending task should open the confirm overlay, got mode %v", m.mode)
+	}
+	if cmd != nil {
+		t.Errorf("x must not act before the overlay is confirmed")
+	}
+	if m.confirm.button != "complete" {
+		t.Errorf("confirm button = %q, want %q", m.confirm.button, "complete")
+	}
+	if m.confirm.path != "/tasks/task-00/close" {
+		t.Errorf("confirm path = %q", m.confirm.path)
+	}
+}
+
+func TestHelpOverlayQuitsOnCtrlCAndClosesOnAnyOtherKey(t *testing.T) {
+	m := newTestModel(t)
+	help, _ := send(t, m, tea.KeyPressMsg{Text: "?"})
+	if help.mode != modeHelp {
+		t.Fatalf("? should open help, got mode %v", help.mode)
+	}
+
+	_, cmd := send(t, help, tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatalf("ctrl-c in help must quit")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("ctrl-c in help produced %T, want tea.QuitMsg", cmd())
+	}
+
+	closed, cmd := send(t, help, tea.KeyPressMsg{Text: "j"})
+	if closed.mode != modeTable {
+		t.Errorf("any other key should close help, got mode %v", closed.mode)
+	}
+	if cmd != nil {
+		t.Errorf("closing help should not emit a command")
+	}
+}
+
+func TestSearchEditingKeysTrimQueryAndEnterKeepsIt(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = send(t, m, tea.KeyPressMsg{Text: "/"})
+	for _, r := range "task 05" {
+		m, _ = send(t, m, tea.KeyPressMsg{Text: string(r), Code: r})
+	}
+	if m.query != "task 05" {
+		t.Fatalf("typed query = %q", m.query)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if m.query != "task 0" {
+		t.Errorf("backspace should drop one rune, got %q", m.query)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'w', Mod: tea.ModCtrl})
+	if m.query != "task " {
+		t.Errorf("ctrl-w should drop the last word, got %q", m.query)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'u', Mod: tea.ModCtrl})
+	if m.query != "" {
+		t.Errorf("ctrl-u should clear the query, got %q", m.query)
+	}
+	if len(m.shown) != 30 {
+		t.Errorf("cleared query should show all 30 tasks, got %d", len(m.shown))
+	}
+
+	for _, r := range "task-1" {
+		m, _ = send(t, m, tea.KeyPressMsg{Text: string(r), Code: r})
+	}
+	m, cmd := send(t, m, tea.KeyPressMsg{Code: tea.KeyEnter})
+	if m.mode != modeTable {
+		t.Errorf("Enter should leave search mode, got %v", m.mode)
+	}
+	if cmd != nil {
+		t.Errorf("Enter in search should not emit a command")
+	}
+	if m.query != "task-1" {
+		t.Errorf("Enter should keep the query, got %q", m.query)
+	}
+	if len(m.shown) != 10 {
+		t.Errorf("query task-1 should keep 10 matches, got %d", len(m.shown))
+	}
+}
+
+func TestTabAndZoomEnterDetailModesAndEscReturnsToTable(t *testing.T) {
+	m := newTestModel(t)
+
+	detail, _ := send(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	if detail.mode != modeDetail {
+		t.Fatalf("Tab should enter detail mode, got %v", detail.mode)
+	}
+	back, _ := send(t, detail, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if back.mode != modeTable {
+		t.Errorf("Esc should leave detail mode, got %v", back.mode)
+	}
+
+	zoom, _ := send(t, m, tea.KeyPressMsg{Text: "z"})
+	if zoom.mode != modeZoom {
+		t.Fatalf("z should enter zoom mode, got %v", zoom.mode)
+	}
+	back, _ = send(t, zoom, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if back.mode != modeTable {
+		t.Errorf("Esc should leave zoom mode, got %v", back.mode)
+	}
+}
+
+func TestNewKeyOpensFormAndEscCloses(t *testing.T) {
+	m := newTestModel(t)
+	form, _ := send(t, m, tea.KeyPressMsg{Text: "n"})
+	if form.mode != modeForm {
+		t.Fatalf("n should open the create form, got mode %v", form.mode)
+	}
+	closed, _ := send(t, form, tea.KeyPressMsg{Code: tea.KeyEscape})
+	if closed.mode != modeTable {
+		t.Errorf("Esc should close the form, got mode %v", closed.mode)
+	}
+}
+
+func TestYankKeysCopySelectedTask(t *testing.T) {
+	m := newTestModel(t)
+	if _, cmd := send(t, m, tea.KeyPressMsg{Text: "y"}); cmd == nil {
+		t.Errorf("y should copy the task id")
+	}
+	if _, cmd := send(t, m, tea.KeyPressMsg{Text: "Y"}); cmd == nil {
+		t.Errorf("Y should copy the task body")
+	}
+}
+
+func TestMouseWheelMovesCursorByThreeAndClamps(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = send(t, m, tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	if m.cursor != 3 {
+		t.Errorf("wheel down should move three rows, got %d", m.cursor)
+	}
+	m, _ = send(t, m, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	m, _ = send(t, m, tea.MouseWheelMsg{Button: tea.MouseWheelUp})
+	if m.cursor != 0 {
+		t.Errorf("wheel up should clamp at the first row, got %d", m.cursor)
+	}
+	for range 15 {
+		m, _ = send(t, m, tea.MouseWheelMsg{Button: tea.MouseWheelDown})
+	}
+	if m.cursor != 29 {
+		t.Errorf("wheel down should clamp at the last row, got %d", m.cursor)
+	}
+}
+
+func TestMouseClickSelectsTheClickedTableRow(t *testing.T) {
+	m := newTestModel(t)
+	bandTop := headerRows + tabRows + 1 + colHeadRows
+
+	m, _ = send(t, m, tea.MouseClickMsg{Button: tea.MouseLeft, Y: bandTop + 7})
+	if m.cursor != 7 {
+		t.Errorf("click on the eighth row should select it, got cursor %d", m.cursor)
+	}
+
+	above, _ := send(t, m, tea.MouseClickMsg{Button: tea.MouseLeft, Y: bandTop - 1})
+	if above.cursor != 7 {
+		t.Errorf("click above the table should not move the cursor, got %d", above.cursor)
+	}
+
+	below, _ := send(t, m, tea.MouseClickMsg{Button: tea.MouseLeft, Y: bandTop + m.tableRows()})
+	if below.cursor != 7 {
+		t.Errorf("click below the table should not move the cursor, got %d", below.cursor)
+	}
+}
+
+func TestPageAndHomeEndKeysClampAtBothEnds(t *testing.T) {
+	m := newTestModel(t)
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	if m.cursor != 0 {
+		t.Errorf("PgUp at the top should stay at row 0, got %d", m.cursor)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyEnd})
+	if m.cursor != 29 {
+		t.Errorf("End should select the last row, got %d", m.cursor)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyPgDown})
+	if m.cursor != 29 {
+		t.Errorf("PgDown at the bottom should stay at row 29, got %d", m.cursor)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyPgUp})
+	step := m.tableRows() / 2
+	if step < 1 {
+		step = 1
+	}
+	if m.cursor != 29-step {
+		t.Errorf("PgUp should move half a page up to %d, got %d", 29-step, m.cursor)
+	}
+
+	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyHome})
+	if m.cursor != 0 || m.offset != 0 {
+		t.Errorf("Home should return to the top, got cursor %d offset %d", m.cursor, m.offset)
+	}
+}
+
+func TestProjectKeyCyclesEveryProjectAndBackToAll(t *testing.T) {
+	m := newTestModel(t)
+	if m.project != "" {
+		t.Fatalf("expected the all-projects view, got %q", m.project)
+	}
+	for _, want := range []string{"proj0", "proj1", "proj2", ""} {
+		m, _ = send(t, m, tea.KeyPressMsg{Text: "p"})
+		if m.project != want {
+			t.Fatalf("p should select %q, got %q", want, m.project)
+		}
+		if want != "" {
+			for _, idx := range m.shown {
+				if m.tasks[idx].Project != want {
+					t.Fatalf("project %q shows task from %q", want, m.tasks[idx].Project)
+				}
+			}
+		} else if len(m.shown) != 30 {
+			t.Fatalf("all-projects view should show 30 tasks, got %d", len(m.shown))
+		}
+	}
+}
+
+func TestFailedActionShowsErrorInFooter(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = send(t, m, actMsg{err: fmt.Errorf("409 conflict")})
+	if m.msg != "error: 409 conflict" {
+		t.Errorf("footer message = %q, want %q", m.msg, "error: 409 conflict")
+	}
+}
+
+func TestStaleClearMsgLeavesTheNewerMessageAlone(t *testing.T) {
+	m := newTestModel(t)
+	m, _ = send(t, m, actMsg{msg: "first"})
+	staleID := m.msgID
+	m, _ = send(t, m, actMsg{msg: "second"})
+
+	m, _ = send(t, m, clearMsgMsg{id: staleID})
+	if m.msg != "second" {
+		t.Errorf("stale clear wiped the newer message, msg = %q", m.msg)
+	}
+
+	m, _ = send(t, m, clearMsgMsg{id: m.msgID})
+	if m.msg != "" {
+		t.Errorf("current clear should empty the message, got %q", m.msg)
+	}
+}
+
+func TestRefreshKeyStartsAPollOnlyWhenNoneIsInFlight(t *testing.T) {
+	m := newTestModel(t)
+	m, cmd := send(t, m, tea.KeyPressMsg{Text: "r"})
+	if cmd == nil {
+		t.Fatalf("r should start a poll")
+	}
+	if !m.polling {
+		t.Errorf("r should mark the poll in flight")
+	}
+	if _, cmd = send(t, m, tea.KeyPressMsg{Text: "r"}); cmd != nil {
+		t.Errorf("r should not stack a second poll")
+	}
+}
+
+func TestQuitKeysQuitFromTheTable(t *testing.T) {
+	m := newTestModel(t)
+	for _, key := range []tea.KeyPressMsg{{Text: "q"}, {Code: 'c', Mod: tea.ModCtrl}} {
+		_, cmd := send(t, m, key)
+		if cmd == nil {
+			t.Fatalf("%v should quit", key)
+		}
+		if _, ok := cmd().(tea.QuitMsg); !ok {
+			t.Errorf("%v produced %T, want tea.QuitMsg", key, cmd())
+		}
+	}
+}
