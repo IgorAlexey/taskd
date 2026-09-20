@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -404,12 +405,7 @@ func (m model) View() tea.View {
 		// 5. Table rows
 		tableLines = make([]string, tRows)
 		if len(m.shown) == 0 {
-			var emptyMsg string
-			if m.query != "" || m.filter != "" || m.project != "" {
-				emptyMsg = "no tasks match (Esc clears filter)"
-			} else {
-				emptyMsg = "no tasks yet, press n to create one"
-			}
+			emptyMsg := m.emptyState()
 			mid := tRows / 2
 			for r := 0; r < tRows; r++ {
 				if r == mid {
@@ -876,4 +872,42 @@ func frame(content string, h int) tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+func (m model) corpusCount() int {
+	if !m.hasStats {
+		return 0
+	}
+	switch m.filter {
+	case "pending":
+		return m.stats.Pending
+	case "leased":
+		return m.stats.Leased
+	case "done":
+		return m.stats.Done
+	case "buried":
+		return m.stats.Buried
+	default:
+		return m.stats.Total
+	}
+}
+
+func (m model) emptyState() string {
+	if m.project != "" && !slices.Contains(m.projects, m.project) {
+		return fmt.Sprintf("No tasks in project %s. Press 'p' to cycle project.", m.project)
+	}
+	corpus := m.corpusCount()
+	if corpus == 0 {
+		if m.filter != "" {
+			return fmt.Sprintf("No %s tasks. Press '0' to show all.", m.filter)
+		}
+		return "No tasks yet. Press 'n' to create a task."
+	}
+	if m.query != "" {
+		if m.project != "" {
+			return fmt.Sprintf("No task matches %q. Press 'Esc' to clear.", m.query)
+		}
+		return fmt.Sprintf("No task matches %q (0 of %d). Press 'Esc' to clear.", m.query, corpus)
+	}
+	return "No tasks match filter."
 }
