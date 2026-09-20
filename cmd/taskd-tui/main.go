@@ -841,11 +841,23 @@ func (u *ui) defaultProject() string {
 	}
 	return "taskd"
 }
+func (u *ui) confirmDiscard(f *tview.Form, dirty func() bool, close func()) func() {
+	return func() {
+		if !dirty() {
+			close()
+			return
+		}
+		u.confirmWithCancel("discard", "Discard unsaved changes?", "Discard", func() {
+			u.app.SetFocus(f)
+		}, close)
+	}
+}
 
 func (u *ui) showCreateForm() {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" new task ")
-	f.AddInputField("Project", u.defaultProject(), 20, nil, nil)
+	defaultProj := u.defaultProject()
+	f.AddInputField("Project", defaultProj, 20, nil, nil)
 	f.AddInputField("Priority", "", 10, tview.InputFieldInteger, nil)
 	f.AddInputField("Asset Path", "", 0, nil, nil)
 	f.AddTextArea("Body", "", 0, 0, 0, nil)
@@ -858,6 +870,13 @@ func (u *ui) showCreateForm() {
 		u.pages.RemovePage("create")
 		u.app.SetFocus(u.table)
 	}
+	dirty := func() bool {
+		return proj.GetText() != defaultProj ||
+			pri.GetText() != "" ||
+			asset.GetText() != "" ||
+			body.GetText() != ""
+	}
+	cancel := u.confirmDiscard(f, dirty, close)
 	submit := func() {
 		pname := strings.TrimSpace(proj.GetText())
 		if !validProject(pname) {
@@ -903,7 +922,7 @@ func (u *ui) showCreateForm() {
 		}
 		send()
 	}
-	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
+	f.AddButton("Submit", submit).AddButton("Cancel", cancel).SetCancelFunc(cancel)
 	u.form = f
 	u.pages.AddPage("create", centerModal(f, 60, 15), true, true)
 	u.app.SetFocus(f)
@@ -913,7 +932,8 @@ func (u *ui) showEditForm(t task) {
 	f := tview.NewForm()
 	f.SetBorder(true).SetTitle(" edit task ")
 	proj := tview.NewInputField().SetLabel("Project").SetText(t.Project).SetFieldWidth(20)
-	pri := tview.NewInputField().SetLabel("Priority").SetText(strconv.Itoa(t.Priority)).
+	priStr := strconv.Itoa(t.Priority)
+	pri := tview.NewInputField().SetLabel("Priority").SetText(priStr).
 		SetFieldWidth(10).SetAcceptanceFunc(tview.InputFieldInteger)
 	asset := tview.NewInputField().SetLabel("Asset Path").SetText(t.AssetPath)
 	body := tview.NewTextArea().SetLabel("Body").SetText(t.Body, false).SetSize(5, 0)
@@ -923,6 +943,13 @@ func (u *ui) showEditForm(t task) {
 		u.pages.RemovePage("edit")
 		u.app.SetFocus(u.table)
 	}
+	dirty := func() bool {
+		return proj.GetText() != t.Project ||
+			pri.GetText() != priStr ||
+			asset.GetText() != t.AssetPath ||
+			body.GetText() != t.Body
+	}
+	cancel := u.confirmDiscard(f, dirty, close)
 	submit := func() {
 		pname := strings.TrimSpace(proj.GetText())
 		if !validProject(pname) {
@@ -965,7 +992,7 @@ func (u *ui) showEditForm(t task) {
 			close()
 		})
 	}
-	f.AddButton("Submit", submit).AddButton("Cancel", close).SetCancelFunc(close)
+	f.AddButton("Submit", submit).AddButton("Cancel", cancel).SetCancelFunc(cancel)
 	u.form = f
 	u.pages.AddPage("edit", centerModal(f, 60, 15), true, true)
 	u.app.SetFocus(f)

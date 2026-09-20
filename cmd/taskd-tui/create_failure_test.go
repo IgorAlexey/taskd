@@ -120,6 +120,15 @@ func TestCreateFormKeepOpenOnFailure(t *testing.T) {
 		form.GetButton(1).InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
 	})
 	eventually(t, func() bool {
+		var modal *tview.Modal
+		query(func() { modal = u.modal })
+		return modal != nil
+	})
+	query(func() {
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyLeft, 0, 0), nil)
+		u.modal.InputHandler()(tcell.NewEventKey(tcell.KeyEnter, 0, 0), nil)
+	})
+	eventually(t, func() bool {
 		query(func() { form = u.form })
 		return form == nil && !u.pages.HasPage("create")
 	})
