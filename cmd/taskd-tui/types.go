@@ -153,32 +153,33 @@ type model struct {
 	width, height int
 	now           time.Time
 
-	tasks     []task // last full list from the daemon, daemon order
-	shown     []int  // indices into tasks after project, status, query
-	cursor    int    // index into shown; 0 <= cursor < len(shown) or 0
-	lastRow   int
-	offset    int    // first index of shown drawn in the table
-	filter    string // "", "pending", "leased", "done", "buried", "live" (keys 0-5)
-	project   string // "" means all projects
-	worker    string
-	query     string // / substring filter, case-insensitive
-	mode      mode
-	sortCol   sortColumn
-	cols      tableCols
-	etag      string     // ETag of m.tasks for m.project
-	pages     int        // pages of the daemon cursor to walk; 1 is a live poll
-	total     int        // the daemon's count for the current question
-	more      bool       // the daemon holds rows this list does not
-	endPages  int        // depth a pending G waits for; 0 when none
-	searchSeq uint64     // generation of the newest query keystroke
-	asked     listFilter // the question the newest poll carried
-	polling   bool       // a pollCmd is in flight; cleared by its pollMsg
-	seq       uint64     // generation of the newest poll; older replies are dropped
-	formSeq   uint64
-	stats     stats
-	hasStats  bool // a poll has delivered stats at least once
-	projects  []string
-	workers   []string
+	tasks         []task // last full list from the daemon, daemon order
+	shown         []int  // indices into tasks after project, status, query
+	cursor        int    // index into shown; 0 <= cursor < len(shown) or 0
+	lastRow       int
+	offset        int    // first index of shown drawn in the table
+	filter        string // "", "pending", "leased", "done", "buried", "live" (keys 0-5)
+	project       string // "" means all projects
+	worker        string
+	query         string // / substring filter, case-insensitive
+	mode          mode
+	sortCol       sortColumn
+	cols          tableCols
+	etag          string     // ETag of m.tasks for m.project
+	pages         int        // pages of the daemon cursor to walk; 1 is a live poll
+	total         int        // the daemon's count for the current question
+	more          bool       // the daemon holds rows this list does not
+	endPages      int        // depth a pending G waits for; 0 when none
+	searchSeq     uint64     // generation of the newest query keystroke
+	asked         listFilter // the question the newest poll carried
+	polling       bool
+	manualRefresh bool
+	seq           uint64 // generation of the newest poll; older replies are dropped
+	formSeq       uint64
+	stats         stats
+	hasStats      bool // a poll has delivered stats at least once
+	projects      []string
+	workers       []string
 
 	connected bool
 	lastErr   string

@@ -349,6 +349,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.connected = false
 			m.lastErr = msg.err.Error()
+			if m.manualRefresh {
+				m.manualRefresh = false
+				cmd = tea.Batch(cmd, m.setError(msg.err.Error()))
+			}
 			return m, cmd
 		}
 		m.connected = true
@@ -360,6 +364,10 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.workers != nil {
 			m.workers = msg.workers
+		}
+		if m.manualRefresh {
+			m.manualRefresh = false
+			cmd = tea.Batch(cmd, m.setMsg("queue refreshed"))
 		}
 		return m, cmd
 	case actMsg:
@@ -791,16 +799,6 @@ func (m model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			case msg.Text == "z":
 				return m.actionToggleZoom()
-			case msg.Text == "r":
-				if sel, ok := m.selected(); ok {
-					delete(m.notesCache, sel.ID)
-				}
-				poll := m.startPoll()
-				fetch := m.fetchNotes()
-				if fetch != nil {
-					return m, tea.Batch(poll, fetch)
-				}
-				return m, poll
 			case msg.Text == "?":
 				return m.actionHelp()
 			}
@@ -831,6 +829,9 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 	}
 
 	switch key {
+	case "r":
+		m, cmd := m.actionRefresh()
+		return m, cmd, true
 	case "s":
 		m.sortCol = (m.sortCol + 1) % sortColCount
 		m.rebuild()
@@ -1996,6 +1997,19 @@ func (m model) actionQuit() (model, tea.Cmd) {
 func (m model) actionBack() (model, tea.Cmd) {
 	m.mode = modeTable
 	return m, nil
+}
+
+func (m model) actionRefresh() (model, tea.Cmd) {
+	if sel, ok := m.selected(); ok {
+		delete(m.notesCache, sel.ID)
+	}
+	m.manualRefresh = true
+	poll := m.startPoll()
+	fetch := m.fetchNotes()
+	if fetch != nil {
+		return m, tea.Batch(poll, fetch)
+	}
+	return m, poll
 }
 
 func isCtrlC(msg tea.KeyPressMsg) bool {
