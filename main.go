@@ -1217,6 +1217,101 @@ func summaryLine(body string) string {
 	return s
 }
 
+func parseTaskFields(q url.Values) ([]string, error) {
+	if !q.Has("fields") && !q.Has("columns") {
+		return nil, nil
+	}
+	fieldsParam := q.Get("fields")
+	if fieldsParam == "" && q.Has("columns") {
+		fieldsParam = q.Get("columns")
+	}
+	if strings.TrimSpace(fieldsParam) == "" {
+		return nil, errors.New("invalid fields")
+	}
+	parts := strings.Split(fieldsParam, ",")
+	seen := make(map[string]bool, len(parts))
+	var fields []string
+	for _, p := range parts {
+		f := strings.TrimSpace(p)
+		switch f {
+		case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version":
+			if !seen[f] {
+				seen[f] = true
+				fields = append(fields, f)
+			}
+		default:
+			return nil, errors.New("invalid fields")
+		}
+	}
+	if len(fields) == 0 {
+		return nil, errors.New("invalid fields")
+	}
+	return fields, nil
+}
+
+func taskSummary(item taskItem) string {
+	text := item.summaryPrefix
+	if text == "" {
+		text = item.Body
+		if strings.TrimLeft(text, summaryTrim) == "" {
+			text = item.AssetPath
+		}
+	}
+	return summaryLine(text)
+}
+
+func writeProjectedTask(buf *bytes.Buffer, item taskItem, fields []string) {
+	buf.WriteByte('{')
+	for j, f := range fields {
+		if j > 0 {
+			buf.WriteByte(',')
+		}
+		buf.WriteByte('"')
+		buf.WriteString(f)
+		buf.WriteString(`":`)
+		switch f {
+		case "id":
+			b, _ := json.Marshal(item.ID)
+			buf.Write(b)
+		case "asset_path":
+			b, _ := json.Marshal(item.AssetPath)
+			buf.Write(b)
+		case "status":
+			b, _ := json.Marshal(item.Status)
+			buf.Write(b)
+		case "worker":
+			b, _ := json.Marshal(item.Worker)
+			buf.Write(b)
+		case "lease_expires":
+			buf.WriteString(strconv.FormatInt(item.LeaseExpires, 10))
+		case "priority":
+			buf.WriteString(strconv.Itoa(item.Priority))
+		case "version":
+			buf.WriteString(strconv.Itoa(item.Version))
+		case "body":
+			b, _ := json.Marshal(item.Body)
+			buf.Write(b)
+		case "primitives":
+			if len(item.Primitives) > 0 {
+				buf.Write(item.Primitives)
+			} else {
+				buf.WriteString("null")
+			}
+		case "project":
+			b, _ := json.Marshal(item.Project)
+			buf.Write(b)
+		case "claim_count":
+			buf.WriteString(strconv.Itoa(item.ClaimCount))
+		case "created_at":
+			buf.WriteString(strconv.FormatInt(item.CreatedAt, 10))
+		case "summary":
+			b, _ := json.Marshal(taskSummary(item))
+			buf.Write(b)
+		}
+	}
+	buf.WriteByte('}')
+}
+
 type leaseEnvelope struct {
 	ID           string `json:"id"`
 	LeaseExpires int64  `json:"lease_expires"`
@@ -2006,35 +2101,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			q.Set("sort", sortCol)
 		}
 		now := time.Now().Unix()
-		var requestedFields []string
-		fieldsParam := q.Get("fields")
-		if fieldsParam == "" && q.Has("columns") {
-			fieldsParam = q.Get("columns")
-		}
-		if q.Has("fields") || q.Has("columns") {
-			if strings.TrimSpace(fieldsParam) == "" {
-				writeError(w, http.StatusBadRequest, "invalid fields")
-				return
-			}
-			parts := strings.Split(fieldsParam, ",")
-			seen := make(map[string]bool, len(parts))
-			for _, p := range parts {
-				f := strings.TrimSpace(p)
-				switch f {
-				case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version":
-					if !seen[f] {
-						seen[f] = true
-						requestedFields = append(requestedFields, f)
-					}
-				default:
-					writeError(w, http.StatusBadRequest, "invalid fields")
-					return
-				}
-			}
-			if len(requestedFields) == 0 {
-				writeError(w, http.StatusBadRequest, "invalid fields")
-				return
-			}
+		requestedFields, err := parseTaskFields(q)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid fields")
+			return
 		}
 		bodyCol, primCol, summaryCol := "body", "primitives", "''"
 		if requestedFields != nil {
@@ -2179,55 +2249,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				if i > 0 {
 					buf.WriteByte(',')
 				}
-				buf.WriteByte('{')
-				for j, f := range requestedFields {
-					if j > 0 {
-						buf.WriteByte(',')
-					}
-					buf.WriteByte('"')
-					buf.WriteString(f)
-					buf.WriteString(`":`)
-					switch f {
-					case "id":
-						b, _ := json.Marshal(item.ID)
-						buf.Write(b)
-					case "asset_path":
-						b, _ := json.Marshal(item.AssetPath)
-						buf.Write(b)
-					case "status":
-						b, _ := json.Marshal(item.Status)
-						buf.Write(b)
-					case "worker":
-						b, _ := json.Marshal(item.Worker)
-						buf.Write(b)
-					case "lease_expires":
-						buf.WriteString(strconv.FormatInt(item.LeaseExpires, 10))
-					case "priority":
-						buf.WriteString(strconv.Itoa(item.Priority))
-					case "version":
-						buf.WriteString(strconv.Itoa(item.Version))
-					case "body":
-						b, _ := json.Marshal(item.Body)
-						buf.Write(b)
-					case "primitives":
-						if len(item.Primitives) > 0 {
-							buf.Write(item.Primitives)
-						} else {
-							buf.WriteString("null")
-						}
-					case "project":
-						b, _ := json.Marshal(item.Project)
-						buf.Write(b)
-					case "claim_count":
-						buf.WriteString(strconv.Itoa(item.ClaimCount))
-					case "created_at":
-						buf.WriteString(strconv.FormatInt(item.CreatedAt, 10))
-					case "summary":
-						b, _ := json.Marshal(summaryLine(item.summaryPrefix))
-						buf.Write(b)
-					}
-				}
-				buf.WriteByte('}')
+				writeProjectedTask(&buf, item, requestedFields)
 			}
 			buf.WriteString("]\n")
 		}
@@ -2253,6 +2275,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 	}
 
 	getTaskHandler := func(w http.ResponseWriter, r *http.Request) {
+		q := requestQuery(r)
+		requestedFields, err := parseTaskFields(q)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid fields")
+			return
+		}
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
@@ -2264,7 +2292,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			prim         []byte
 		)
 		now := time.Now().Unix()
-		err := db.ro.QueryRow(`SELECT id, asset_path,
+		err = db.ro.QueryRow(`SELECT id, asset_path,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
@@ -2282,16 +2310,24 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 		item.LeaseExpires = leaseExpires.Int64
 		item.Primitives = prim
 
-		notes, err := fetchTaskNotes(db.ro, item.ID)
-		if err != nil {
-			internalError(w, err)
-			return
+		var notes []taskNote
+		if requestedFields == nil {
+			notes, err = fetchTaskNotes(db.ro, item.ID)
+			if err != nil {
+				internalError(w, err)
+				return
+			}
 		}
 
 		var buf bytes.Buffer
-		if err := json.NewEncoder(&buf).Encode(taskDetail{taskItem: item, Notes: notes}); err != nil {
-			internalError(w, err)
-			return
+		if requestedFields != nil {
+			writeProjectedTask(&buf, item, requestedFields)
+			buf.WriteByte('\n')
+		} else {
+			if err := json.NewEncoder(&buf).Encode(taskDetail{taskItem: item, Notes: notes}); err != nil {
+				internalError(w, err)
+				return
+			}
 		}
 		h := fnv.New64a()
 		h.Write(buf.Bytes())
@@ -2808,7 +2844,7 @@ RETURNING status, project`,
 		http.MethodPost: {handler: createNoteHandler},
 	})
 	handleMethods(mux, "/tasks/{id}", map[string]route{
-		http.MethodGet:    {handler: getTaskHandler},
+		http.MethodGet:    {handler: getTaskHandler, params: []string{"fields", "columns"}},
 		http.MethodPatch:  {handler: patchTaskHandler},
 		http.MethodDelete: {handler: deleteTaskHandler, params: []string{"force"}},
 	})
