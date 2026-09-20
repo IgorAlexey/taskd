@@ -213,3 +213,71 @@ func TestRunBackupDoesNotMigrateOrMutateSource(t *testing.T) {
 		t.Fatalf("out.db row count = %d, want %d", outCount, srcCount)
 	}
 }
+
+func TestBackupOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	srcPath := filepath.Join(dir, "test.db")
+	backupPath := filepath.Join(dir, "backup.db")
+
+	db, err := openDB(srcPath)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t1', 'first', 'p1')"); err != nil {
+		db.Close()
+		t.Fatalf("insert task failed: %v", err)
+	}
+	db.Close()
+
+	if err := run([]string{"-db", srcPath, "-backup", backupPath}); err != nil {
+		t.Fatalf("first backup failed: %v", err)
+	}
+
+	if err := os.Chmod(backupPath, 0600); err != nil {
+		t.Fatalf("chmod backup failed: %v", err)
+	}
+
+	db, err = openDB(srcPath)
+	if err != nil {
+		t.Fatalf("openDB second time failed: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO tasks (id, body, project) VALUES ('t2', 'second', 'p1')"); err != nil {
+		db.Close()
+		t.Fatalf("insert second task failed: %v", err)
+	}
+	db.Close()
+
+	if err := run([]string{"-db", srcPath, "-backup", backupPath}); err != nil {
+		t.Fatalf("second backup failed: %v", err)
+	}
+
+	fi, err := os.Stat(backupPath)
+	if err != nil {
+		t.Fatalf("stat backup failed: %v", err)
+	}
+	if fi.Mode().Perm() != 0600 {
+		t.Fatalf("expected permissions 0600, got %#o", fi.Mode().Perm())
+	}
+
+	bkDB, err := openDB(backupPath)
+	if err != nil {
+		t.Fatalf("open overwritten backup failed: %v", err)
+	}
+	defer bkDB.Close()
+
+	var count int
+	if err := bkDB.QueryRow("SELECT count(*) FROM tasks").Scan(&count); err != nil {
+		t.Fatalf("query overwritten backup failed: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("expected 2 tasks in overwritten backup, got %d", count)
+	}
+
+	var integrity string
+	if err := bkDB.QueryRow("PRAGMA integrity_check").Scan(&integrity); err != nil {
+		t.Fatalf("query integrity_check failed: %v", err)
+	}
+	if integrity != "ok" {
+		t.Fatalf("expected integrity_check 'ok', got %q", integrity)
+	}
+}

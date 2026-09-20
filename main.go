@@ -1736,13 +1736,38 @@ func checkBackupSource(path string) error {
 }
 
 func backupDB(db *sql.DB, path string) error {
-	if dir := dbDir(path); dir != "" && dir != "." {
+	fsPath, memory := resolveDBPath(path)
+	if memory {
+		return fmt.Errorf("cannot back up to an in-memory database: %s", path)
+	}
+	if fsPath == "" {
+		fsPath = path
+	}
+	dir := filepath.Dir(fsPath)
+	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return err
 		}
+	} else {
+		dir = "."
 	}
-	_, err := db.Exec("VACUUM INTO ?", path)
-	return err
+	tmpDir, err := os.MkdirTemp(dir, ".taskd-backup-*")
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+	tmpPath := filepath.Join(tmpDir, filepath.Base(fsPath))
+	if _, err := db.Exec("VACUUM INTO ?", tmpPath); err != nil {
+		return err
+	}
+	if fi, statErr := os.Stat(fsPath); statErr == nil {
+		if err := os.Chmod(tmpPath, fi.Mode().Perm()); err != nil {
+			return err
+		}
+	}
+	return os.Rename(tmpPath, fsPath)
 }
 
 func run(args []string) error {
