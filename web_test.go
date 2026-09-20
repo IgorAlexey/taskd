@@ -288,7 +288,6 @@ func TestWebUISaveTaskEditVersionConflict(t *testing.T) {
 			got.BannerHidden, got.BannerText)
 	}
 }
-
 func TestWebUISubmitBusyState(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -328,5 +327,56 @@ func TestWebUISubmitBusyState(t *testing.T) {
 	}
 	if got.FetchCount != 1 {
 		t.Errorf("expected 1 fetch, got %d (duplicate submission was not blocked)", got.FetchCount)
+	}
+}
+
+func TestWebUIDetailsPaneFocusOnSelection(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="task-details"`) || !strings.Contains(ui, `tabindex="-1"`) {
+		t.Error("expected details container with id=\"task-details\" and tabindex=\"-1\" in web/index.html")
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+	out, err := exec.Command(node, "testdata/details_focus.js", "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("details focus harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("details focus harness failed: %v", err)
+	}
+
+	var got struct {
+		ClickFocus     bool `json:"clickFocus"`
+		CtrlIgnored    bool `json:"ctrlIgnored"`
+		InputIgnored   bool `json:"inputIgnored"`
+		EnterFocus     bool `json:"enterFocus"`
+		EnterPrevented bool `json:"enterPrevented"`
+		ArrowFocus     bool `json:"arrowFocus"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	if !got.ClickFocus {
+		t.Errorf("expected click to keep focus on clicked row, got %v", got.ClickFocus)
+	}
+	if !got.CtrlIgnored {
+		t.Errorf("expected Ctrl+Enter to be ignored by row activation, got %v", got.CtrlIgnored)
+	}
+	if !got.InputIgnored {
+		t.Errorf("expected keydown on inputs inside row to be ignored, got %v", got.InputIgnored)
+	}
+	if !got.EnterFocus {
+		t.Errorf("expected enter on row to move focus to details container, got %v", got.EnterFocus)
+	}
+	if !got.EnterPrevented {
+		t.Errorf("expected enter keydown default to be prevented, got %v", got.EnterPrevented)
+	}
+	if !got.ArrowFocus {
+		t.Errorf("expected arrow navigation to focus adjacent row, got %v", got.ArrowFocus)
 	}
 }

@@ -724,7 +724,7 @@
     </section>
 
     <aside class="stack">
-      <section class="panel" aria-labelledby="details-heading">
+      <section class="panel" id="task-details" aria-labelledby="details-heading" tabindex="-1">
         <h2 class="panel-header" id="details-heading">Task Details</h2>
         <div class="sidebar-section stack stack-sm" id="task-details-content">
           <p class="text-muted italic">Select a task to view details</p>
@@ -1496,10 +1496,18 @@
         }
       });
       tbody.addEventListener('keydown', (e) => {
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        if (e.target && e.target.closest && e.target.closest('input, textarea, select, button, a')) return;
         const currentTr = e.target.closest ? e.target.closest('tr[data-task-id]') : null;
         if (!currentTr) return;
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          const detailsPane = document.getElementById('task-details');
+          if (detailsPane) detailsPane.focus();
+          selectTask(currentTr.dataset.taskId);
+          return;
+        }
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
         let next = e.key === 'ArrowDown' ? currentTr.nextElementSibling : currentTr.previousElementSibling;
         while (next && (!next.dataset || !next.dataset.taskId)) {
           next = e.key === 'ArrowDown' ? next.nextElementSibling : next.previousElementSibling;
