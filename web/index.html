@@ -32,13 +32,36 @@
     max-inline-size: 80rem;
     margin-inline: auto;
   }
+  /* Composition Primitives */
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space, 16px);
+  }
+  .stack-sm {
+    gap: 10px;
+  }
+  .cluster {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--cluster-gap, 8px);
+    align-items: center;
+  }
+
+  /* Utility Classes */
+  .text-muted { color: var(--text-muted); }
+  .text-sm { font-size: 12px; }
+  .italic { font-style: italic; }
+  .w-full { width: 100%; }
+  .btn-sm { padding: 2px 8px; font-size: 12px; }
+  .input-sm { padding: 4px 8px; font-size: 12px; }
+  .overflow-x-auto { overflow-x: auto; }
   header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding-bottom: 16px;
     border-bottom: 1px solid var(--border);
-    margin-bottom: 16px;
   }
   h1 {
     font-size: 18px;
@@ -118,7 +141,6 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
     gap: 12px;
-    margin-bottom: 16px;
   }
   .card {
     background: var(--surface);
@@ -188,6 +210,9 @@
     align-items: center;
     flex-wrap: wrap;
   }
+  #filter-priority {
+    width: 60px;
+  }
   .filter-bar fieldset {
     display: inline-flex;
     align-items: center;
@@ -237,6 +262,11 @@
   tbody tr:focus-within th {
     background: rgba(88,166,255,0.18);
   }
+  tbody tr:not([data-task-id]) td {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 20px;
+  }
   tbody tr[data-task-id] { cursor: pointer; }
   tbody th {
     color: var(--text);
@@ -273,9 +303,6 @@
     border-bottom: 1px solid var(--border);
   }
   .sidebar-section:last-child { border-bottom: none; }
-  .field {
-    margin-bottom: 10px;
-  }
   .field-header {
     display: flex;
     align-items: center;
@@ -303,6 +330,28 @@
     margin-top: 16px;
     border-top: 1px solid var(--border);
     padding-top: 12px;
+  }
+  .notes-section .field {
+    margin-bottom: 6px;
+  }
+  #note-author {
+    font-size: 12px;
+    padding: 4px 8px;
+  }
+  #note-text {
+    font-size: 12px;
+    padding: 6px 8px;
+    min-height: 50px;
+  }
+  #add-note-btn {
+    font-size: 12px;
+    padding: 4px 10px;
+  }
+  .no-notes {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 12px;
+    margin-bottom: 8px;
   }
   .notes-list {
     display: flex;
@@ -512,7 +561,7 @@
   }
 </style>
 </head>
-<body>
+<body class="stack">
   <a class="skip-link" href="#queue">Skip to task queue</a>
   <div id="error-banner" role="alert">
     <span id="error-banner-text"></span>
@@ -527,14 +576,14 @@
     <h1>taskd</h1>
     <div class="controls">
       <span id="connection-status" role="status" aria-live="polite"></span>
-      <label for="auto-refresh" style="font-size: 12px; color: var(--text-muted);">
+      <label for="auto-refresh" class="text-sm text-muted">
         <input type="checkbox" id="auto-refresh" checked> Auto-refresh
       </label>
       <button id="refresh-btn" onclick="loadAll()">Refresh</button>
     </div>
   </header>
 
-  <main>
+  <main class="stack">
   <div class="grid-stats">
     <button type="button" class="card" data-status-filter="pending">
       <div class="stat-label">Pending</div>
@@ -562,14 +611,14 @@
     <section class="panel" aria-labelledby="queue-heading">
       <div class="panel-header">
         <h2 id="queue-heading">Task Queue</h2>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <span id="queue-count" style="color: var(--text-muted); font-size: 12px;">-</span>
-          <button type="button" id="prev-page-btn" onclick="prevPage()" disabled aria-label="Previous page" style="padding: 2px 8px; font-size: 12px;">Prev</button>
-          <button type="button" id="next-page-btn" onclick="nextPage()" disabled aria-label="Next page" style="padding: 2px 8px; font-size: 12px;">Next</button>
+        <div class="cluster">
+          <span id="queue-count" class="text-muted text-sm">-</span>
+          <button type="button" id="prev-page-btn" onclick="prevPage()" disabled aria-label="Previous page" class="btn-sm">Prev</button>
+          <button type="button" id="next-page-btn" onclick="nextPage()" disabled aria-label="Next page" class="btn-sm">Next</button>
         </div>
       </div>
-      <div class="filter-bar" role="group" aria-label="Task filters">
-        <label for="filter-project" style="color: var(--text-muted); font-size: 12px;">Project:</label>
+      <div class="filter-bar cluster" role="group" aria-label="Task filters">
+        <label for="filter-project" class="text-muted text-sm">Project:</label>
         <!-- /* loadStats */ in onchange satisfies the external test harness regex -->
         <select id="filter-project" onchange="onFilterChange(/* loadStats */)">
           <option value="">(all)</option>
@@ -589,17 +638,17 @@
           <input type="radio" id="filter-status-buried" name="filter-status" value="buried" onchange="onFilterChange()">
           <label for="filter-status-buried">Buried</label>
         </fieldset>
-        <label for="filter-priority" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Priority:</label>
-        <input type="number" min="0" step="1" id="filter-priority" placeholder="all" onchange="onFilterChange()" style="padding: 4px 8px; font-size: 12px; width: 60px;">
-        <label for="filter-worker" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Worker:</label>
+        <label for="filter-priority" class="text-muted text-sm">Priority:</label>
+        <input type="number" min="0" step="1" id="filter-priority" placeholder="all" onchange="onFilterChange()" class="input-sm">
+        <label for="filter-worker" class="text-muted text-sm">Worker:</label>
         <select id="filter-worker" onchange="onFilterChange()">
           <option value="">(all)</option>
         </select>
-        <label for="filter-search" style="color: var(--text-muted); font-size: 12px; margin-left: 8px;">Search:</label>
-        <input type="text" id="filter-search" placeholder="Search tasks..." oninput="onSearchInput()" style="padding: 4px 8px; font-size: 12px;">
-        <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" style="padding: 2px 8px; font-size: 12px;">Clear</button>
+        <label for="filter-search" class="text-muted text-sm">Search:</label>
+        <input type="text" id="filter-search" placeholder="Search tasks..." oninput="onSearchInput()" class="input-sm">
+        <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" class="btn-sm">Clear</button>
       </div>
-      <div id="queue" tabindex="-1" style="overflow-x: auto;">
+      <div id="queue" tabindex="-1" class="overflow-x-auto">
         <table>
           <thead>
             <tr>
@@ -613,24 +662,24 @@
             </tr>
           </thead>
           <tbody id="task-table-body">
-            <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">Not connected</td></tr>
+            <tr><td colspan="7">Not connected</td></tr>
           </tbody>
         </table>
       </div>
     </section>
 
-    <div style="display: flex; flex-direction: column; gap: 16px;">
+    <div class="stack">
       <section class="panel" aria-labelledby="details-heading">
         <h2 class="panel-header" id="details-heading">Task Details</h2>
-        <div class="sidebar-section" id="task-details-content">
-          <p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>
+        <div class="sidebar-section stack stack-sm" id="task-details-content">
+          <p class="text-muted italic">Select a task to view details</p>
         </div>
       </section>
 
       <section class="panel" aria-labelledby="submit-heading">
         <h2 class="panel-header" id="submit-heading">Submit Task</h2>
         <div class="sidebar-section">
-          <form id="submit-task-form" onsubmit="submitTask(event)" novalidate>
+          <form id="submit-task-form" class="stack stack-sm" onsubmit="submitTask(event)" novalidate>
             <div id="form-error-summary" class="error-summary" role="alert" tabindex="-1">
               <div class="error-summary-title">There is a problem</div>
               <ul class="error-summary-list" id="form-error-summary-list"></ul>
@@ -665,7 +714,7 @@
               <span class="field-error" id="form-id-error"></span>
               <input type="text" id="form-id" placeholder="auto-generated if empty" aria-invalid="false" aria-describedby="form-id-error">
             </div>
-            <button type="submit" id="submit-task-btn" class="primary" style="width: 100%;">Submit Task</button>
+            <button type="submit" id="submit-task-btn" class="primary w-full">Submit Task</button>
           </form>
         </div>
       </section>
@@ -1158,7 +1207,7 @@
       isEditingTask = false;
       const pane = document.getElementById('task-details-content');
       if (pane) {
-        pane.innerHTML = '<p style="color: var(--text-muted); font-style: italic;">Select a task to view details</p>';
+        pane.innerHTML = '<p class="text-muted italic">Select a task to view details</p>';
       }
     }
 
@@ -1286,7 +1335,7 @@
               emptyRow = document.createElement('tr');
               tbody.appendChild(emptyRow);
             }
-            emptyRow.innerHTML = '<td colspan="7" style="text-align: center; color: var(--text-muted); padding: 20px;">No tasks</td>';
+            emptyRow.innerHTML = '<td colspan="7">No tasks</td>';
             return;
           }
 
@@ -1480,7 +1529,7 @@
 
     function renderNotesList(notes) {
       if (!notes || notes.length === 0) {
-        return '<p class="no-notes" style="color: var(--text-muted); font-style: italic; font-size: 12px; margin-bottom: 8px;">No notes</p>';
+        return '<p class="no-notes">No notes</p>';
       }
       return notes.map(renderNoteItemHTML).join('');
     }
@@ -1551,7 +1600,7 @@
         pane.innerHTML = `
           <div class="field">
             <span class="field-label">ID</span>
-            <div style="display: flex; align-items: center; gap: 8px;">
+            <div class="cluster">
               <span class="mono">${escapeHTML(t.id || '')}</span>
               <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
             </div>
@@ -1577,7 +1626,7 @@
             <textarea id="edit-task-body">${escapeHTML(t.body || '')}</textarea>
           </div>
           ${primStr ? `<div class="field"><span class="field-label">Primitives</span><pre>${escapeHTML(primStr)}</pre></div>` : ''}
-          <div style="display: flex; gap: 8px; margin-top: 12px;">
+          <div class="cluster task-actions">
             <button type="button" id="save-task-btn" class="primary" onclick="saveTaskEdit()">Save</button>
             <button type="button" id="cancel-task-btn" onclick="cancelTaskEdit()">Cancel</button>
           </div>
@@ -1615,7 +1664,7 @@
       pane.innerHTML = `
         <div class="field">
           <span class="field-label">ID</span>
-          <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="cluster">
             <span class="mono">${escapeHTML(t.id || '')}</span>
             <button type="button" id="copy-id-btn" class="copy-btn">Copy</button>
           </div>
@@ -1663,13 +1712,13 @@
             ${renderNotesList(t.notes)}
           </div>
           <form id="add-note-form">
-            <div class="field" style="margin-bottom: 6px;">
-              <input type="text" id="note-author" placeholder="Author" value="${escapeHTML(currentNoteAuthor || claimWorker || '')}" maxlength="128" required style="font-size: 12px; padding: 4px 8px;">
+            <div class="field">
+              <input type="text" id="note-author" placeholder="Author" value="${escapeHTML(currentNoteAuthor || claimWorker || '')}" maxlength="128" required>
             </div>
-            <div class="field" style="margin-bottom: 6px;">
-              <textarea id="note-text" placeholder="Add a note…" required rows="2" style="font-size: 12px; padding: 6px 8px; min-height: 50px;"></textarea>
+            <div class="field">
+              <textarea id="note-text" placeholder="Add a note…" required rows="2"></textarea>
             </div>
-            <button type="submit" id="add-note-btn" class="primary" style="font-size: 12px; padding: 4px 10px;">Add Note</button>
+            <button type="submit" id="add-note-btn" class="primary">Add Note</button>
           </form>
         </div>
       `;
