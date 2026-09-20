@@ -306,9 +306,9 @@ func TestBlinkMessagesRoundTripThroughTheForm(t *testing.T) {
 func TestEmptyAssetFieldIsDrawnOnlyWhileFocusedAtLevelTwo(t *testing.T) {
 	f, _ := newCreateForm("p")
 	th := newTheme(true)
-	f.fit(40, 8, th) // too short for every row: level 2
-	if f.level != 2 {
-		t.Fatalf("expected level 2 at 40x8, got %d", f.level)
+	f.fit(40, 8, th) // too short for every row
+	if v := ansi.Strip(f.View()); !strings.Contains(v, "New Task") || strings.Contains(v, "asset:") {
+		t.Fatalf("at 40x8 the title stays and the empty asset row goes:\n%s", v)
 	}
 	if strings.Contains(ansi.Strip(f.View()), "asset:") {
 		t.Fatalf("an empty, unfocused asset field has no row at level 2")
@@ -327,8 +327,8 @@ func TestAssetFieldKeepsItsRowWhileFocusedOrFilled(t *testing.T) {
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab}) // -> asset
 	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 8})
 	view := ansi.Strip(m.View().Content)
-	if m.form.level < 2 || m.form.focus != 2 || !strings.Contains(view, "asset:") {
-		t.Fatalf("a focused asset field keeps its row: level=%d focus=%d\n%s", m.form.level, m.form.focus, view)
+	if m.form.focus != 2 || !strings.Contains(view, "asset:") || !strings.Contains(view, "project:") {
+		t.Fatalf("a focused asset field keeps its row next to the others: focus=%d\n%s", m.form.focus, view)
 	}
 	for _, r := range "a.gltf" {
 		m, _ = send(t, m, tea.KeyPressMsg{Code: r, Text: string(r)})
@@ -358,8 +358,8 @@ func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
 	m := newModel(config{}, nil)
 	m, _ = send(t, m, tea.WindowSizeMsg{Width: 60, Height: 5})
 	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
-	if m.form.level != 3 {
-		t.Fatalf("expected level 3 at five rows, got %d", m.form.level)
+	if v := ansi.Strip(m.View().Content); strings.Contains(v, "priority:") {
+		t.Fatalf("five rows draw only the focused field:\n%s", v)
 	}
 	var seen []int
 	for i := 0; i < 5; i++ {
@@ -376,5 +376,24 @@ func TestFocusRingStaysWholeOnAShortTerminal(t *testing.T) {
 	m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift})
 	if m.form.focus != 4 {
 		t.Fatalf("Shift-Tab from project must reach the button, got %d", m.form.focus)
+	}
+}
+
+func TestTabbingOntoTheAssetFieldCostsOneRowNotThree(t *testing.T) {
+	// At 50x7 the form is one row short of the asset field; focusing it
+	// must spend the title, not drop to the focused-only layout.
+	m := newModel(config{}, nil)
+	m, _ = send(t, m, tea.WindowSizeMsg{Width: 50, Height: 7})
+	m, _ = send(t, m, tea.KeyPressMsg{Code: 'n', Text: "n"})
+	before := ansi.Strip(m.View().Content)
+	if !strings.Contains(before, "project:") || strings.Contains(before, "asset:") {
+		t.Fatalf("unexpected start:\n%s", before)
+	}
+	for i := 0; i < 2; i++ { // project -> priority -> asset
+		m, _ = send(t, m, tea.KeyPressMsg{Code: tea.KeyTab})
+	}
+	after := ansi.Strip(m.View().Content)
+	if m.form.focus != 2 || !strings.Contains(after, "asset:") || !strings.Contains(after, "project:") || !strings.Contains(after, "priority:") {
+		t.Fatalf("focusing asset hid the other fields (focus %d):\n%s", m.form.focus, after)
 	}
 }

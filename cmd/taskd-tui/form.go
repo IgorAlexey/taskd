@@ -29,7 +29,6 @@ type formModel struct {
 	origHasPriority bool
 	origAsset       string
 	origBody        string
-	level           int // compaction fit chose; see lines
 	width, height   int // terminal fit laid out for; zero before the first fit
 	th              theme
 }
@@ -114,35 +113,40 @@ func (f *formModel) resize(inner int) {
 	f.body.SetWidth(inner)
 }
 
+// Compaction levels, tried in order until the rows fit the terminal.
+const (
+	levelFull    = iota // separators and the key hint
+	levelTight          // no separators, no hint
+	levelNoAsset        // an empty, unfocused asset field has no row; no body label
+	levelNoTitle        // the title goes too
+	levelFocused        // only the focused field, the error and the button
+)
+
 // drawn reports whether a field (0 project, 1 priority, 2 asset,
-// 3 body) has a row at a compaction level: 0 and 1 draw every field;
-// 2 drops an asset field that is empty and unfocused; 3 draws only the
-// focused field (the body when the button has focus). Every field stays
-// reachable by Tab at every level, and a field is always drawn while it
-// has the cursor, so nothing is typed into a row nobody can see. What
-// is drawn is not what is sent: submit sends every field.
+// 3 body) has a row at a compaction level. Every field stays reachable
+// by Tab at every level, and a field is always drawn while it has the
+// cursor, so nothing is typed into a row nobody can see. What is drawn
+// is not what is sent: submit sends every field.
 func (f formModel) drawn(level, field int) bool {
 	switch {
-	case level < 2:
+	case level < levelNoAsset:
 		return true
-	case level == 2:
+	case level < levelFocused:
 		return field != 2 || f.asset.Value() != "" || f.focus == 2
 	default:
 		return f.focus == field || (field == 3 && f.focus == 4)
 	}
 }
 
-// lines is the form's rows at a given level of compaction: 0 keeps the
-// separators and hint, 1 drops them, 2 also drops the asset field and
-// body label, 3 shows only the focused field, the error and the button.
-// slot is the index the textarea goes at (-1 when it is not drawn);
-// rows[keepAt:] up to keepN are the error and the button, which a short
-// frame must never cut; anything after them is the hint.
+// lines is the form's rows at a compaction level. slot is the index the
+// textarea goes at (-1 when it is not drawn); rows[keepAt:] up to keepN
+// are the error and the button, which a short frame must never cut;
+// anything after them is the hint.
 func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keepN int) {
-	if level < 3 {
+	if level < levelNoTitle {
 		rows = append(rows, th.accent.Render(f.title))
 	}
-	if level == 0 {
+	if level == levelFull {
 		rows = append(rows, "")
 	}
 	if f.drawn(level, 0) {
@@ -154,7 +158,7 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 	if f.drawn(level, 2) {
 		rows = append(rows, th.dim.Render("asset:    ")+f.asset.View())
 	}
-	if level < 2 {
+	if level < levelNoAsset {
 		rows = append(rows, th.dim.Render("body:"))
 	}
 	slot = -1
@@ -162,7 +166,7 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 		slot = len(rows)
 		rows = append(rows, "")
 	}
-	if level == 0 {
+	if level == levelFull {
 		rows = append(rows, "")
 	}
 	keepAt = len(rows)
@@ -175,7 +179,7 @@ func (f formModel) lines(level int, th theme) (rows []string, slot, keepAt, keep
 		rows = append(rows, th.dim.Render("[ save ]"))
 	}
 	keepN = len(rows) - keepAt
-	if level == 0 {
+	if level == levelFull {
 		rows = append(rows, "", th.dim.Render("Tab next  ctrl-s save  Esc cancel"))
 	}
 	return rows, slot, keepAt, keepN
@@ -199,11 +203,11 @@ func wrapRows(rows []string, width int) []string {
 
 // box draws an overlay. head and tail are lines that may be cut; keep
 // are rows, each already wrapped to boxWidth-4, drawn between them in
-// reading order and meant to survive. When the frame is short, tail goes
-// first, then head, then keep rows in the order drop lists them (least
-// important first); the row drop names last is trimmed to its first
-// lines rather than removed.
-func box(head []string, keep [][]string, drop []int, tail []string, boxWidth, height int, align lipgloss.Position, th theme) string {
+// reading order and meant to survive, most important first. When the
+// frame is short, tail goes first, then head, then keep rows from the
+// last backwards; the first keep row is trimmed to its opening lines
+// rather than removed.
+func box(head []string, keep [][]string, tail []string, boxWidth, height int, align lipgloss.Position, th theme) string {
 	if boxWidth < 5 {
 		return ""
 	}
@@ -215,9 +219,9 @@ func box(head []string, keep [][]string, drop []int, tail []string, boxWidth, he
 	if len(head)+need+len(tail) > room {
 		tail = tail[:max(0, room-len(head)-need)]
 		head = head[:max(0, room-need)]
-		for i := 0; need > room && i < len(drop)-1; i++ {
-			need -= len(keep[drop[i]])
-			keep[drop[i]] = nil
+		for need > room && len(keep) > 1 {
+			need -= len(keep[len(keep)-1])
+			keep = keep[:len(keep)-1]
 		}
 	}
 	lines := append([]string{}, head...)
@@ -437,7 +441,7 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 // box and counted; the textarea gets what is left, compacting rows when
 // even one is short. It sets the stored textarea size, so Update and
 // View agree on the layout.
-func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, drop []int, tail []string, boxWidth int) {
+func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]string, tail []string, boxWidth int) {
 	if width <= 0 {
 		width = 80
 	}
@@ -448,18 +452,18 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 	boxWidth, inner := boxSize(width, 20, 90)
 	f.resize(max(1, inner))
 	var rows []string
-	var slot, keepAt, keepN, bodyH int
-	for f.level = 0; f.level <= 3; f.level++ {
-		rows, slot, keepAt, keepN = f.lines(f.level, th)
+	var slot, keepAt, keepN, bodyH, level int
+	for level = levelFull; ; level++ {
+		rows, slot, keepAt, keepN = f.lines(level, th)
 		bodyH = height - 2 - len(wrapRows(rows, inner))
 		if slot >= 0 {
 			bodyH++ // the slot row stands in for the textarea
 		}
-		if bodyH >= 1 || f.level == 3 {
+		if bodyH >= 1 || level == levelFocused {
 			break
 		}
 	}
-	if f.level == 3 {
+	if level == levelFocused {
 		bodyH = 1 // the box must not jump as focus moves between fields
 	}
 	bodyH = max(1, min(12, bodyH))
@@ -474,7 +478,7 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 		}
 		head = append(append(wrapRows(rows[:slot], inner), body...), wrapRows(rows[slot+1:keepAt], inner)...)
 	}
-	if f.level == 3 {
+	if level == levelFocused {
 		// Only the focused field is drawn; it outranks error and button.
 		keep = append(keep, head)
 		head = nil
@@ -482,17 +486,13 @@ func (f *formModel) fit(width, height int, th theme) (head []string, keep [][]st
 	for _, r := range rows[keepAt : keepAt+keepN] {
 		keep = append(keep, wrapRows([]string{r}, inner))
 	}
-	// Drop the button first, then the error, and trim the field last.
-	for i := len(keep) - 1; i >= 0; i-- {
-		drop = append(drop, i)
-	}
-	return head, keep, drop, wrapRows(rows[keepAt+keepN:], inner), boxWidth
+	return head, keep, wrapRows(rows[keepAt+keepN:], inner), boxWidth
 }
 
 // refit lays the form out again for the terminal it was last fitted
 // to, so a keypress that changes the rows (an error, a focus move at
-// level 3) leaves the stored layout current. Before any fit it is a
-// no-op.
+// the focused-only level) leaves the stored textarea size current.
+// Before any fit it is a no-op.
 func (f formModel) refit() formModel {
 	if f.width > 0 {
 		f.fit(f.width, f.height, f.th)
@@ -503,8 +503,8 @@ func (f formModel) refit() formModel {
 // View renders the form for the terminal it was last fitted to; the
 // copy is refitted so the drawing and the stored layout are the same.
 func (f formModel) View() string {
-	head, keep, drop, tail, boxWidth := f.fit(f.width, f.height, f.th)
-	return box(head, keep, drop, tail, boxWidth, f.height, lipgloss.Left, f.th)
+	head, keep, tail, boxWidth := f.fit(f.width, f.height, f.th)
+	return box(head, keep, tail, boxWidth, f.height, lipgloss.Left, f.th)
 }
 
 type confirmModel struct {
@@ -520,7 +520,7 @@ func (c confirmModel) View(width, height int, th theme) string {
 	actions := th.accent.Render("[y] "+btn) + "   " + th.dim.Render("[n] cancel")
 	boxWidth, inner := boxSize(width, 20, 54)
 	head := wrapRows([]string{c.text, ""}, inner)
-	return box(head, [][]string{wrapRows([]string{actions}, inner)}, []int{0}, nil, boxWidth, height, lipgloss.Center, th)
+	return box(head, [][]string{wrapRows([]string{actions}, inner)}, nil, boxWidth, height, lipgloss.Center, th)
 }
 
 func padRightVisual(s string, w int) string {
@@ -579,5 +579,5 @@ func helpView(width, height int, th theme) string {
 	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, rows...)) + 4
 	boxWidth, inner := boxSize(width, 20, natural)
 	head := wrapRows(rows[:len(rows)-1], inner)
-	return box(head, [][]string{wrapRows(rows[len(rows)-1:], inner)}, []int{0}, nil, boxWidth, height, lipgloss.Left, th)
+	return box(head, [][]string{wrapRows(rows[len(rows)-1:], inner)}, nil, boxWidth, height, lipgloss.Left, th)
 }
