@@ -249,3 +249,29 @@ func TestHelpOverlayWorkerShortcuts(t *testing.T) {
 		t.Fatalf("help overlay missing [w/W] worker; got:\n%s", content)
 	}
 }
+func TestHelpDismissOnMouseClick(t *testing.T) {
+	for _, prev := range []mode{modeTable, modeDetail, modeZoom} {
+		m := newModel(config{icons: true, refresh: time.Hour}, nil)
+		m.width = 80
+		m.height = 24
+		m.mode = prev
+
+		updated, _ := m.Update(tea.KeyPressMsg{Text: "?"})
+		m = updated.(model)
+		if m.mode != modeHelp {
+			t.Fatalf("expected modeHelp, got %v", m.mode)
+		}
+
+		updated, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseRight, X: 10, Y: 10})
+		m = updated.(model)
+		if m.mode != modeHelp {
+			t.Fatalf("expected right click to be ignored in modeHelp, got %v", m.mode)
+		}
+
+		updated, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 10, Y: 10})
+		m = updated.(model)
+		if m.mode != prev {
+			t.Fatalf("expected mode %v after left click, got %v", prev, m.mode)
+		}
+	}
+}

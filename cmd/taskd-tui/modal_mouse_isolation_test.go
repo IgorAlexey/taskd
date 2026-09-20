@@ -29,14 +29,6 @@ func TestModalMouseIsolation(t *testing.T) {
 			},
 			want: modeConfirm,
 		},
-		{
-			name: "modeHelp",
-			open: func(m model) model {
-				up, _ := m.Update(tea.KeyPressMsg{Text: "?"})
-				return up.(model)
-			},
-			want: modeHelp,
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newModel(config{icons: true, refresh: time.Hour}, nil)

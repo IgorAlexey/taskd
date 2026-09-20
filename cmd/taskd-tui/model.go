@@ -161,19 +161,19 @@ func (m model) updateModal(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg := msg.(type) {
 		case tea.KeyPressMsg:
 			if msg.Code == tea.KeyEscape || msg.Text == "?" || msg.Text == "q" || msg.Code == tea.KeyEnter || isCtrlC(msg) {
-				m.mode = m.help.prev
-				if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
-					m.mode = modeTable
-				}
-				return m, nil
+				return m.closeHelp(), nil
 			}
 			var cmd tea.Cmd
 			m.help, cmd = m.help.Update(msg)
 			return m, cmd
-		case tea.MouseWheelMsg, tea.MouseClickMsg:
+		case tea.MouseWheelMsg:
 			var cmd tea.Cmd
 			m.help, cmd = m.help.Update(msg)
 			return m, cmd
+		case tea.MouseClickMsg:
+			if msg.Button == tea.MouseLeft {
+				return m.closeHelp(), nil
+			}
 		}
 		return m, nil
 	}
@@ -1521,6 +1521,13 @@ func (m model) actionHelp() (model, tea.Cmd) {
 	return m, nil
 }
 
+func (m model) closeHelp() model {
+	m.mode = m.help.prev
+	if m.mode != modeTable && m.mode != modeDetail && m.mode != modeZoom {
+		m.mode = modeTable
+	}
+	return m
+}
 func (m model) actionQuit() (model, tea.Cmd) {
 	return m, tea.Quit
 }

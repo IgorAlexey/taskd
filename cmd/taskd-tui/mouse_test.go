@@ -674,8 +674,8 @@ func TestClickFooterShortcuts(t *testing.T) {
 		Y:      mHelp.height - 1,
 		Button: tea.MouseLeft,
 	})
-	if modHelpClick.(model).mode != modeHelp {
-		t.Fatalf("expected click on footer ignored in modeHelp, got mode %v", modHelpClick.(model).mode)
+	if modHelpClick.(model).mode != modeTable {
+		t.Fatalf("expected click on footer to dismiss modeHelp to modeTable, got mode %v", modHelpClick.(model).mode)
 	}
 }
 func TestClickWorkerChip(t *testing.T) {
