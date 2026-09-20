@@ -686,9 +686,13 @@ func (m model) handleAction(msg tea.KeyPressMsg) (model, tea.Cmd, bool) {
 				cmd := m.setMsg("task is not leased")
 				return m, cmd, true
 			}
+			if t.Worker != m.cfg.worker {
+				cmd := m.setMsg("cannot release lease held by another worker")
+				return m, cmd, true
+			}
 			id7 := shortID(t.ID)
 			m.msg = ""
-			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": t.Worker}, "released task "+id7), true
+			return m, actCmd(m.client, "POST", "/tasks/"+t.ID+"/release", map[string]any{"worker": m.cfg.worker}, "released task "+id7), true
 		case "t":
 			if cmd, ok := m.requireWorker(); !ok {
 				return m, cmd, true
