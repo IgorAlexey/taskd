@@ -29,25 +29,40 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-func dbDir(path string) string {
-	if path == "" || path == ":memory:" {
-		return ""
+func resolveDBPath(path string) (string, bool) {
+	if path == "" {
+		return "", false
+	}
+	if path == ":memory:" {
+		return "", true
 	}
 	if !strings.HasPrefix(path, "file:") {
-		return filepath.Dir(path)
+		return path, false
 	}
 	u, err := url.Parse(path)
 	if err != nil {
-		return ""
+		return "", false
 	}
 	if u.Query().Get("mode") == "memory" {
-		return ""
+		return "", true
 	}
 	p := u.Path
 	if p == "" {
-		p = u.Opaque
+		unescaped, err := url.PathUnescape(u.Opaque)
+		if err != nil {
+			return "", false
+		}
+		p = unescaped
 	}
-	if p == "" || p == ":memory:" {
+	if p == ":memory:" {
+		return "", true
+	}
+	return p, false
+}
+
+func dbDir(path string) string {
+	p, _ := resolveDBPath(path)
+	if p == "" {
 		return ""
 	}
 	return filepath.Dir(p)
@@ -1640,6 +1655,22 @@ func runServer(ctx context.Context, l net.Listener, db *sql.DB, lease int, corsO
 	}
 }
 
+func checkBackupSource(path string) error {
+	fsPath, memory := resolveDBPath(path)
+	if memory {
+		return fmt.Errorf("cannot back up an in-memory database: %s", path)
+	}
+	if fsPath == "" {
+		return fmt.Errorf("cannot resolve database path: %s", path)
+	}
+	if _, err := os.Stat(fsPath); errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("database does not exist: %s", fsPath)
+	} else if err != nil {
+		return fmt.Errorf("cannot access database %s: %w", fsPath, err)
+	}
+	return nil
+}
+
 func backupDB(db *sql.DB, path string) error {
 	if dir := dbDir(path); dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
@@ -1650,37 +1681,44 @@ func backupDB(db *sql.DB, path string) error {
 	return err
 }
 
-func main() {
-	cfg, err := parseFlags(os.Args[1:])
+func run(args []string) error {
+	cfg, err := parseFlags(args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
-			os.Exit(0)
+			return nil
 		}
-		log.Fatal(err)
+		return err
+	}
+
+	if cfg.backupPath != "" {
+		if err := checkBackupSource(cfg.dbPath); err != nil {
+			return err
+		}
 	}
 
 	db, err := openDB(cfg.dbPath)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer db.Close()
 
 	if cfg.backupPath != "" {
-		if err := backupDB(db, cfg.backupPath); err != nil {
-			log.Fatal(err)
-		}
-		return
+		return backupDB(db, cfg.backupPath)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	l, err := net.Listen("tcp", cfg.addr)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	log.Printf("listening on %s", l.Addr())
 
-	if err := runServer(ctx, l, db, cfg.lease, cfg.corsOrigin); err != nil {
+	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin)
+}
+
+func main() {
+	if err := run(os.Args[1:]); err != nil {
 		log.Fatal(err)
 	}
 }
