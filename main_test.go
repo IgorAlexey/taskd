@@ -42,7 +42,7 @@ func TestCORSHeaders(t *testing.T) {
 		t.Fatalf("expected Access-Control-Allow-Origin: http://example.com, got %q", got)
 	}
 	expose := resp.Header.Get("Access-Control-Expose-Headers")
-	for _, want := range []string{"X-Total-Count", "X-Next-Cursor", "ETag"} {
+	for _, want := range []string{"X-Total-Count", "X-Next-Cursor", "ETag", "Location"} {
 		if !strings.Contains(expose, want) {
 			t.Fatalf("Access-Control-Expose-Headers %q missing %q", expose, want)
 		}
@@ -234,6 +234,9 @@ func TestLapsedLeaseReportedAsPendingAcrossReadEndpoints(t *testing.T) {
 		t.Fatalf("decode created: %v", err)
 	}
 	resp.Body.Close()
+	if want := "/tasks/" + created.ID; resp.Header.Get("Location") != want {
+		t.Fatalf("Location = %q, want %q", resp.Header.Get("Location"), want)
+	}
 
 	claimReq, err := http.NewRequest(http.MethodPost, srv.URL+"/tasks/claim", strings.NewReader(`{"worker":"w1","project":"p1"}`))
 	if err != nil {

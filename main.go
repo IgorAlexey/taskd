@@ -1377,6 +1377,7 @@ FROM tasks`
 		}
 		db.notifyPending(req.Project)
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Location", "/tasks/"+req.ID)
 		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(map[string]string{"id": req.ID})
 	}
@@ -2311,7 +2312,7 @@ WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
-			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Next-Cursor, ETag")
+			w.Header().Set("Access-Control-Expose-Headers", "X-Total-Count, X-Next-Cursor, ETag, Location")
 		}
 		if strings.HasSuffix(r.URL.Path, "/") && r.URL.Path != "/" {
 			cleanReq := *r
