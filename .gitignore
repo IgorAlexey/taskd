@@ -1,5 +1,3 @@
-.*
-!.gitignore
 /taskd
 /taskd-tui
 /taskd.db
