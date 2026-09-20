@@ -1390,6 +1390,9 @@ func checkProject(p string) (string, bool) {
 	if len(p) > maxProjectLen {
 		return fmt.Sprintf("invalid project: exceeds %d characters", maxProjectLen), false
 	}
+	if p == "." || p == ".." {
+		return "invalid project", false
+	}
 	for i := range len(p) {
 		if !validNameByte(p[i]) {
 			return "invalid project", false

@@ -176,3 +176,28 @@ func TestValidationErrorsDetailed(t *testing.T) {
 		}
 	})
 }
+
+func TestValidProject(t *testing.T) {
+	cases := []struct {
+		project string
+		want    bool
+	}{
+		{".", false},
+		{"..", false},
+		{"", false},
+		{"my-project", true},
+		{"valid-project.123", true},
+	}
+	for _, tc := range cases {
+		if got := validProject(tc.project); got != tc.want {
+			t.Errorf("validProject(%q) = %v, want %v", tc.project, got, tc.want)
+		}
+		msg, ok := checkProject(tc.project)
+		if ok != tc.want {
+			t.Errorf("checkProject(%q) ok = %v, want %v", tc.project, ok, tc.want)
+		}
+		if !ok && tc.project != "" && msg == "" {
+			t.Errorf("checkProject(%q) expected error message, got empty", tc.project)
+		}
+	}
+}
