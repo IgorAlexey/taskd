@@ -664,6 +664,7 @@
     let claimWorker = '';
     let currentPage = 1;
     let totalTasks = 0;
+    let lastRenderedTasksURL = '';
     // The project filter, the status filter and the selected task are the
     // state a reader can see, so they live in the URL: a link reproduces
     // the view and a reload keeps it. Filters replace the history entry,
@@ -973,8 +974,47 @@
       return 'daemon returned ' + st;
     }
 
+    const MAX_ETAG_CACHE_ENTRIES = 50;
+    const etagCache = new Map();
+
+    function setCachedETag(url, entry) {
+      if (etagCache.has(url)) {
+        etagCache.delete(url);
+      } else if (etagCache.size >= MAX_ETAG_CACHE_ENTRIES) {
+        const oldest = etagCache.keys().next().value;
+        etagCache.delete(oldest);
+      }
+      etagCache.set(url, entry);
+    }
     async function fetchJSON(url, opts, withHeaders) {
-      const res = await fetchRaw(url, opts);
+      let finalOpts = opts;
+      const method = (opts && opts.method) ? String(opts.method).toUpperCase() : 'GET';
+      const cached = (method === 'GET') ? etagCache.get(url) : null;
+      if (cached && cached.etag) {
+        finalOpts = Object.assign({}, opts);
+        const headers = Object.assign({}, finalOpts.headers);
+        let hasInm = false;
+        for (const k of Object.keys(headers)) {
+          if (k.toLowerCase() === 'if-none-match') {
+            hasInm = true;
+            break;
+          }
+        }
+        if (!hasInm) {
+          headers['If-None-Match'] = cached.etag;
+          finalOpts.headers = headers;
+        }
+      }
+
+      const res = await fetchRaw(url, finalOpts);
+      if (res.status === 304) {
+        if (cached) {
+          etagCache.delete(url);
+          etagCache.set(url, cached);
+        }
+        const cachedData = cached ? cached.data : null;
+        return withHeaders ? { data: cachedData, headers: res.headers, notModified: true } : cachedData;
+      }
       if (!res.ok) {
         const txt = await res.text();
         const err = new Error(parseErrorMessage(res, txt));
@@ -989,6 +1029,12 @@
       } else {
         const txt = await res.text();
         data = txt ? JSON.parse(txt) : null;
+      }
+      if (method === 'GET' && res.headers && typeof res.headers.get === 'function') {
+        const etag = res.headers.get('etag') || res.headers.get('ETag');
+        if (etag) {
+          setCachedETag(url, { etag, data });
+        }
       }
       return withHeaders ? { data, headers: res.headers } : data;
     }
@@ -1157,6 +1203,10 @@
 
         try {
           const res = await fetchJSON(url, null, true);
+          if (res && res.notModified && lastRenderedTasksURL === url) {
+            return;
+          }
+          lastRenderedTasksURL = url;
           const tasks = (res && res.data) || [];
           const totalHdr = res && res.headers && res.headers.get('X-Total-Count');
           const parsedTotal = parseInt(totalHdr, 10);
