@@ -959,7 +959,7 @@ func TestGetTasksInvalidSortOrderFields(t *testing.T) {
 		},
 		{
 			param:   "?fields=bad",
-			wantErr: `invalid field "bad", must be one of [id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]`,
+			wantErr: `invalid field "bad", must be one of [id, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]`,
 		},
 	}
 

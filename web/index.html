@@ -922,8 +922,6 @@
           <option value="">(all)</option>
           <option value="">(unassigned)</option>
         </select>
-        <label for="filter-asset-path" class="text-muted text-sm">Asset Path:</label>
-        <input type="text" id="filter-asset-path" name="asset_path" aria-label="Filter by asset path" onchange="onFilterChange()" class="input-sm">
         <label for="filter-search" class="text-muted text-sm">Search tasks:</label>
         <input type="text" id="filter-search" aria-label="Search tasks" oninput="onSearchInput()" class="input-sm">
         <button type="button" id="clear-search-btn" onclick="clearSearch()" aria-label="Clear search" class="btn-sm">Clear</button>
@@ -996,12 +994,6 @@
               <span class="field-error" id="form-body-error" hidden></span>
               <textarea id="form-body" name="body" aria-invalid="false" aria-describedby="form-body-hint form-body-count form-body-error"></textarea>
               <div class="hint" id="form-body-count">0 characters</div>
-            </div>
-            <div class="field">
-              <label for="form-asset">Asset Path (optional)</label>
-              <div class="hint" id="form-asset-hint">/path/to/asset</div>
-              <span class="field-error" id="form-asset-error" hidden></span>
-              <input type="text" id="form-asset" name="asset_path" aria-invalid="false" aria-describedby="form-asset-hint form-asset-error">
             </div>
             <div class="field">
               <label for="form-id">Custom ID (optional)</label>
@@ -1170,7 +1162,7 @@
     let currentTask = null;
     let isEditingTask = false;
     const PAGE_SIZE = 200;
-    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,lease_expires,created_at,summary,asset_path';
+    const QUEUE_FIELDS = 'id,status,project,priority,claim_count,worker,lease_expires,created_at,summary';
     const STATUS_KEYS = ['', 'pending', 'leased', 'done', 'buried', 'live'];
     let claimWorker = '';
     try {
@@ -1323,7 +1315,6 @@
         status: q.get('status') || '',
         priority: q.get('priority') || '',
         worker: q.has('worker') ? q.get('worker') : null,
-        asset_path: q.get('asset_path') || '',
         q: q.get('q') || '',
         sort: sort,
         order: sort ? (cleanSortDir(q.get('order')) || 'asc') : '',
@@ -1355,13 +1346,11 @@
       const projEl = document.getElementById('filter-project');
       const prioEl = document.getElementById('filter-priority');
       const searchEl = document.getElementById('filter-search');
-      const assetEl = document.getElementById('filter-asset-path');
       const state = {
         project: pendingProject || (projEl ? projEl.value : ''),
         status: getStatusFilter(),
         priority: cleanPriority(prioEl ? prioEl.value : ''),
         worker: getWorkerFilter(),
-        asset_path: assetEl ? assetEl.value.trim() : '',
         q: searchEl ? searchEl.value.trim() : '',
         sort: sortCol || '',
         order: sortCol ? sortDir : '',
@@ -1378,7 +1367,6 @@
       if (state.status) q.set('status', state.status);
       if (state.priority) q.set('priority', state.priority);
       if (state.worker !== null && state.worker !== undefined) q.set('worker', state.worker);
-      if (state.asset_path) q.set('asset_path', state.asset_path);
       if (state.q) q.set('q', state.q);
       if (state.sort) q.set('sort', state.sort);
       if (state.order) q.set('order', state.order);
@@ -1505,8 +1493,6 @@
       }
       const searchEl = document.getElementById('filter-search');
       if (searchEl) searchEl.value = state.q || '';
-      const assetEl = document.getElementById('filter-asset-path');
-      if (assetEl) assetEl.value = state.asset_path || '';
       selectedTaskId = state.task || null;
       const parsedPage = parseInt(state.page || '1', 10);
       currentPage = (Number.isInteger(parsedPage) && parsedPage > 0) ? parsedPage : 1;
@@ -1547,11 +1533,9 @@
       const prioEl = document.getElementById('filter-priority');
       const priority = cleanPriority(prioEl ? prioEl.value : '');
       const worker = getWorkerFilter();
-      const assetEl = document.getElementById('filter-asset-path');
-      const asset_path = assetEl ? assetEl.value.trim() : '';
       const searchEl = document.getElementById('filter-search');
       const q = searchEl ? searchEl.value.trim() : '';
-      return Boolean(project || status || priority || worker !== null || asset_path || q);
+      return Boolean(project || status || priority || worker !== null || q);
     }
 
     function updateResetFiltersButton() {
@@ -1568,8 +1552,6 @@
       if (prioEl) prioEl.value = '';
       const workerEl = document.getElementById('filter-worker');
       if (workerEl) workerEl.selectedIndex = 0;
-      const assetEl = document.getElementById('filter-asset-path');
-      if (assetEl) assetEl.value = '';
       const searchEl = document.getElementById('filter-search');
       if (searchEl) searchEl.value = '';
       if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
@@ -1904,7 +1886,7 @@
         claimCount: String(t.claim_count ?? 0),
         worker: t.worker || '',
         createdAt: formatTimestamp(t.created_at),
-        summary: t.summary || t.asset_path || ''
+        summary: t.summary || ''
       };
     }
     function createCell(field, text, className) {
@@ -1990,12 +1972,10 @@
       const projEl = document.getElementById('filter-project');
       const prioEl = document.getElementById('filter-priority');
       const searchEl = document.getElementById('filter-search');
-      const assetEl = document.getElementById('filter-asset-path');
       const proj = projEl ? projEl.value : '';
       const status = getStatusFilter();
       const prio = cleanPriority(prioEl ? prioEl.value : '');
       const worker = getWorkerFilter();
-      const assetPath = assetEl ? assetEl.value.trim() : '';
       const search = searchEl ? searchEl.value.trim() : '';
       while (true) {
         const offset = (currentPage - 1) * PAGE_SIZE;
@@ -2005,7 +1985,6 @@
         if (status) url += '&status=' + encodeURIComponent(status);
         if (prio !== '') url += '&priority=' + encodeURIComponent(prio);
         if (worker !== null) url += '&worker=' + encodeURIComponent(worker);
-        if (assetPath) url += '&asset_path=' + encodeURIComponent(assetPath);
         if (search) url += '&q=' + encodeURIComponent(search);
         if (sortCol) {
           url += '&sort=' + encodeURIComponent(sortCol);
@@ -2429,10 +2408,6 @@
           <div class="field" id="edit-task-lease-row" hidden><span class="field-label">Lease Expires</span><span id="edit-task-lease"></span></div>
           <div class="field" id="edit-task-created-row" hidden><span class="field-label">Created At</span><span id="edit-task-created"></span></div>
           <div class="field">
-            <label for="edit-task-asset-path" class="field-label">Asset Path</label>
-            <input type="text" id="edit-task-asset-path">
-          </div>
-          <div class="field">
             <label for="edit-task-body" class="field-label">Body</label>
             <textarea id="edit-task-body"></textarea>
           </div>
@@ -2480,11 +2455,9 @@
         }
         const prioInput = document.getElementById('edit-task-priority');
         const projInput = document.getElementById('edit-task-project');
-        const assetInput = document.getElementById('edit-task-asset-path');
         const bodyInput = document.getElementById('edit-task-body');
         if (projInput) projInput.value = t.project || '';
         if (prioInput) prioInput.value = t.priority ?? '';
-        if (assetInput) assetInput.value = t.asset_path || '';
         if (bodyInput) bodyInput.value = t.body || '';
         const handleEditKeyDown = function(e) {
           if (e.key === 'Escape') {
@@ -2497,7 +2470,7 @@
             saveTaskEdit();
           }
         };
-        for (const el of [projInput, prioInput, assetInput, bodyInput]) {
+        for (const el of [projInput, prioInput, bodyInput]) {
           if (el) el.addEventListener('keydown', handleEditKeyDown);
         }
         if (bodyInput) bodyInput.focus();
@@ -2535,7 +2508,6 @@
           <div class="metadata-row" id="detail-task-worker-row" hidden><dt class="field-label">Worker</dt><dd id="detail-task-worker" class="mono"></dd></div>
           <div class="metadata-row" id="detail-task-lease-row" hidden><dt class="field-label">Lease Expires</dt><dd id="detail-task-lease"></dd></div>
           <div class="metadata-row" id="detail-task-created-row" hidden><dt class="field-label">Created At</dt><dd id="detail-task-created"></dd></div>
-          <div class="metadata-row" id="detail-task-asset-row" hidden><dt class="field-label">Asset Path</dt><dd class="cluster"><span class="mono" id="detail-task-asset"></span><button type="button" id="copy-asset-btn" class="copy-btn">Copy</button></dd></div>
         </dl>
         <div class="field">
           <div class="field-header">
@@ -2619,11 +2591,6 @@
         createdRow.hidden = false;
         setText(document.getElementById('detail-task-created'), createdAtStr);
       }
-      const assetRow = document.getElementById('detail-task-asset-row');
-      if (assetRow && t.asset_path) {
-        assetRow.hidden = false;
-        setText(document.getElementById('detail-task-asset'), t.asset_path);
-      }
       setText(document.getElementById('detail-task-body'), t.body || '');
       const primRow = document.getElementById('detail-task-prim-row');
       if (primRow && primStr) {
@@ -2655,8 +2622,6 @@
       if (delBtn) delBtn.onclick = () => deleteTask(t);
       const copyBtn = document.getElementById('copy-id-btn');
       if (copyBtn) copyBtn.onclick = () => copyToClipboard(t.id || '', copyBtn, 'ID');
-      const copyAssetBtn = document.getElementById('copy-asset-btn');
-      if (copyAssetBtn) copyAssetBtn.onclick = () => copyToClipboard(t.asset_path || '', copyAssetBtn, 'asset path');
       const copyBodyBtn = document.getElementById('copy-body-btn');
       if (copyBodyBtn) copyBodyBtn.onclick = () => copyToClipboard(t.body || '', copyBodyBtn, 'body');
       const copyPrimBtn = document.getElementById('copy-primitives-btn');
@@ -3257,12 +3222,10 @@
       if (!currentTask || currentTask.status === 'done' || isActivelyLeased(currentTask)) return;
       const projInput = document.getElementById('edit-task-project');
       const prioInput = document.getElementById('edit-task-priority');
-      const assetInput = document.getElementById('edit-task-asset-path');
       const bodyInput = document.getElementById('edit-task-body');
 
       const proj = projInput ? projInput.value.trim() : (currentTask.project || '');
       const prioText = prioInput ? prioInput.value.trim() : '';
-      const asset = assetInput ? assetInput.value.trim() : (currentTask.asset_path || '');
       const body = bodyInput ? bodyInput.value : (currentTask.body || '');
 
       const projErr = projectError(proj);
@@ -3279,7 +3242,7 @@
         showError('Priority must be a whole number, 0 or greater');
         return;
       }
-      const bErr = bodyError(body, asset);
+      const bErr = bodyError(body);
       if (bErr) {
         showError(bErr.message);
         return;
@@ -3291,7 +3254,6 @@
       const payload = {
         project: proj,
         priority: priority,
-        asset_path: asset,
         body: body
       };
       if (typeof currentTask.version === 'number') {
@@ -3449,17 +3411,9 @@
       return null;
     }
 
-    // Each field is trimmed where the daemon trims it: asset_path yes, body no.
-    function bodyError(body, asset) {
-      if (body !== '' && body.trim() === '') {
-        return { fieldId: 'form-body', message: 'Body cannot be only whitespace' };
-      }
-      if (body === '' && asset.trim() === '') {
-        return {
-          fieldId: 'form-body',
-          fieldIds: ['form-body', 'form-asset'],
-          message: 'Either Body or Asset Path must be provided'
-        };
+    function bodyError(body) {
+      if (body.trim() === '') {
+        return { fieldId: 'form-body', message: 'Body is required' };
       }
       return null;
     }
@@ -3484,13 +3438,11 @@
       const projEl = document.getElementById('form-project');
       const bodyEl = document.getElementById('form-body');
       const prioEl = document.getElementById('form-priority');
-      const assetEl = document.getElementById('form-asset');
       const idEl = document.getElementById('form-id');
 
       const proj = projEl ? projEl.value.trim() : '';
       const body = bodyEl ? bodyEl.value : '';
       const prioText = prioEl ? prioEl.value.trim() : '';
-      const asset = assetEl ? assetEl.value.trim() : '';
       const customId = idEl ? idEl.value.trim() : '';
 
       const errors = [];
@@ -3498,7 +3450,7 @@
       if (projErr) {
         errors.push(projErr);
       }
-      const bodyErr = bodyError(body, asset);
+      const bodyErr = bodyError(body);
       if (bodyErr) {
         errors.push(bodyErr);
       }
@@ -3523,7 +3475,6 @@
         body: body
       };
       if (prioText !== '') payload.priority = parseInt(prioText, 10);
-      if (asset) payload.asset_path = asset;
       if (customId) payload.id = customId;
       if (submitBtn) {
         submitBtn.disabled = true;
@@ -3537,7 +3488,6 @@
           body: JSON.stringify(payload)
         });
         if (bodyEl) bodyEl.value = '';
-        if (assetEl) assetEl.value = '';
         if (idEl) idEl.value = '';
         updateBodyCount();
         clearFormErrors();

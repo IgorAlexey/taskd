@@ -10,7 +10,6 @@ const els = {
   'error-banner-text': bannerText,
   'edit-task-project': { value: 'proj' },
   'edit-task-priority': { value: '1' },
-  'edit-task-asset-path': { value: '' },
   'edit-task-body': { value: 'task body' },
   'save-task-btn': { disabled: false },
   'cancel-task-btn': { disabled: false },

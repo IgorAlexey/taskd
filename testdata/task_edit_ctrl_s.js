@@ -43,7 +43,6 @@ const sampleTask = {
   status: 'pending',
   priority: 15,
   claim_count: 0,
-  asset_path: '/images/test.png',
   body: 'Fix the widget layout',
 };
 
@@ -66,7 +65,7 @@ if (editBtn.onclick) {
   editBtn.onclick();
 }
 
-const fields = ['edit-task-project', 'edit-task-priority', 'edit-task-asset-path', 'edit-task-body'];
+const fields = ['edit-task-project', 'edit-task-priority', 'edit-task-body'];
 const results = {};
 
 for (const fieldId of fields) {

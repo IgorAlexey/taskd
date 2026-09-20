@@ -74,7 +74,7 @@ func dbDir(path string) string {
 	return filepath.Dir(p)
 }
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13}
 
 const schemaVersion = len(migrations) + 1
 
@@ -533,7 +533,7 @@ func migrateV4(db *sql.DB) error {
 		src("claim_count", "0") + " FROM tasks;"
 
 	stmts := []string{
-		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		"CREATE TABLE tasks_new (" + taskColumnsV12 + ");",
 		insert,
 		"DROP TABLE tasks;",
 		"ALTER TABLE tasks_new RENAME TO tasks;",
@@ -557,7 +557,7 @@ func migrateV5(db *sql.DB) error {
 	defer tx.Rollback()
 
 	stmts := []string{
-		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		"CREATE TABLE tasks_new (" + taskColumnsV12 + ");",
 		`INSERT INTO tasks_new (rowid, id, asset_path, status, worker, lease_expires, primitives, body, priority, project, claim_count)
 SELECT rowid, id, asset_path, status, CAST(substr(CAST(worker AS BLOB), 1, 128) AS TEXT), lease_expires, primitives, body, priority, project, claim_count FROM tasks;`,
 		"DROP TABLE tasks;",
@@ -574,9 +574,24 @@ SELECT rowid, id, asset_path, status, CAST(substr(CAST(worker AS BLOB), 1, 128) 
 	return tx.Commit()
 }
 
-const taskColumns = `
+// taskColumnsV12 is the layout migrations V4 through V12 rebuilt into; it is
+// frozen so those migrations keep producing the schema they did at the time.
+const taskColumnsV12 = `
   id TEXT PRIMARY KEY,
   asset_path TEXT NOT NULL DEFAULT '',
+  status TEXT DEFAULT 'pending',
+  worker TEXT CHECK (octet_length(worker) <= 128),
+  lease_expires INTEGER,
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
+  project TEXT NOT NULL DEFAULT '',
+  claim_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  version INTEGER NOT NULL DEFAULT 1`
+
+const taskColumns = `
+  id TEXT PRIMARY KEY,
   status TEXT DEFAULT 'pending',
   worker TEXT CHECK (octet_length(worker) <= 128),
   lease_expires INTEGER,
@@ -728,6 +743,42 @@ func migrateV12(db *sql.DB) error {
 	return tx.Commit()
 }
 
+func migrateV13(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF;"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA foreign_keys = ON;")
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		`INSERT INTO tasks_new (rowid, id, status, worker, lease_expires, primitives, body, priority, project, claim_count, created_at, version)
+SELECT rowid, id, status, worker, lease_expires, primitives,
+  CASE WHEN trim(body) = '' THEN asset_path ELSE body END,
+  priority, project, claim_count, created_at, version FROM tasks;`,
+		"DROP TABLE tasks;",
+		"ALTER TABLE tasks_new RENAME TO tasks;",
+		"CREATE INDEX idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';",
+		"CREATE INDEX idx_tasks_project ON tasks (project, status, priority ASC);",
+		"CREATE INDEX idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;",
+		"CREATE INDEX idx_tasks_done ON tasks (project) WHERE status = 'done';",
+		"PRAGMA user_version = 13;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 const defaultPriority = 3
 
 const maxBodyBytes = 1 << 20
@@ -850,7 +901,7 @@ type listCursor struct {
 
 func listFilterFingerprint(q url.Values) string {
 	var b strings.Builder
-	for _, k := range []string{"status", "project", "worker", "priority", "asset_path", "q"} {
+	for _, k := range []string{"status", "project", "worker", "priority", "q"} {
 		if q.Has(k) {
 			b.WriteString(k)
 			b.WriteByte('=')
@@ -1147,7 +1198,6 @@ func resolveTaskIDHTTP(w http.ResponseWriter, q queryer, id string) (string, boo
 
 type taskItem struct {
 	ID           string          `json:"id"`
-	AssetPath    string          `json:"asset_path"`
 	Status       string          `json:"status"`
 	Worker       string          `json:"worker"`
 	LeaseExpires int64           `json:"lease_expires"`
@@ -1200,7 +1250,7 @@ const summaryRunes = 50
 
 const summaryTrim = " \t\r\n"
 
-var summaryPrefixCol = fmt.Sprintf("substr(COALESCE(NULLIF(ltrim(body, %s), ''), ltrim(asset_path, %s), ''), 1, %d)", sqlCharset(summaryTrim), sqlCharset(summaryTrim), summaryRunes+1)
+var summaryPrefixCol = fmt.Sprintf("substr(ltrim(body, %s), 1, %d)", sqlCharset(summaryTrim), summaryRunes+1)
 
 func sqlCharset(cut string) string {
 	parts := make([]string, 0, len(cut))
@@ -1221,7 +1271,7 @@ func summaryLine(body string) string {
 	return s
 }
 
-const validTaskFieldsList = "[id, asset_path, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]"
+const validTaskFieldsList = "[id, status, worker, lease_expires, priority, body, primitives, project, claim_count, summary, created_at, version]"
 
 func parseTaskFields(q url.Values) ([]string, error) {
 	if !q.Has("fields") && !q.Has("columns") {
@@ -1240,7 +1290,7 @@ func parseTaskFields(q url.Values) ([]string, error) {
 	for _, p := range parts {
 		f := strings.TrimSpace(p)
 		switch f {
-		case "id", "asset_path", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version":
+		case "id", "status", "worker", "lease_expires", "priority", "body", "primitives", "project", "claim_count", "summary", "created_at", "version":
 			if !seen[f] {
 				seen[f] = true
 				fields = append(fields, f)
@@ -1256,9 +1306,6 @@ func taskSummary(item taskItem) string {
 	text := item.summaryPrefix
 	if text == "" {
 		text = item.Body
-		if strings.TrimLeft(text, summaryTrim) == "" {
-			text = item.AssetPath
-		}
 	}
 	return summaryLine(text)
 }
@@ -1275,9 +1322,6 @@ func writeProjectedTask(buf *bytes.Buffer, item taskItem, fields []string) {
 		switch f {
 		case "id":
 			b, _ := json.Marshal(item.ID)
-			buf.Write(b)
-		case "asset_path":
-			b, _ := json.Marshal(item.AssetPath)
 			buf.Write(b)
 		case "status":
 			b, _ := json.Marshal(item.Status)
@@ -1322,11 +1366,10 @@ type leaseEnvelope struct {
 	Project      string `json:"-"`
 }
 type taskCreateReq struct {
-	ID        string `json:"id"`
-	AssetPath string `json:"asset_path"`
-	Body      string `json:"body"`
-	Priority  *int   `json:"priority"`
-	Project   string `json:"project"`
+	ID       string `json:"id"`
+	Body     string `json:"body"`
+	Priority *int   `json:"priority"`
+	Project  string `json:"project"`
 }
 
 type fieldError struct {
@@ -1339,11 +1382,10 @@ func (e fieldError) Error() string {
 }
 
 type validatedTask struct {
-	id        string
-	assetPath string
-	body      string
-	priority  int
-	project   string
+	id       string
+	body     string
+	priority int
+	project  string
 }
 
 const maxTaskIDLen = 128
@@ -1670,13 +1712,9 @@ FROM tasks`
 		})
 	}
 	validateTask := func(req taskCreateReq) (validatedTask, error) {
-		assetPath := strings.TrimSpace(req.AssetPath)
 		project := strings.TrimSpace(req.Project)
-		if req.Body != "" && strings.TrimSpace(req.Body) == "" {
-			return validatedTask{}, fieldError{msg: "invalid body", field: "body"}
-		}
-		if assetPath == "" && req.Body == "" {
-			return validatedTask{}, fieldError{msg: "missing asset_path or body", field: "body"}
+		if strings.TrimSpace(req.Body) == "" {
+			return validatedTask{}, fieldError{msg: "missing body", field: "body"}
 		}
 		if project == "" {
 			return validatedTask{}, fieldError{msg: "missing project", field: "project"}
@@ -1702,11 +1740,10 @@ FROM tasks`
 			return validatedTask{}, fieldError{msg: msg, field: "id"}
 		}
 		return validatedTask{
-			id:        id,
-			assetPath: assetPath,
-			body:      req.Body,
-			priority:  priority,
-			project:   project,
+			id:       id,
+			body:     req.Body,
+			priority: priority,
+			project:  project,
 		}, nil
 	}
 
@@ -1730,11 +1767,10 @@ FROM tasks`
 				prio = &p
 			}
 			reqs = []taskCreateReq{{
-				ID:        r.FormValue("id"),
-				AssetPath: r.FormValue("asset_path"),
-				Body:      r.FormValue("body"),
-				Priority:  prio,
-				Project:   r.FormValue("project"),
+				ID:       r.FormValue("id"),
+				Body:     r.FormValue("body"),
+				Priority: prio,
+				Project:  r.FormValue("project"),
 			}}
 		} else {
 			var raw json.RawMessage
@@ -1784,7 +1820,7 @@ FROM tasks`
 		}
 		defer tx.Rollback()
 
-		stmt, err := tx.Prepare("INSERT INTO tasks (id, asset_path, body, priority, project, created_at) VALUES (?, ?, ?, ?, ?, unixepoch())")
+		stmt, err := tx.Prepare("INSERT INTO tasks (id, body, priority, project, created_at) VALUES (?, ?, ?, ?, unixepoch())")
 		if err != nil {
 			internalError(w, err)
 			return
@@ -1792,7 +1828,7 @@ FROM tasks`
 		defer stmt.Close()
 
 		for _, t := range tasks {
-			_, err := stmt.Exec(t.id, t.assetPath, t.body, t.priority, t.project)
+			_, err := stmt.Exec(t.id, t.body, t.priority, t.project)
 			if err != nil {
 				var se *sqlite.Error
 				if errors.As(err, &se) && (se.Code() == sqlite3.SQLITE_CONSTRAINT_PRIMARYKEY || se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE) {
@@ -1874,7 +1910,7 @@ WHERE id = (
 		query += `
   ORDER BY priority ASC, created_at ASC
   LIMIT 1
-) RETURNING id, asset_path, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
+) RETURNING id, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
 
 		tryClaim := func() (*taskItem, error) {
 			var (
@@ -1884,7 +1920,7 @@ WHERE id = (
 				prim         []byte
 			)
 			err := db.rw.QueryRow(query, args...).
-				Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+				Scan(&item.ID, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 			if err != nil {
 				return nil, err
 			}
@@ -1985,7 +2021,7 @@ WHERE id = (
 SET status='leased', worker=?, lease_expires=unixepoch()+?, claim_count=claim_count+1, version = version + 1
 WHERE id = ? AND status='pending'
   AND (? <= 0 OR claim_count < ?)
-RETURNING id, asset_path, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
+RETURNING id, status, worker, lease_expires, priority, version, body, primitives, project, claim_count, created_at`
 		var (
 			item         taskItem
 			leasedWorker sql.NullString
@@ -1993,7 +2029,7 @@ RETURNING id, asset_path, status, worker, lease_expires, priority, version, body
 			prim         []byte
 		)
 		err := db.rw.QueryRow(query, worker, lease, id, db.maxClaims, db.maxClaims).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+			Scan(&item.ID, &item.Status, &leasedWorker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeTaskStateError(w, db.ro, id, "", nil)
 			return
@@ -2270,7 +2306,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				summaryCol = summaryPrefixCol
 			}
 		}
-		query := fmt.Sprintf(`SELECT id, asset_path,
+		query := fmt.Sprintf(`SELECT id,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
@@ -2302,16 +2338,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			where = append(where, "priority = ?")
 			whereArgs = append(whereArgs, *priorityFilter)
 		}
-		if q.Has("asset_path") {
-			where = append(where, "asset_path = ?")
-			whereArgs = append(whereArgs, q.Get("asset_path"))
-		}
 		if q.Has("q") {
 			search := strings.TrimSpace(q.Get("q"))
 			if search != "" {
 				pat := "%" + escapeLike(search) + "%"
-				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))) OR asset_path LIKE ? ESCAPE '\\')")
-				whereArgs = append(whereArgs, pat, pat, pat, pat, now, pat)
+				where = append(where, "(id LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\' OR project LIKE ? ESCAPE '\\' OR (worker LIKE ? ESCAPE '\\' AND (status = 'done' OR (status = 'leased' AND lease_expires >= ?))))")
+				whereArgs = append(whereArgs, pat, pat, pat, pat, now)
 			}
 		}
 		var whereSQL string
@@ -2365,7 +2397,7 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				prim         []byte
 				rowid        int64
 			)
-			if err := rows.Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.summaryPrefix, &item.Project, &item.ClaimCount, &item.CreatedAt, &rowid); err != nil {
+			if err := rows.Scan(&item.ID, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.summaryPrefix, &item.Project, &item.ClaimCount, &item.CreatedAt, &rowid); err != nil {
 				internalError(w, err)
 				return
 			}
@@ -2444,12 +2476,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			prim         []byte
 		)
 		now := time.Now().Unix()
-		err = db.ro.QueryRow(`SELECT id, asset_path,
+		err = db.ro.QueryRow(`SELECT id,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN 'pending' ELSE status END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE worker END,
   CASE WHEN status = 'leased' AND lease_expires < ? THEN NULL ELSE lease_expires END,
   priority, version, body, primitives, project, claim_count, created_at FROM tasks WHERE id = ?`, now, now, now, id).
-			Scan(&item.ID, &item.AssetPath, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
+			Scan(&item.ID, &item.Status, &worker, &leaseExpires, &item.Priority, &item.Version, &item.Body, &prim, &item.Project, &item.ClaimCount, &item.CreatedAt)
 		if errors.Is(err, sql.ErrNoRows) {
 			writeError(w, http.StatusNotFound, "task not found")
 			return
@@ -2627,13 +2659,12 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			Body      *string `json:"body"`
 			Priority  *int    `json:"priority"`
 			Project   *string `json:"project"`
-			AssetPath *string `json:"asset_path"`
 			IfVersion *int    `json:"if_version"`
 		}
 		if !decodeJSON(w, r, &req) {
 			return
 		}
-		if req.Body == nil && req.Priority == nil && req.Project == nil && req.AssetPath == nil {
+		if req.Body == nil && req.Priority == nil && req.Project == nil {
 			writeError(w, http.StatusBadRequest, "missing fields to update")
 			return
 		}
@@ -2641,12 +2672,9 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 			writeError(w, http.StatusBadRequest, "invalid if_version")
 			return
 		}
-		if req.Body != nil && *req.Body != "" && strings.TrimSpace(*req.Body) == "" {
-			writeFieldError(w, http.StatusBadRequest, "invalid body", "body")
+		if req.Body != nil && strings.TrimSpace(*req.Body) == "" {
+			writeFieldError(w, http.StatusBadRequest, "missing body", "body")
 			return
-		}
-		if req.AssetPath != nil {
-			*req.AssetPath = strings.TrimSpace(*req.AssetPath)
 		}
 		if req.Priority != nil && *req.Priority < 0 {
 			writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid priority %d, must be 0 or greater", *req.Priority))
@@ -2659,31 +2687,10 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				return
 			}
 		}
-		clearBody := req.Body != nil && *req.Body == ""
-		clearAsset := req.AssetPath != nil && *req.AssetPath == ""
-		if clearBody && clearAsset {
-			writeError(w, http.StatusBadRequest, "missing asset_path or body")
-			return
-		}
+
 		id, ok := resolveTaskIDHTTP(w, db.ro, r.PathValue("id"))
 		if !ok {
 			return
-		}
-		if (clearBody && req.AssetPath == nil) || (clearAsset && req.Body == nil) {
-			var curBody, curAssetPath string
-			err := db.rw.QueryRow("SELECT body, asset_path FROM tasks WHERE id = ?", id).Scan(&curBody, &curAssetPath)
-			if errors.Is(err, sql.ErrNoRows) {
-				writeError(w, http.StatusNotFound, "task not found")
-				return
-			}
-			if err != nil {
-				internalError(w, err)
-				return
-			}
-			if (clearBody && curAssetPath == "") || (clearAsset && curBody == "") {
-				writeError(w, http.StatusBadRequest, "missing asset_path or body")
-				return
-			}
 		}
 
 		var prevProject string
@@ -2693,11 +2700,11 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 
 		var updatedStatus, updatedProject string
 		err := db.rw.QueryRow(`UPDATE tasks
-SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), asset_path = COALESCE(?, asset_path), version = version + 1
+SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), version = version + 1
 WHERE id = ? AND status != 'done' AND NOT (status = 'leased' AND lease_expires >= unixepoch())
   AND (? IS NULL OR version = ?)
 RETURNING status, project`,
-			req.Body, req.Priority, req.Project, req.AssetPath, id, req.IfVersion, req.IfVersion).
+			req.Body, req.Priority, req.Project, id, req.IfVersion, req.IfVersion).
 			Scan(&updatedStatus, &updatedProject)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
@@ -2977,7 +2984,7 @@ RETURNING status, project`,
 	handleMethods(mux, "/tasks", map[string]route{
 		http.MethodGet: {handler: listTasksHandler, params: []string{
 			"status", "project", "worker", "priority", "limit", "offset",
-			"asset_path", "q", "fields", "columns", "after", "order", "sort",
+			"q", "fields", "columns", "after", "order", "sort",
 		}},
 		http.MethodPost: {handler: createTaskHandler},
 	})
@@ -3114,22 +3121,21 @@ HTTP Endpoints:
          ?after=             opaque cursor token from X-Next-Cursor
          ?sort=              id | project | status | priority | claim_count | worker | created_at
          ?order=             asc | desc, default asc
-         ?asset_path=        exact match
-         ?q=                 substring of id, body, project, worker, or asset_path
-         ?fields=            comma list from id, asset_path, status, worker,
+         ?q=                 substring of id, body, project, or worker
+         ?fields=            comma list from id, status, worker,
                              lease_expires, priority, body, primitives,
                              project, claim_count, summary, created_at, version
          ?columns=           alias for fields
-  POST   /tasks              create a task (requires project, body/asset_path; optional id, priority)
+  POST   /tasks              create a task (requires project, body; optional id, priority)
                              accepts JSON array for atomic batch creation
   POST   /tasks/claim        claim next pending task (requires worker, optional project, optional wait in seconds)
   GET    /tasks/{id}         get task details
          {id} accepts unique prefixes (returns 409 on collision)
-         ?fields=            comma list from id, asset_path, status, worker,
+         ?fields=            comma list from id, status, worker,
                              lease_expires, priority, body, primitives,
                              project, claim_count, summary, created_at, version
          ?columns=           alias for fields
-  PATCH  /tasks/{id}         update task (requires body, priority, project, or asset_path, optional if_version)
+  PATCH  /tasks/{id}         update task (requires body, priority, or project, optional if_version)
   POST   /tasks/{id}/claim   claim a specific task (requires worker)
   POST   /tasks/{id}/done    complete task with primitives (requires worker, optional claim_count)
   POST   /tasks/{id}/close   close task without result

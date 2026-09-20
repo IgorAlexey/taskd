@@ -37,7 +37,6 @@ const sampleTask = {
   status: 'pending',
   priority: 15,
   claim_count: 0,
-  asset_path: '/images/test.png',
   body: 'Fix the widget layout',
 };
 
@@ -64,6 +63,5 @@ process.stdout.write(JSON.stringify({
   isEditing: api.getEditing(),
   project: getOrCreate('edit-task-project').value,
   priority: String(getOrCreate('edit-task-priority').value),
-  assetPath: getOrCreate('edit-task-asset-path').value,
   body: getOrCreate('edit-task-body').value,
 }));

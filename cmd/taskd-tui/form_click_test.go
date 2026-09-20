@@ -48,9 +48,9 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	findFormRows := func(content string) (projY, priY, assetY, idY, bodyY, saveY, saveX int) {
+	findFormRows := func(content string) (projY, priY, idY, bodyY, saveY, saveX int) {
 		lines := strings.Split(content, "\n")
-		projY, priY, assetY, idY, bodyY, saveY, saveX = -1, -1, -1, -1, -1, -1, -1
+		projY, priY, idY, bodyY, saveY, saveX = -1, -1, -1, -1, -1, -1
 		for y, raw := range lines {
 			stripped := ansi.Strip(raw)
 			if strings.Contains(stripped, "project:") {
@@ -58,9 +58,6 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 			}
 			if strings.Contains(stripped, "priority:") {
 				priY = y
-			}
-			if strings.Contains(stripped, "asset:") {
-				assetY = y
 			}
 			if strings.Contains(stripped, "ID:") {
 				idY = y
@@ -89,10 +86,10 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 			t.Fatalf("expected initial focus %d (body), got %d", fieldBody, m.form.focus)
 		}
 
-		projY, priY, assetY, idY, bodyY, saveY, saveX := findFormRows(m.View().Content)
-		if projY == -1 || priY == -1 || assetY == -1 || idY == -1 || bodyY == -1 || saveY == -1 || saveX == -1 {
-			t.Fatalf("missing form lines: proj=%d pri=%d asset=%d id=%d body=%d save=%d saveX=%d\nview:\n%s",
-				projY, priY, assetY, idY, bodyY, saveY, saveX, m.View().Content)
+		projY, priY, idY, bodyY, saveY, saveX := findFormRows(m.View().Content)
+		if projY == -1 || priY == -1 || idY == -1 || bodyY == -1 || saveY == -1 || saveX == -1 {
+			t.Fatalf("missing form lines: proj=%d pri=%d id=%d body=%d save=%d saveX=%d\nview:\n%s",
+				projY, priY, idY, bodyY, saveY, saveX, m.View().Content)
 		}
 
 		up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 20, Y: projY})
@@ -105,12 +102,6 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 		m = up.(model)
 		if m.form.focus != fieldPriority {
 			t.Fatalf("expected focus %d (priority) after click, got %d", fieldPriority, m.form.focus)
-		}
-
-		up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 20, Y: assetY})
-		m = up.(model)
-		if m.form.focus != fieldAsset {
-			t.Fatalf("expected focus %d (asset) after click, got %d", fieldAsset, m.form.focus)
 		}
 
 		up, _ = m.Update(tea.MouseClickMsg{Button: tea.MouseLeft, X: 20, Y: idY})
@@ -170,7 +161,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 			t.Fatalf("expected editing modeForm, got mode %v editing %v", m.mode, m.form.editing)
 		}
 
-		projY, priY, _, _, _, saveY, saveX := findFormRows(m.View().Content)
+		projY, priY, _, _, saveY, saveX := findFormRows(m.View().Content)
 		if priY == -1 || saveY == -1 {
 			t.Fatalf("missing form lines in edit mode: pri=%d save=%d", priY, saveY)
 		}

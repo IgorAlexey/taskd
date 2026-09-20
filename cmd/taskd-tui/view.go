@@ -881,9 +881,6 @@ func (m model) View() tea.View {
 				}
 				chips = append(chips, strconv.Itoa(len(notes))+" "+nw)
 			}
-			if curTask.AssetPath != "" && curTask.AssetPath != title {
-				chips = append(chips, curTask.AssetPath)
-			}
 			if age := createdAge(curTask.CreatedAt, m.now); age != "" {
 				chips = append(chips, age)
 			}

@@ -22,7 +22,7 @@ func TestGetTaskFields(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	createPayload := `{"id":"task-f1","project":"proj1","body":"line 1 summary\nline 2 details","asset_path":"foo/bar"}`
+	createPayload := `{"id":"task-f1","project":"proj1","body":"line 1 summary\nline 2 details"}`
 	resp, err := http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(createPayload))
 	if err != nil {
 		t.Fatalf("POST /tasks failed: %v", err)
@@ -91,55 +91,6 @@ func TestGetTaskFields(t *testing.T) {
 	if len(mSummary) != 2 || mSummary["id"] != "task-f1" {
 		t.Fatalf("unexpected keys for columns alias: %v", mSummary)
 	}
-
-	createEmptyBody := `{"id":"task-asset-only","project":"proj1","asset_path":"models/box.glb"}`
-	resp, err = http.Post(srv.URL+"/tasks", "application/json", bytes.NewBufferString(createEmptyBody))
-	if err != nil {
-		t.Fatalf("POST /tasks asset-only failed: %v", err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /tasks asset-only status %d", resp.StatusCode)
-	}
-
-	resp, err = http.Get(srv.URL + "/tasks/task-asset-only?fields=summary")
-	if err != nil {
-		t.Fatalf("GET task-asset-only?fields=summary failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200 for asset-only summary, got %d", resp.StatusCode)
-	}
-	var mAssetSummary map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&mAssetSummary); err != nil {
-		t.Fatalf("decode asset summary JSON failed: %v", err)
-	}
-	if mAssetSummary["summary"] != "models/box.glb" {
-		t.Fatalf("expected summary 'models/box.glb', got %v", mAssetSummary["summary"])
-	}
-
-	resp, err = http.Get(srv.URL + "/tasks?fields=id,summary&project=proj1")
-	if err != nil {
-		t.Fatalf("GET /tasks?fields=id,summary failed: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("expected status 200 for list summary, got %d", resp.StatusCode)
-	}
-	var listItems []map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&listItems); err != nil {
-		t.Fatalf("decode list items JSON failed: %v", err)
-	}
-	var listAssetSummary string
-	for _, item := range listItems {
-		if item["id"] == "task-asset-only" {
-			listAssetSummary, _ = item["summary"].(string)
-		}
-	}
-	if listAssetSummary != "models/box.glb" {
-		t.Fatalf("expected list summary 'models/box.glb', got %q", listAssetSummary)
-	}
-
 	badFieldURLs := []string{
 		srv.URL + "/tasks/task-f1?fields=id,invalid_field",
 		srv.URL + "/tasks/task-f1?fields=unknown",

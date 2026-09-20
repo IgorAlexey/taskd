@@ -20,7 +20,6 @@ type taskNote struct {
 type task struct {
 	ID           string          `json:"id"`
 	Project      string          `json:"project"`
-	AssetPath    string          `json:"asset_path"`
 	Status       string          `json:"status"`
 	Worker       string          `json:"worker"`
 	LeaseExpires int64           `json:"lease_expires"`

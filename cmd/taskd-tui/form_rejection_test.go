@@ -55,7 +55,6 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 
 		m.form.project.SetValue("reserved-proj")
 		m.form.priority.SetValue("4")
-		m.form.asset.SetValue("archive.tar.gz")
 		m.form.body.SetValue("important task body\nsecond line")
 
 		up, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
@@ -106,9 +105,6 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 		if got := m.form.priority.Value(); got != "4" {
 			t.Fatalf("priority = %q, want 4", got)
 		}
-		if got := m.form.asset.Value(); got != "archive.tar.gz" {
-			t.Fatalf("asset = %q, want archive.tar.gz", got)
-		}
 		if got := m.form.body.Value(); got != "important task body\nsecond line" {
 			t.Fatalf("body = %q, want important task body\\nsecond line", got)
 		}
@@ -125,11 +121,10 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 
 	t.Run("EditTask", func(t *testing.T) {
 		tOriginal := task{
-			ID:        "task-456",
-			Project:   "proj-test",
-			Priority:  2,
-			Body:      "orig body",
-			AssetPath: "orig/path",
+			ID:       "task-456",
+			Project:  "proj-test",
+			Priority: 2,
+			Body:     "orig body",
 		}
 		m := newModel(config{project: "proj-test"}, newClient(srv.URL))
 		m.tasks = []task{tOriginal}
@@ -144,7 +139,6 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 
 		m.form.project.SetValue("proj-changed")
 		m.form.priority.SetValue("7")
-		m.form.asset.SetValue("changed/asset")
 		m.form.body.SetValue("changed body text")
 
 		up, cmd := m.Update(tea.KeyPressMsg{Code: 's', Mod: tea.ModCtrl})
@@ -173,9 +167,6 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 		}
 		if got := m.form.priority.Value(); got != "7" {
 			t.Fatalf("priority = %q, want 7", got)
-		}
-		if got := m.form.asset.Value(); got != "changed/asset" {
-			t.Fatalf("asset = %q, want changed/asset", got)
 		}
 		if got := m.form.body.Value(); got != "changed body text" {
 			t.Fatalf("body = %q, want changed body text", got)

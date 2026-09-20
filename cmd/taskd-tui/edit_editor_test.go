@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -223,98 +222,4 @@ func TestEditBodyInEditor(t *testing.T) {
 			t.Errorf("unexpected command args: %v", cmd.Args)
 		}
 	})
-}
-
-func TestEditorClearBodyWithAssetPath(t *testing.T) {
-	var gotPatch map[string]any
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "PATCH" && r.URL.Path == "/tasks/task-asset-1" {
-			json.NewDecoder(r.Body).Decode(&gotPatch)
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer ts.Close()
-
-	m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
-	m.editorRunner = func(cmd *exec.Cmd, fn func(error) tea.Msg) tea.Cmd {
-		return func() tea.Msg {
-			path := cmd.Args[len(cmd.Args)-1]
-			_ = os.WriteFile(path, []byte(""), 0644)
-			return fn(nil)
-		}
-	}
-	m.tasks = []task{{
-		ID:        "task-asset-1",
-		Status:    "pending",
-		Version:   2,
-		AssetPath: "models/render.blend",
-		Body:      "initial body text",
-	}}
-	m.rebuildShown()
-	m.cursor = 0
-
-	up, cmd := m.Update(tea.KeyPressMsg{Text: "E"})
-	m = up.(model)
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd from actionEditInEditor")
-	}
-
-	msg := cmd()
-	finished, ok := msg.(editorFinishedMsg)
-	if !ok {
-		t.Fatalf("expected editorFinishedMsg, got %T", msg)
-	}
-	if finished.err != nil {
-		t.Fatalf("unexpected editor error: %v", finished.err)
-	}
-	if finished.status != "" {
-		t.Fatalf("expected empty status, got %q", finished.status)
-	}
-	if finished.body != "" {
-		t.Fatalf("expected empty body in editorFinishedMsg, got %q", finished.body)
-	}
-
-	up, patchCmd := m.Update(finished)
-	m = up.(model)
-	if patchCmd == nil {
-		t.Fatal("expected non-nil patchCmd from editorFinishedMsg")
-	}
-	resMsg := patchCmd()
-	act, ok := resMsg.(actMsg)
-	if !ok || act.err != nil || act.msg != "task body updated" {
-		t.Fatalf("unexpected patch result: %#v", resMsg)
-	}
-
-	if gotPatch == nil {
-		t.Fatal("expected PATCH request to be sent")
-	}
-	if val, ok := gotPatch["body"]; !ok || val != "" {
-		t.Fatalf("expected body to be empty string in patch, got %v", gotPatch["body"])
-	}
-
-	m.tasks = []task{{
-		ID:        "task-no-asset",
-		Status:    "pending",
-		Version:   1,
-		AssetPath: "",
-		Body:      "initial body text",
-	}}
-	m.rebuildShown()
-	m.cursor = 0
-
-	up, cmd = m.Update(tea.KeyPressMsg{Text: "E"})
-	m = up.(model)
-	if cmd == nil {
-		t.Fatal("expected non-nil cmd from actionEditInEditor")
-	}
-	msg = cmd()
-	finished, ok = msg.(editorFinishedMsg)
-	if !ok {
-		t.Fatalf("expected editorFinishedMsg, got %T", msg)
-	}
-	if finished.status != "task body empty, unchanged" {
-		t.Fatalf("expected 'task body empty, unchanged', got %q", finished.status)
-	}
 }

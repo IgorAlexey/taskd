@@ -30,7 +30,6 @@ const els = {
   'form-project': { value: 'default', focus() {} },
   'form-body': { value: 'test body', focus() {} },
   'form-priority': { value: '' },
-  'form-asset': { value: '' },
   'form-id': { value: '' },
   'form-error-summary': { hidden: true, setAttribute() {}, removeAttribute() {} },
   'form-success-summary': { hidden: true, setAttribute() {}, removeAttribute() {} },

@@ -253,8 +253,8 @@ func TestWebUITaskSubmitErrorMapping(t *testing.T) {
 		{`{"body":"test"}`, http.StatusBadRequest, "missing project", "project"},
 		{`{"project":"p","body":"test","priority":-1}`, http.StatusBadRequest, "invalid priority -1, must be 0 or greater", "priority"},
 		{`{"project":"p","body":"test","id":"bad id!"}`, http.StatusBadRequest, `invalid id "bad id!": must contain only [a-zA-Z0-9._-]`, "id"},
-		{`{"project":"p"}`, http.StatusBadRequest, "missing asset_path or body", "body"},
-		{`{"project":"p","body":"   "}`, http.StatusBadRequest, "invalid body", "body"},
+		{`{"project":"p"}`, http.StatusBadRequest, "missing body", "body"},
+		{`{"project":"p","body":"   "}`, http.StatusBadRequest, "missing body", "body"},
 	}
 
 	for _, tc := range cases {
@@ -438,7 +438,6 @@ func TestWebUIFieldHintsAndCharacterCount(t *testing.T) {
 		`class="hint" id="form-project-hint"`,
 		`class="hint" id="form-priority-hint"`,
 		`class="hint" id="form-body-hint"`,
-		`class="hint" id="form-asset-hint"`,
 		`class="hint" id="form-id-hint"`,
 		`class="hint" id="form-body-count"`,
 	}
@@ -754,7 +753,6 @@ func TestWebUIEditTaskPrefill(t *testing.T) {
 		IsEditing bool   `json:"isEditing"`
 		Project   string `json:"project"`
 		Priority  string `json:"priority"`
-		AssetPath string `json:"assetPath"`
 		Body      string `json:"body"`
 	}
 	if err := json.Unmarshal(out, &got); err != nil {
@@ -769,9 +767,6 @@ func TestWebUIEditTaskPrefill(t *testing.T) {
 	}
 	if got.Priority != "15" {
 		t.Errorf("expected priority %q, got %q", "15", got.Priority)
-	}
-	if got.AssetPath != "/images/test.png" {
-		t.Errorf("expected asset path %q, got %q", "/images/test.png", got.AssetPath)
 	}
 	if got.Body != "Fix the widget layout" {
 		t.Errorf("expected body %q, got %q", "Fix the widget layout", got.Body)
@@ -791,18 +786,6 @@ func TestWebUICopyPrimitivesButton(t *testing.T) {
 	}
 	if !strings.Contains(ui, `primRow.hidden = false`) {
 		t.Fatal("expected primRow visibility toggled in web/index.html")
-	}
-}
-func TestWebUICopyAssetButton(t *testing.T) {
-	ui := string(uiHTML)
-	if !strings.Contains(ui, `id="copy-asset-btn"`) {
-		t.Fatal("expected #copy-asset-btn in web/index.html")
-	}
-	if !strings.Contains(ui, `id="detail-task-asset-row"`) {
-		t.Fatal("expected #detail-task-asset-row in web/index.html")
-	}
-	if !strings.Contains(ui, `copyToClipboard(t.asset_path || '', copyAssetBtn, 'asset path')`) {
-		t.Fatal("expected copyToClipboard call for asset_path in web/index.html")
 	}
 }
 func TestWebUICanonicalizeSelectedTaskIDFromPrefix(t *testing.T) {

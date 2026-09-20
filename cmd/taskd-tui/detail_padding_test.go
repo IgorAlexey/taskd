@@ -118,13 +118,11 @@ func TestDetailLongTokensViewportClamping(t *testing.T) {
 	title100 := strings.Repeat("T", 100)
 	token120 := strings.Repeat("B", 120)
 	longWorker := strings.Repeat("w", 50) + ":" + strings.Repeat("b", 50)
-	longAsset := strings.Repeat("a", 100)
 	longTask := task{
 		ID:           "long-task-id-1",
 		Project:      strings.Repeat("p", 40),
 		Status:       "leased",
 		Worker:       longWorker,
-		AssetPath:    longAsset,
 		LeaseExpires: now.Unix() + 1800,
 		Priority:     2,
 		Body:         title100 + "\n" + token120,

@@ -21,7 +21,6 @@ type formField int
 const (
 	fieldProject formField = iota
 	fieldPriority
-	fieldAsset
 	fieldID
 	fieldBody
 	fieldSave
@@ -32,7 +31,6 @@ type formModel struct {
 	title           string
 	project         textinput.Model
 	priority        textinput.Model
-	asset           textinput.Model
 	customID        textinput.Model
 	body            textarea.Model
 	focus           formField
@@ -46,7 +44,6 @@ type formModel struct {
 	origProject     string
 	origPriority    int
 	origHasPriority bool
-	origAsset       string
 	origBody        string
 	width, height   int
 	th              theme
@@ -66,10 +63,6 @@ func newCreateForm(project string) (formModel, tea.Cmd) {
 	f.priority = textinput.New()
 	f.priority.Prompt = ""
 	f.priority.Placeholder = "3 (1 is top, blank for default)"
-
-	f.asset = textinput.New()
-	f.asset.Prompt = ""
-	f.asset.Placeholder = "optional"
 
 	f.customID = textinput.New()
 	f.customID.Prompt = ""
@@ -94,7 +87,6 @@ func newEditForm(t task) (formModel, tea.Cmd) {
 		origProject:     t.Project,
 		origPriority:    t.Priority,
 		origHasPriority: true,
-		origAsset:       t.AssetPath,
 		origBody:        t.Body,
 	}
 
@@ -106,11 +98,6 @@ func newEditForm(t task) (formModel, tea.Cmd) {
 	f.priority.Prompt = ""
 	f.priority.Placeholder = "3 (1 is top, blank for default)"
 	f.priority.SetValue(strconv.Itoa(t.Priority))
-
-	f.asset = textinput.New()
-	f.asset.Prompt = ""
-	f.asset.Placeholder = "optional"
-	f.asset.SetValue(t.AssetPath)
 
 	f.body = textarea.New()
 	f.body.Prompt = ""
@@ -137,7 +124,6 @@ func boxSize(width, lo, hi int) (outer, inner int) {
 func (f *formModel) resize(inner int) {
 	f.project.SetWidth(max(1, inner-11))
 	f.priority.SetWidth(max(1, inner-11))
-	f.asset.SetWidth(max(1, inner-11))
 	f.customID.SetWidth(max(1, inner-11))
 	f.body.SetWidth(inner)
 }
@@ -162,7 +148,6 @@ const (
 	rankHint      = 1
 	rankSeparator = 2
 	rankBodyLabel = 3
-	rankAsset     = 4
 	rankID        = 4
 	rankTitle     = 5
 	rankBody      = 6
@@ -175,9 +160,9 @@ const (
 
 func (f formModel) focusOrder() []formField {
 	if f.editing {
-		return []formField{fieldProject, fieldPriority, fieldAsset, fieldBody, fieldSave, fieldCancel}
+		return []formField{fieldProject, fieldPriority, fieldBody, fieldSave, fieldCancel}
 	}
-	return []formField{fieldProject, fieldPriority, fieldAsset, fieldID, fieldBody, fieldSave, fieldCancel}
+	return []formField{fieldProject, fieldPriority, fieldID, fieldBody, fieldSave, fieldCancel}
 }
 
 // rows is the whole form in reading order. Field rows take their rank
@@ -228,7 +213,6 @@ func (f formModel) rows(th theme) []formRow {
 		{rank: rankSeparator, field: -1},
 		field(fieldProject, rankProject, f.project.Value(), th.dim.Render("project:  ")+f.project.View()),
 		field(fieldPriority, rankPriority, f.priority.Value(), th.dim.Render("priority: ")+f.priority.View()),
-		field(fieldAsset, rankAsset, f.asset.Value(), th.dim.Render("asset:    ")+f.asset.View()),
 	}
 	if !f.editing {
 		rows = append(rows, field(fieldID, rankID, f.customID.Value(), th.dim.Render("ID:       ")+f.customID.View()))
@@ -294,7 +278,6 @@ func (f *formModel) setFocus(target formField) tea.Cmd {
 	f.focus = target
 	f.project.Blur()
 	f.priority.Blur()
-	f.asset.Blur()
 	f.customID.Blur()
 	f.body.Blur()
 	switch f.focus {
@@ -302,8 +285,6 @@ func (f *formModel) setFocus(target formField) tea.Cmd {
 		return f.project.Focus()
 	case fieldPriority:
 		return f.priority.Focus()
-	case fieldAsset:
-		return f.asset.Focus()
 	case fieldID:
 		if !f.editing {
 			return f.customID.Focus()
@@ -338,8 +319,8 @@ func validateCustomID(id string) string {
 }
 
 func (f formModel) validate() string {
-	if strings.TrimSpace(f.body.Value()) == "" && strings.TrimSpace(f.asset.Value()) == "" {
-		return "missing asset_path or body"
+	if strings.TrimSpace(f.body.Value()) == "" {
+		return "missing body"
 	}
 
 	pri := strings.TrimSpace(f.priority.Value())
@@ -374,9 +355,6 @@ func (f formModel) validate() string {
 
 func (f formModel) dirty() bool {
 	if f.project.Value() != f.origProject {
-		return true
-	}
-	if f.asset.Value() != f.origAsset {
 		return true
 	}
 	if f.body.Value() != f.origBody {
@@ -453,9 +431,6 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 				cmd := f.setFocus(fieldPriority)
 				return f.refit(), cmd
 			case fieldPriority:
-				cmd := f.setFocus(fieldAsset)
-				return f.refit(), cmd
-			case fieldAsset:
 				if f.editing {
 					cmd := f.setFocus(fieldBody)
 					return f.refit(), cmd
@@ -502,10 +477,6 @@ func (f formModel) Update(msg tea.Msg) (formModel, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
-		f.asset, cmd = f.asset.Update(msg)
-		if cmd != nil {
-			cmds = append(cmds, cmd)
-		}
 		if !f.editing {
 			f.customID, cmd = f.customID.Update(msg)
 			if cmd != nil {
@@ -526,8 +497,6 @@ func (f formModel) updateFocused(msg tea.Msg) (formModel, tea.Cmd) {
 		f.project, cmd = f.project.Update(msg)
 	case fieldPriority:
 		f.priority, cmd = f.priority.Update(msg)
-	case fieldAsset:
-		f.asset, cmd = f.asset.Update(msg)
 	case fieldID:
 		if !f.editing {
 			f.customID, cmd = f.customID.Update(msg)
@@ -558,11 +527,6 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 			body["id"] = customID
 		}
 
-		asset := strings.TrimSpace(f.asset.Value())
-		if asset != "" {
-			body["asset_path"] = asset
-		}
-
 		priStr := strings.TrimSpace(f.priority.Value())
 		if priStr != "" {
 			if p, err := strconv.Atoi(priStr); err == nil {
@@ -587,11 +551,6 @@ func (f formModel) submit() (method, path string, body map[string]any, success s
 	proj := strings.TrimSpace(f.project.Value())
 	if proj != f.origProject && proj != "" {
 		body["project"] = proj
-	}
-
-	asset := strings.TrimSpace(f.asset.Value())
-	if asset != f.origAsset {
-		body["asset_path"] = asset
 	}
 
 	priStr := strings.TrimSpace(f.priority.Value())
@@ -720,7 +679,7 @@ func (f formModel) handleClick(msg tea.MouseClickMsg) (formModel, tea.Cmd) {
 		rowLines := len(wrapped[i])
 		if lineIdx >= cur && lineIdx < cur+rowLines {
 			switch r.field {
-			case fieldProject, fieldPriority, fieldAsset, fieldID, fieldBody:
+			case fieldProject, fieldPriority, fieldID, fieldBody:
 				cmd := f.setFocus(r.field)
 				return f.refit(), cmd
 			case fieldSave:

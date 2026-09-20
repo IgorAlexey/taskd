@@ -248,7 +248,7 @@ func TestPatchValidationFieldErrors(t *testing.T) {
 		wantError string
 		wantField string
 	}{
-		{"invalid body", `{"body":"   "}`, "invalid body", "body"},
+		{"missing body", `{"body":"   "}`, "missing body", "body"},
 		{"invalid project", `{"project":"bad proj"}`, `invalid project "bad proj": must contain only [a-zA-Z0-9._-]`, "project"},
 	}
 

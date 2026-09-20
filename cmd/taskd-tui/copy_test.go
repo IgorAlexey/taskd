@@ -13,10 +13,9 @@ func TestCopyBodyEmpty(t *testing.T) {
 	t.Run("BodyCopiedToClipboardWhenPresent", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:        "t-body",
-			AssetPath: "ignored/asset.path",
-			Body:      "important task body",
-			Status:    "pending",
+			ID:     "t-body",
+			Body:   "important task body",
+			Status: "pending",
 		}}
 		m.rebuildShown()
 		m.cursor = 0
@@ -43,46 +42,12 @@ func TestCopyBodyEmpty(t *testing.T) {
 		}
 	})
 
-	t.Run("EmptyBodyWithAssetPathCopiesAssetPath", func(t *testing.T) {
+	t.Run("EmptyBodyDisplaysNothingToCopy", func(t *testing.T) {
 		m := newModel(config{worker: "test-worker"}, nil)
 		m.tasks = []task{{
-			ID:        "t-asset-only",
-			AssetPath: "models/render.blend",
-			Body:      "",
-			Status:    "pending",
-		}}
-		m.rebuildShown()
-		m.cursor = 0
-
-		up, cmd := m.Update(tea.KeyPressMsg{Text: "Y"})
-		m = up.(model)
-
-		wantMsg := "copied asset path to clipboard"
-		if m.msg != wantMsg {
-			t.Fatalf("msg = %q, want %q", m.msg, wantMsg)
-		}
-		if cmd == nil {
-			t.Fatal("expected non-nil cmd for copying asset path")
-		}
-
-		res := cmd()
-		batch, ok := res.(tea.BatchMsg)
-		if !ok || len(batch) < 1 {
-			t.Fatalf("expected BatchMsg with subcommands, got %T", res)
-		}
-		clipboardMsg := batch[0]()
-		if !strings.Contains(fmt.Sprintf("%v", clipboardMsg), "models/render.blend") {
-			t.Errorf("expected clipboard command to copy asset path, got %v", clipboardMsg)
-		}
-	})
-
-	t.Run("EmptyBodyAndEmptyAssetPathDisplaysNothingToCopy", func(t *testing.T) {
-		m := newModel(config{worker: "test-worker"}, nil)
-		m.tasks = []task{{
-			ID:        "t-empty",
-			AssetPath: "",
-			Body:      "",
-			Status:    "pending",
+			ID:     "t-empty",
+			Body:   "",
+			Status: "pending",
 		}}
 		m.rebuildShown()
 		m.cursor = 0

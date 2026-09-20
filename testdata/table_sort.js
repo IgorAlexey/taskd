@@ -95,7 +95,6 @@ function setupHarness(htmlPath, initialSearch = '') {
     'filter-priority': makeElement('input'),
     'filter-search': makeElement('input'),
     'filter-worker': makeElement('select'),
-    'filter-asset-path': makeElement('input'),
     'form-project': makeElement('input'),
     'form-project-list': makeElement('datalist'),
   };

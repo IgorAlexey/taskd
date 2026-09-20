@@ -1490,9 +1490,6 @@ func titleOf(t task) (scope, title string) {
 	if scope == "" && title == "" {
 		title = strings.TrimSpace(first)
 	}
-	if title == "" {
-		title = t.AssetPath
-	}
 	return scope, title
 }
 
@@ -1831,10 +1828,7 @@ func (m model) actionEditInEditor() (model, tea.Cmd) {
 			return editorFinishedMsg{status: "task body unchanged"}
 		}
 		if strings.TrimSpace(newBody) == "" {
-			if strings.TrimSpace(t.AssetPath) == "" {
-				return editorFinishedMsg{status: "task body empty, unchanged"}
-			}
-			newBody = ""
+			return editorFinishedMsg{status: "task body empty, unchanged"}
 		}
 		/* Hand off tmpPath to editorPatchCmd; preserved on network error. */
 		keepDraftForPatch = true
@@ -2135,9 +2129,6 @@ func (m model) actionCopyBody() (model, tea.Cmd) {
 	}
 	if t.Body != "" {
 		return m.copyToClipboard(t.Body, "copied body to clipboard")
-	}
-	if t.AssetPath != "" {
-		return m.copyToClipboard(t.AssetPath, "copied asset path to clipboard")
 	}
 	cmd := m.setMsg("nothing to copy")
 	return m, cmd

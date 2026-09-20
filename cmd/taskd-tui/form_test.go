@@ -10,7 +10,6 @@ func TestFormCtrlEnterSubmits(t *testing.T) {
 	fields := []formField{
 		fieldProject,
 		fieldPriority,
-		fieldAsset,
 		fieldID,
 		fieldBody,
 	}

@@ -184,12 +184,6 @@ func TestCreateFormCustomID(t *testing.T) {
 
 		up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 		m = up.(model)
-		if m.form.focus != fieldAsset {
-			t.Fatalf("expected focus %d (asset), got %d", fieldAsset, m.form.focus)
-		}
-
-		up, _ = m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-		m = up.(model)
 		if m.form.focus != fieldID {
 			t.Fatalf("expected focus %d (id), got %d", fieldID, m.form.focus)
 		}

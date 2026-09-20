@@ -16,7 +16,7 @@ func TestFormSpaceKeySave(t *testing.T) {
 
 		up, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeySpace})
 		m = up.(model)
-		if cmd != nil || m.form.errText != "missing asset_path or body" {
+		if cmd != nil || m.form.errText != "missing body" {
 			t.Fatalf("expected validation error without cmd, err=%q cmd=%v", m.form.errText, cmd)
 		}
 	})
