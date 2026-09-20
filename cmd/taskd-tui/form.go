@@ -246,8 +246,8 @@ func (f *formModel) setFocus(target int) tea.Cmd {
 }
 
 func (f formModel) validate() string {
-	if strings.TrimSpace(f.body.Value()) == "" {
-		return "body cannot be blank"
+	if strings.TrimSpace(f.body.Value()) == "" && strings.TrimSpace(f.asset.Value()) == "" {
+		return "missing asset_path or body"
 	}
 
 	pri := strings.TrimSpace(f.priority.Value())
