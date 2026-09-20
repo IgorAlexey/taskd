@@ -103,3 +103,34 @@ func TestWebUIInitialPlaceholdersAndNoscript(t *testing.T) {
 		t.Error("table body should not claim No tasks in initial markup")
 	}
 }
+
+func TestWebUIExpiredLeaseActions(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, "function isActivelyLeased(t)") {
+		t.Fatal("expected isActivelyLeased helper in web/index.html")
+	}
+	if strings.Contains(ui, `id="edit-task-btn"${t.status === 'leased'`) {
+		t.Error("edit-task-btn should not unconditionally disable on leased status")
+	}
+	if !strings.Contains(ui, `id="edit-task-btn"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be edited"' : ''}`) {
+		t.Error("edit-task-btn should check isActivelyLeased(t)")
+	}
+	if strings.Contains(ui, `id="delete-task-btn" class="danger"${t.status === 'leased'`) {
+		t.Error("delete-task-btn should not unconditionally disable on leased status")
+	}
+	if !strings.Contains(ui, `id="delete-task-btn" class="danger"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}`) {
+		t.Error("delete-task-btn should check isActivelyLeased(t)")
+	}
+	if strings.Contains(ui, "if (!id || status === 'leased') return") {
+		t.Error("deleteTask should not unconditionally return on leased status")
+	}
+	if !strings.Contains(ui, "if (!t || !t.id || isActivelyLeased(t)) return") {
+		t.Error("deleteTask should guard on active lease expiration")
+	}
+	if strings.Contains(ui, "currentTask.status === 'leased'") {
+		t.Error("task edit handlers should not unconditionally return on leased status")
+	}
+	if !strings.Contains(ui, "if (!currentTask || currentTask.status === 'done' || isActivelyLeased(currentTask)) return") {
+		t.Error("task edit handlers should guard on active lease expiration")
+	}
+}
