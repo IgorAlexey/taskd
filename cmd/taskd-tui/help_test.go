@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -273,5 +274,29 @@ func TestHelpDismissOnMouseClick(t *testing.T) {
 		if m.mode != prev {
 			t.Fatalf("expected mode %v after left click, got %v", prev, m.mode)
 		}
+	}
+}
+
+func TestHelpIncludesMouse(t *testing.T) {
+	var buf bytes.Buffer
+	printUsage(&buf)
+	usage := buf.String()
+	if !strings.Contains(strings.ToLower(usage), "mouse:") {
+		t.Fatalf("CLI usage missing mouse documentation; got:\n%s", usage)
+	}
+	for _, term := range []string{"Click row", "Click tab", "Click col header", "Click footer", "Scroll wheel"} {
+		if !strings.Contains(usage, term) {
+			t.Fatalf("CLI usage missing %q; got:\n%s", term, usage)
+		}
+	}
+
+	th := newTheme(true)
+	h := newHelpModel(100, 30, modeTable, th)
+	content := ansi.Strip(h.View(30, th))
+	if !strings.Contains(strings.ToLower(content), "mouse") {
+		t.Fatalf("help overlay missing mouse documentation; got:\n%s", content)
+	}
+	if !strings.Contains(content, "[Click]") || !strings.Contains(content, "[Scroll]") {
+		t.Fatalf("help overlay missing mouse actions; got:\n%s", content)
 	}
 }

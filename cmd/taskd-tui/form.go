@@ -1192,7 +1192,11 @@ func newHelpModel(width, height int, prev mode, th theme) helpModel {
 		}
 		head = append(head, left+"  "+right)
 	}
-	head = append(head, "")
+	head = append(head, "", th.accent.Render("Mouse"))
+	head = append(head,
+		th.accent.Render(padRightVisual("[Click]", 9))+" "+th.dim.Render("select, filter, sort"),
+		th.accent.Render(padRightVisual("[Scroll]", 9))+" "+th.dim.Render("scroll table and detail"),
+	)
 	keep := []string{th.dim.Render("Press ? or Esc to Close")}
 
 	natural := lipgloss.Width(lipgloss.JoinVertical(lipgloss.Left, append(head, keep...)...)) + 4

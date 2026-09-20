@@ -325,6 +325,13 @@ Keyboard shortcuts:
   ?                   show help overlay
   q                   quit
 
+Mouse:
+  Click row           select task / activate detail
+  Click tab           filter by status
+  Click col header    sort column / toggle direction
+  Click footer        trigger action
+  Scroll wheel        scroll table / detail / dialog
+
 Examples:
   taskd-tui -url http://localhost:8080 -project taskd
   taskd-tui -ascii -refresh 2s
