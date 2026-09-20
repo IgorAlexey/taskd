@@ -788,7 +788,7 @@ func (m model) View() tea.View {
 		posStr += "  paged (g live)"
 	}
 	footRight := m.theme.dim.Render(posStr)
-
+	frw := lipgloss.Width(footRight)
 	var footLeft string
 	if m.msg != "" {
 		if strings.HasPrefix(m.msg, "error: ") {
@@ -811,6 +811,12 @@ func (m model) View() tea.View {
 			parts = append(parts, m.theme.accent.Render(it[0])+" "+m.theme.dim.Render(it[1]))
 		}
 		footLeft = strings.Join(parts, "  ")
+	} else if m.query != "" {
+		tag := m.theme.dim.Render("filter")
+		hint := m.theme.accent.Render("[Esc clear]")
+		overhead := lipgloss.Width(tag) + lipgloss.Width(hint) + 5
+		q := trunc(m.query, max(0, w-frw-overhead), m.glyph.ellipsis)
+		footLeft = fmt.Sprintf("%s \"%s\" %s", tag, m.theme.bold.Render(q), hint)
 	} else {
 		items := [][2]string{
 			{"j/k", "move"},
@@ -833,7 +839,6 @@ func (m model) View() tea.View {
 	}
 
 	flw := lipgloss.Width(footLeft)
-	frw := lipgloss.Width(footRight)
 	var footerLine string
 	if flw+frw+1 <= w {
 		spaces := w - flw - frw
