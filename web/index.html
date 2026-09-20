@@ -1826,6 +1826,20 @@
       if (id !== selectedTaskId) return;
       currentTask = t;
       renderTaskDetails(t, sameTask);
+      if (t && t.id && t.id !== id) {
+        selectedTaskId = t.id;
+        shownTaskId = t.id;
+        syncURL(false);
+        const tbody = document.getElementById('task-table-body');
+        if (tbody) {
+          for (const tr of tbody.querySelectorAll('tr[data-task-id]')) {
+            const sel = tr.dataset.taskId === t.id;
+            tr.setAttribute('aria-selected', sel ? 'true' : 'false');
+            if (sel) tr.setAttribute('data-state', 'selected');
+            else tr.removeAttribute('data-state');
+          }
+        }
+      }
     }
 
     function isActivelyLeased(t) {

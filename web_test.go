@@ -762,3 +762,111 @@ func TestWebUICopyPrimitivesButton(t *testing.T) {
 		t.Fatal("expected primRow visibility toggled in web/index.html")
 	}
 }
+
+func TestWebUICanonicalizeSelectedTaskIDFromPrefix(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, "if (t && t.id && t.id !== id)") {
+		t.Fatal("expected prefix canonicalization check in loadTaskDetails")
+	}
+	if !strings.Contains(ui, "selectedTaskId = t.id") {
+		t.Fatal("expected selectedTaskId update to canonical ID")
+	}
+
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available: " + err.Error())
+	}
+
+	script := `
+const fs = require("fs");
+const src = fs.readFileSync(process.argv[1], "utf8");
+const code = src.slice(src.indexOf("<script>") + 8, src.lastIndexOf("</script>"));
+
+const fullId = "81b0a368767072bdcde9d92ff31814e6";
+const prefix = "81b0a36";
+const attrs = {};
+const tr = {
+  dataset: { taskId: fullId },
+  setAttribute(k, v) { attrs[k] = String(v); },
+  getAttribute(k) { return attrs[k] || null; },
+  removeAttribute(k) { delete attrs[k]; },
+};
+const tbody = { querySelectorAll: () => [tr], addEventListener() {} };
+const els = {
+  "task-table-body": tbody,
+  "task-details-content": {},
+  "filter-project": { options: [] },
+  "filter-worker": { options: [] },
+};
+const defaultEl = { options: [], value: "", setAttribute() {}, removeAttribute() {}, addEventListener() {} };
+const document = {
+  getElementById: id => els[id] || defaultEl,
+  querySelector: () => null,
+  querySelectorAll: () => [],
+  addEventListener() {},
+};
+let replacedUrl = "";
+const locationObj = { pathname: "/ui", search: "?task=" + prefix, hash: "" };
+const historyObj = {
+  replaceState(state, title, url) { replacedUrl = url; locationObj.search = url.slice(url.indexOf("?")); },
+  pushState() {},
+};
+const fetchStub = async (url) => ({
+  ok: true,
+  status: 200,
+  headers: { get: () => "application/json" },
+  text: async () => JSON.stringify({ id: fullId, project: "p", priority: 1, body: "b" }),
+  json: async () => (url && (url.includes("/projects") || url.includes("/workers") || url.includes("/tasks") ? [] : {})),
+});
+
+const api = new Function("document", "location", "history", "window", "fetch", "console",
+  "setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date", "AbortSignal",
+  code + "\nreturn { applyURLState, getSelectedTaskId: () => selectedTaskId, getCurrentTask: () => currentTask };"
+)(document, locationObj, historyObj, { addEventListener() {} }, fetchStub, console,
+  () => 0, () => {}, () => 1, () => {}, Date, { timeout: () => ({}) });
+
+(async () => {
+  api.applyURLState();
+  await new Promise(r => setTimeout(r, 15));
+  process.stdout.write(JSON.stringify({
+    selectedTaskId: api.getSelectedTaskId(),
+    rowSelected: tr.getAttribute("aria-selected") === "true",
+    urlUpdated: locationObj.search === "?task=" + fullId || replacedUrl.includes("task=" + fullId),
+    detailsLoaded: Boolean(api.getCurrentTask() && api.getCurrentTask().id === fullId),
+  }));
+})();
+`
+
+	out, err := exec.Command(node, "-e", script, "web/index.html").Output()
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			t.Fatalf("node harness failed: %v\nstderr:\n%s", err, exitErr.Stderr)
+		}
+		t.Fatalf("node harness failed: %v", err)
+	}
+
+	var got struct {
+		SelectedTaskId string `json:"selectedTaskId"`
+		RowSelected    bool   `json:"rowSelected"`
+		URLUpdated     bool   `json:"urlUpdated"`
+		DetailsLoaded  bool   `json:"detailsLoaded"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("bad harness output: %v\n%s", err, out)
+	}
+
+	wantID := "81b0a368767072bdcde9d92ff31814e6"
+	if got.SelectedTaskId != wantID {
+		t.Errorf("expected selectedTaskId = %q, got %q", wantID, got.SelectedTaskId)
+	}
+	if !got.RowSelected {
+		t.Error("expected table row to have aria-selected=\"true\"")
+	}
+	if !got.URLUpdated {
+		t.Error("expected URL to update to full task ID")
+	}
+	if !got.DetailsLoaded {
+		t.Error("expected task details to be loaded")
+	}
+}
