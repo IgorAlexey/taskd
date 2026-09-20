@@ -155,3 +155,39 @@ func TestWebUIWorkerStats(t *testing.T) {
 		t.Fatal("expected loadStats to pass encoded worker to /stats")
 	}
 }
+func TestWebUINotesTimelineAndForm(t *testing.T) {
+	ui := string(uiHTML)
+	if !strings.Contains(ui, `id="add-note-form"`) {
+		t.Error("expected #add-note-form in web/index.html")
+	}
+	if strings.Contains(ui, `<form id="add-note-form" onsubmit=`) {
+		t.Error("add-note-form should not use inline onsubmit attribute")
+	}
+	if !strings.Contains(ui, `id="note-author"`) {
+		t.Error("expected #note-author input in web/index.html")
+	}
+	if !strings.Contains(ui, `id="note-text"`) {
+		t.Error("expected #note-text textarea in web/index.html")
+	}
+	if !strings.Contains(ui, `id="task-notes-list"`) {
+		t.Error("expected #task-notes-list container in web/index.html")
+	}
+	if !strings.Contains(ui, "renderNotesList(t.notes)") {
+		t.Error("expected renderNotesList call in task details pane")
+	}
+	if !strings.Contains(ui, "note-author") || !strings.Contains(ui, "note-timestamp") || !strings.Contains(ui, "note-text") {
+		t.Error("expected note author, timestamp, and text markup in web/index.html")
+	}
+	if !strings.Contains(ui, "/notes") {
+		t.Error("expected note endpoint call in web/index.html")
+	}
+	if !strings.Contains(ui, "noteForm.addEventListener('submit'") {
+		t.Error("expected noteForm submit event listener in web/index.html")
+	}
+	if !strings.Contains(ui, "form.requestSubmit") {
+		t.Error("expected form.requestSubmit call on Enter keydown in note textarea")
+	}
+	if !strings.Contains(ui, "renderTaskDetails(currentTask, true)") {
+		t.Error("expected re-render of task details without full page reload")
+	}
+}

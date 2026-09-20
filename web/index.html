@@ -299,6 +299,44 @@
     resize: vertical;
     min-height: 80px;
   }
+  .notes-section {
+    margin-top: 16px;
+    border-top: 1px solid var(--border);
+    padding-top: 12px;
+  }
+  .notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .note-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .note-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .note-author {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .note-timestamp {
+    color: var(--text-muted);
+    font-size: 11px;
+  }
+  .note-text {
+    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
   pre {
     background: #0d1117;
     border: 1px solid var(--border);
@@ -1415,6 +1453,66 @@
       if (!Number.isFinite(sec) || sec <= 0) return false;
       return sec >= Math.floor(Date.now() / 1000);
     }
+    let currentNoteAuthor = '';
+
+    function formatNoteTime(sec) {
+      if (!sec) return { display: '', iso: '' };
+      try {
+        const d = new Date(sec * 1000);
+        return { display: d.toLocaleString(), iso: d.toISOString() };
+      } catch (_) {
+        return { display: String(sec), iso: '' };
+      }
+    }
+
+    function renderNoteItemHTML(n) {
+      const time = formatNoteTime(n.created_at);
+      return `
+        <div class="note-item" data-note-id="${escapeHTML(String(n.id || ''))}">
+          <div class="note-header">
+            <span class="note-author">${escapeHTML(n.author || '')}</span>
+            <time class="note-timestamp" datetime="${escapeHTML(time.iso)}" title="${escapeHTML(time.iso)}">${escapeHTML(time.display)}</time>
+          </div>
+          <div class="note-text">${escapeHTML(n.text || '')}</div>
+        </div>
+      `;
+    }
+
+    function renderNotesList(notes) {
+      if (!notes || notes.length === 0) {
+        return '<p class="no-notes" style="color: var(--text-muted); font-style: italic; font-size: 12px; margin-bottom: 8px;">No notes</p>';
+      }
+      return notes.map(renderNoteItemHTML).join('');
+    }
+
+    async function submitNote(e, id) {
+      if (e && typeof e.preventDefault === 'function') e.preventDefault();
+      const targetId = (typeof e === 'string') ? e : (id || (currentTask && currentTask.id));
+      if (!targetId) return;
+      const authorEl = document.getElementById('note-author');
+      const textEl = document.getElementById('note-text');
+      if (!authorEl || !textEl) return;
+      const author = authorEl.value.trim();
+      const text = textEl.value.trim();
+      if (!author || !text) return;
+
+      currentNoteAuthor = author;
+      await withButton('add-note-btn', async () => {
+        const res = await fetchJSON('/tasks/' + encodeURIComponent(targetId) + '/notes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ author: author, text: text })
+        });
+        textEl.value = '';
+        showError(null);
+        if (currentTask && currentTask.id === targetId && res && res.id) {
+          if (!Array.isArray(currentTask.notes)) currentTask.notes = [];
+          currentTask.notes.push(res);
+          renderTaskDetails(currentTask, true);
+        }
+        await loadTaskDetails(targetId);
+      });
+    }
 
     function renderTaskDetails(t, sameTask) {
       const pane = document.getElementById('task-details-content');
@@ -1440,6 +1538,12 @@
         }
       }
       const prevScrollTop = sameTask ? pane.scrollTop : 0;
+      const existingAuthor = document.getElementById('note-author');
+      if (existingAuthor && existingAuthor.value) {
+        currentNoteAuthor = existingAuthor.value;
+      }
+      const existingText = document.getElementById('note-text');
+      const preservedText = (sameTask && existingText) ? existingText.value : '';
       if (isActivelyLeased(t) || t.status === 'done') {
         isEditingTask = false;
       }
@@ -1551,6 +1655,23 @@
           ` : ''}
           <button type="button" id="delete-task-btn" class="danger"${isActivelyLeased(t) ? ' disabled aria-disabled="true" title="Actively leased tasks cannot be deleted"' : ''}>Delete Task</button>
         </div>
+        <div class="field notes-section">
+          <div class="field-header">
+            <span class="field-label">Notes</span>
+          </div>
+          <div id="task-notes-list" class="notes-list">
+            ${renderNotesList(t.notes)}
+          </div>
+          <form id="add-note-form">
+            <div class="field" style="margin-bottom: 6px;">
+              <input type="text" id="note-author" placeholder="Author" value="${escapeHTML(currentNoteAuthor || claimWorker || '')}" maxlength="128" required style="font-size: 12px; padding: 4px 8px;">
+            </div>
+            <div class="field" style="margin-bottom: 6px;">
+              <textarea id="note-text" placeholder="Add a note…" required rows="2" style="font-size: 12px; padding: 6px 8px; min-height: 50px;"></textarea>
+            </div>
+            <button type="submit" id="add-note-btn" class="primary" style="font-size: 12px; padding: 4px 10px;">Add Note</button>
+          </form>
+        </div>
       `;
       if (sameTask) pane.scrollTop = prevScrollTop;
 
@@ -1581,6 +1702,35 @@
       if (expandBtn) expandBtn.onclick = () => expandBody(t.body || '');
       const dlg = document.getElementById('body-overlay');
       if (dlg && dlg.open) setOverlayBody(t.body || '');
+      const noteForm = document.getElementById('add-note-form');
+      if (noteForm) {
+        noteForm.addEventListener('submit', (e) => {
+          submitNote(e, t.id);
+        });
+      }
+      const noteAuthorEl = document.getElementById('note-author');
+      if (noteAuthorEl) {
+        noteAuthorEl.addEventListener('input', () => {
+          currentNoteAuthor = noteAuthorEl.value;
+        });
+      }
+      const noteTextEl = document.getElementById('note-text');
+      if (noteTextEl) {
+        if (preservedText) noteTextEl.value = preservedText;
+        noteTextEl.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            const form = document.getElementById('add-note-form');
+            if (form) {
+              if (typeof form.requestSubmit === 'function') {
+                form.requestSubmit();
+              } else {
+                form.dispatchEvent(new Event('submit', { cancelable: true }));
+              }
+            }
+          }
+        });
+      }
     }
 
     function setOverlayBody(body) {
