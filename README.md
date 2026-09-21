@@ -6,9 +6,12 @@
   <strong><a href="https://igoralexey.com/taskd">igoralexey.com/taskd</a></strong>
 </p>
 
-![taskd Web UI dashboard showing task queue, details pane, and submit form](docs/webui.png)
-
-![taskd Terminal UI showing task queue, status filters, and lease details](docs/tui.png)
+<table>
+  <tr>
+    <td width="50%"><img src="docs/webui.png" alt="taskd web UI: a project ledger with stuck, claimed, queued and done tasks"></td>
+    <td width="50%"><img src="docs/tui.png" alt="taskd terminal UI: the queue table with a task and its notes below"></td>
+  </tr>
+</table>
 
 taskd is a task queue daemon with atomic leases, dependency tracking, and
 embedded web and terminal interfaces.
