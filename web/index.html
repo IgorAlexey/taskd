@@ -265,7 +265,21 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
 
 <script>
 (() => {
-  const api = (path, opts) => fetch(path, opts);
+  /* a 401 means the daemon wants its token: ask once, keep it in a cookie
+     the browser sends by itself, reload. The value goes in as typed; the
+     daemon reads the cookie as it is. Whoever asked gets a rejection, as
+     from a failed connection; the page reloads or waits for the token. */
+  let askedToken = false;
+  async function askToken() {
+    if (askedToken) return;
+    askedToken = true;
+    const had = document.cookie.includes('taskd_token=');
+    const t = await ask({ title: had ? 'The token was rejected' : 'This taskd needs a token', ok: 'Open', line: { label: 'Token', required: true, hint: 'The TASKD_TOKEN the daemon was started with.' } });
+    if (!t) { askedToken = false; return; }
+    document.cookie = 'taskd_token=' + t + '; Path=/; SameSite=Strict' + (location.protocol === 'https:' ? '; Secure' : '');
+    location.reload();
+  }
+  const api = (path, opts) => fetch(path, opts).then(r => { if (r.status !== 401) return r; askToken(); return Promise.reject(r); });
   const MIN = 60e3;
   const NAME = '[A-Za-z0-9._\\-]{1,64}';
   const DONE_CAP = 30;                     /* done is an archive: show the latest, offer the rest */
