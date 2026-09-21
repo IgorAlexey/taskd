@@ -180,12 +180,24 @@ func envOr(key, def string) string {
 	return def
 }
 
+// defaultWorker is user.host with anything the daemon would refuse in a
+// worker name dropped, or "worker" when nothing is left.
 func defaultWorker() string {
 	host, _ := os.Hostname()
+	name := host
 	if u, err := user.Current(); err == nil && u.Username != "" {
-		return u.Username + "@" + host
+		name = u.Username + "." + host
 	}
-	return host
+	name = strings.Map(func(r rune) rune {
+		if r < 128 && validNameOrPathByte(byte(r)) {
+			return r
+		}
+		return -1
+	}, name)
+	if w, err := cleanWorker(name); err == nil {
+		return w
+	}
+	return "worker"
 }
 
 func (c *client) add(args []string, project string, pri *int, after string, quiet bool) error {

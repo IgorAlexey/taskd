@@ -11,7 +11,7 @@ func printUsage(w io.Writer) {
 taskd is a lightweight task queue daemon backed by SQLite.
 
 Commands talk to a running daemon at TASKD_URL (default http://127.0.0.1:8080)
-as the worker named by TASKD_WORKER (default user@host) in TASKD_PROJECT:
+as the worker named by TASKD_WORKER (default user.host) in TASKD_PROJECT:
   add [body]         create a task; body from stdin when piped or "-"
   claim [id]         claim the next task, or the one named; exit 3 when none
   done ID            finish a claimed task (-result JSON)

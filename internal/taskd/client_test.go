@@ -112,3 +112,10 @@ func TestCLI(t *testing.T) {
 		t.Fatalf("unreachable: exit %d, stderr %q", code, errb.String())
 	}
 }
+
+func TestDefaultWorkerIsValid(t *testing.T) {
+	dw := defaultWorker()
+	if w, err := cleanWorker(dw); err != nil || w == "" {
+		t.Fatalf("defaultWorker() = %q: %v", dw, err)
+	}
+}

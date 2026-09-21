@@ -24,7 +24,7 @@ func cleanWorker(raw string) (string, error) {
 		return "", errWorkerTooLong
 	}
 	for i := range len(raw) {
-		if !validAuthorByte(raw[i]) {
+		if !validNameOrPathByte(raw[i]) {
 			return "", fmt.Errorf("invalid worker %q", raw)
 		}
 	}
@@ -91,7 +91,9 @@ func validNameByte(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '.' || c == '_' || c == '-'
 }
 
-func validAuthorByte(c byte) bool {
+// validNameOrPathByte is the worker and author charset: a name, or a path
+// or address made of names.
+func validNameOrPathByte(c byte) bool {
 	return validNameByte(c) || c == '/' || c == ':'
 }
 
@@ -126,7 +128,7 @@ func checkAuthor(author string) (string, bool) {
 		return "author too long", false
 	}
 	for i := range len(author) {
-		if !validAuthorByte(author[i]) {
+		if !validNameOrPathByte(author[i]) {
 			return "invalid author", false
 		}
 	}
