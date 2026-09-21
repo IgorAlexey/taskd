@@ -93,12 +93,19 @@ aside[data-sidebar] .count { margin-left: auto; color: var(--quiet); }
 aside[data-sidebar] .badge { margin-left: auto; padding: 0 0.5rem; }
 aside[data-sidebar] .badge .icon-svg { color: inherit; }
 #add-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
-/* pointing at a project row shows its menu button over the count, as every sidebar does */
+/* pointing at a project row shows its menu button over the count, as every sidebar does:
+   the row is 2rem tall, the action a 1.25rem square with a 1rem icon, 0.25rem from the edge */
 #projects li { position: relative; }
-#projects li a { padding-right: 2rem; }
-#projects li > button { position: absolute; top: 50%; right: 0.25rem; transform: translateY(-50%); width: 1.6rem; height: 1.6rem; color: var(--quiet); visibility: hidden; }
+#projects li a { min-height: 2rem; padding-right: 2rem; border-radius: var(--radius-medium); }
+#projects li > button { position: absolute; top: 50%; right: 0.25rem; transform: translateY(-50%); width: 1.25rem; height: 1.25rem; padding: 0; border-radius: var(--radius-medium); color: var(--quiet); visibility: hidden; }
+#projects li > button .icon-svg { width: 1rem; height: 1rem; }
+#projects li > button:hover { background: var(--hover); color: var(--fg); }
 #projects li:is(:hover, :focus-within, [data-menu]) > button { visibility: visible; }
 #projects li:is(:hover, :focus-within, [data-menu]) :is(.count, .badge) { visibility: hidden; }
+@media (hover: none) {                       /* a finger: the action is always there beside the count, a 2rem square filling the row */
+  #projects li > button { visibility: visible; width: 2rem; height: 2rem; right: 0; }
+  #projects li :is(.count, .badge) { visibility: visible; margin-right: 0.25rem; }
+}
 #project-menu { position: fixed; inset: auto; margin: 0; padding: 0.25rem; min-width: 8rem; flex-direction: column; background: var(--sheet); color: var(--fg); border: 1px solid var(--rule); border-radius: var(--radius-medium); box-shadow: var(--shadow-medium); }
 #project-menu:popover-open { display: flex; }
 #project-menu [role="menuitem"] { justify-content: flex-start; border: 0; border-radius: var(--radius-small); }
@@ -201,7 +208,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 256 256"><path d="M235.54,150.21a104.84,104.84,0,0,1-37,52.91A104,104,0,0,1,32,120,103.09,103.09,0,0,1,52.88,57.48a104.84,104.84,0,0,1,52.91-37,8,8,0,0,1,10,10,88.08,88.08,0,0,0,109.8,109.8,8,8,0,0,1,10,10Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 256 256"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></symbol>
-  <symbol id="i-dots" viewBox="0 0 256 256"><path d="M144,128a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm-16-48a16,16,0,1,0-16-16A16,16,0,0,0,128,80Zm0,96a16,16,0,1,0,16,16A16,16,0,0,0,128,176Z"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 256 256"><path d="M156,128a28,28,0,1,1-28-28A28,28,0,0,1,156,128ZM128,72a28,28,0,1,0-28-28A28,28,0,0,0,128,72Zm0,112a28,28,0,1,0,28,28A28,28,0,0,0,128,184Z"/></symbol>
   <symbol id="i-list" viewBox="0 0 256 256"><path d="M40,52H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Z"/></symbol>
 </svg>
 
