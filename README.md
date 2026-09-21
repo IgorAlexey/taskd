@@ -48,6 +48,42 @@ taskd-tui
 ## Install
 
 ```sh
+curl -fsSLO https://github.com/IgorAlexey/taskd/releases/latest/download/install.sh
+sh install.sh
+```
+
+This puts `taskd` and `taskd-tui` in `~/.local/bin` (`TASKD_INSTALL_DIR`
+picks another directory). The tarballs it downloads, for Linux and macOS on
+amd64 and arm64, are on the releases page.
+
+With a Go toolchain:
+
+```sh
 go install github.com/IgorAlexey/taskd@latest
 go install github.com/IgorAlexey/taskd/cmd/taskd-tui@latest
+```
+
+These land in `$(go env GOPATH)/bin`, usually `~/go/bin`, which has to be on
+your PATH.
+
+## Hosting
+
+Give the daemon a token and every request needs it. `taskd` and
+`taskd-tui` read the same variable; the web UI asks for it once and keeps
+it in a cookie.
+
+```sh
+export TASKD_TOKEN=$(openssl rand -hex 16)
+taskd -addr 127.0.0.1:8080
+
+TASKD_URL=http://127.0.0.1:8080 taskd list
+```
+
+The token travels in a header, so on a network put the daemon behind TLS.
+A reverse proxy does that; with Caddy:
+
+```
+tasks.example.com {
+    reverse_proxy 127.0.0.1:8080
+}
 ```
