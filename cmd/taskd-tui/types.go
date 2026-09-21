@@ -47,6 +47,7 @@ type stats struct {
 // config is the parsed command line.
 type config struct {
 	url         string
+	token       string
 	project     string
 	worker      string
 	query       string

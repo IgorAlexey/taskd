@@ -66,7 +66,7 @@ func TestTUIEditPassesIfVersion(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:       1,
 			Status:   "pending",

@@ -36,7 +36,7 @@ func TestPurgeCompletedTasks(t *testing.T) {
 			m := newModel(config{
 				url:    ts.URL,
 				worker: "worker-1",
-			}, newClient(ts.URL))
+			}, newClient(ts.URL, ""))
 			m.tasks = []task{
 				{ID: 1, Project: "proj-a", Status: "done", Body: "done 1"},
 				{ID: 2, Project: "proj-b", Status: "done", Body: "done 2"},
@@ -105,7 +105,7 @@ func TestPurgeScopedToProjectFilter(t *testing.T) {
 	m := newModel(config{
 		url:    ts.URL,
 		worker: "worker-1",
-	}, newClient(ts.URL))
+	}, newClient(ts.URL, ""))
 	m.project = "alpha"
 	m.tasks = []task{
 		{ID: 1, Project: "alpha", Status: "done", Body: "done in alpha"},
@@ -148,7 +148,7 @@ func TestPurgeScopedToProjectFilter(t *testing.T) {
 func TestPurgeCancel(t *testing.T) {
 	m := newModel(config{
 		worker: "worker-1",
-	}, newClient("http://localhost:8080"))
+	}, newClient("http://localhost:8080", ""))
 	m.tasks = []task{
 		{ID: 1, Project: "alpha", Status: "done", Body: "done in alpha"},
 	}

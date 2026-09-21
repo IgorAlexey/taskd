@@ -112,7 +112,7 @@ func TestBuriedLifecycle(t *testing.T) {
 		url:     ts.URL,
 		worker:  "worker-a",
 		refresh: time.Hour,
-	}, newClient(ts.URL))
+	}, newClient(ts.URL, ""))
 	m.tasks = []task{st.task}
 	m.rebuildShown()
 	m.cursor = 0

@@ -33,7 +33,7 @@ func TestLiveStatusTab(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	m := newModel(config{icons: true, refresh: time.Hour}, newClient(ts.URL))
+	m := newModel(config{icons: true, refresh: time.Hour}, newClient(ts.URL, ""))
 	m.width = 120
 	m.height = 24
 	m.hasStats = true

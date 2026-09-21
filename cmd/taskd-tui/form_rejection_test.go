@@ -46,7 +46,7 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 	defer srv.Close()
 
 	t.Run("CreateTask", func(t *testing.T) {
-		m := newModel(config{project: "proj-test"}, newClient(srv.URL))
+		m := newModel(config{project: "proj-test"}, newClient(srv.URL, ""))
 		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})
 		m = up.(model)
 		if m.mode != modeForm {
@@ -126,7 +126,7 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 			Priority: 2,
 			Body:     "orig body",
 		}
-		m := newModel(config{project: "proj-test"}, newClient(srv.URL))
+		m := newModel(config{project: "proj-test"}, newClient(srv.URL, ""))
 		m.tasks = []task{tOriginal}
 		m.rebuildShown()
 		m.cursor = 0
@@ -183,7 +183,7 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 	})
 
 	t.Run("SuccessClosesForm", func(t *testing.T) {
-		m := newModel(config{project: "proj-test"}, newClient(srv.URL))
+		m := newModel(config{project: "proj-test"}, newClient(srv.URL, ""))
 		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})
 		m = up.(model)
 		if m.mode != modeForm {
@@ -205,7 +205,7 @@ func TestFormKeepOpenOnDaemonRejection(t *testing.T) {
 	})
 
 	t.Run("CancelledFormDropsInFlightReply", func(t *testing.T) {
-		m := newModel(config{project: "proj-test"}, newClient(srv.URL))
+		m := newModel(config{project: "proj-test"}, newClient(srv.URL, ""))
 		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})
 		m = up.(model)
 		m.form.body.SetValue("some body text")

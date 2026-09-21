@@ -48,7 +48,7 @@ func TestTUIIfNoneMatchAndNotModified(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	cl := newClient(ts.URL)
+	cl := newClient(ts.URL, "")
 	m := newModel(config{
 		url:     ts.URL,
 		worker:  "worker-test",

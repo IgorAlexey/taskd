@@ -42,7 +42,7 @@ func TestDeleteDoneTaskWithForce(t *testing.T) {
 			m := newModel(config{
 				url:    ts.URL,
 				worker: "worker-1",
-			}, newClient(ts.URL))
+			}, newClient(ts.URL, ""))
 			m.tasks = []task{doneTask}
 			m.rebuildShown()
 			m.mode = initialMode

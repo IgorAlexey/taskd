@@ -65,7 +65,7 @@ func TestBulkUnburyAction(t *testing.T) {
 			m := newModel(config{
 				url:    ts.URL,
 				worker: "worker-1",
-			}, newClient(ts.URL))
+			}, newClient(ts.URL, ""))
 			m.project = tc.project
 			m.tasks = []task{
 				{ID: 1, Project: "alpha", Status: "buried", Body: "buried 1"},
@@ -122,7 +122,7 @@ func TestBulkUnburyAction(t *testing.T) {
 	t.Run("cancel", func(t *testing.T) {
 		m := newModel(config{
 			worker: "worker-1",
-		}, newClient("http://localhost:8080"))
+		}, newClient("http://localhost:8080", ""))
 		m.tasks = []task{
 			{ID: 1, Project: "alpha", Status: "buried", Body: "buried in alpha"},
 		}

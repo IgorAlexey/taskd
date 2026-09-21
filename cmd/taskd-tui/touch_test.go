@@ -48,7 +48,7 @@ func TestTouchLease(t *testing.T) {
 	}
 
 	t.Run("UnleasedTask", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:      1,
 			Status:  "pending",
@@ -69,7 +69,7 @@ func TestTouchLease(t *testing.T) {
 	})
 
 	t.Run("ExpiredLease", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:           2,
 			Status:       "leased",
@@ -92,7 +92,7 @@ func TestTouchLease(t *testing.T) {
 	})
 
 	t.Run("AnotherWorker", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:           3,
 			Status:       "leased",
@@ -116,7 +116,7 @@ func TestTouchLease(t *testing.T) {
 
 	t.Run("HeldLease", func(t *testing.T) {
 		taskID := int64(1)
-		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:           taskID,
 			Status:       "leased",

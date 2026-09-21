@@ -585,7 +585,7 @@ func TestClickFooterShortcuts(t *testing.T) {
 
 	mPri := setupTestModel()
 	mPri.width = 140
-	mPri.client = newClient(ts.URL)
+	mPri.client = newClient(ts.URL, "")
 	mPri.tasks[0].Priority = 5
 	_, cmdPriUp := clickAt(mPri, idxPri)
 	if cmdPriUp == nil {

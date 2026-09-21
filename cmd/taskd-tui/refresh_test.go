@@ -37,7 +37,7 @@ func TestManualRefreshFeedback(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	m := newModel(config{worker: "test-worker", url: ts.URL}, newClient(ts.URL))
+	m := newModel(config{worker: "test-worker", url: ts.URL}, newClient(ts.URL, ""))
 	m.width = 100
 	m.height = 24
 	m.mode = modeTable

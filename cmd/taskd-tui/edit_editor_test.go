@@ -30,7 +30,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		t.Setenv("VISUAL", "echo \"new content\" >")
 		t.Setenv("EDITOR", "")
 
-		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:      1,
 			Status:  "pending",
@@ -92,7 +92,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		tmpFile.WriteString("content")
 		tmpFile.Close()
 
-		patchCmd := editorPatchCmd(newClient(ts.URL), 10, 0, "content", tmpPath)
+		patchCmd := editorPatchCmd(newClient(ts.URL, ""), 10, 0, "content", tmpPath)
 		resMsg := patchCmd()
 		act, ok := resMsg.(actMsg)
 		if !ok || act.err != nil {
@@ -116,7 +116,7 @@ func TestEditBodyInEditor(t *testing.T) {
 		}))
 		defer ts.Close()
 
-		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 
 		tmpFile, err := os.CreateTemp("", "taskd-preserve-*.md")
 		if err != nil {

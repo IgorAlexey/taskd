@@ -27,7 +27,7 @@ func TestReleaseLeaseWorkerGuard(t *testing.T) {
 	defer ts.Close()
 
 	t.Run("AnotherWorker", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{ID: 1, Status: "leased", Worker: "worker-2"}}
 		m.rebuildShown()
 
@@ -42,7 +42,7 @@ func TestReleaseLeaseWorkerGuard(t *testing.T) {
 	})
 
 	t.Run("HeldLease", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "worker-1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{ID: 1, Status: "leased", Worker: "worker-1"}}
 		m.rebuildShown()
 

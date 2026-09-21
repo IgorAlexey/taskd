@@ -130,7 +130,7 @@ func TestWorkerFilter(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		cl := newClient(srv.URL)
+		cl := newClient(srv.URL, "")
 		sc := listScope{
 			filter: listFilter{
 				worker: "worker-alpha",
@@ -197,7 +197,7 @@ func TestWorkerFilter(t *testing.T) {
 		}))
 		defer srv.Close()
 
-		cl := newClient(srv.URL)
+		cl := newClient(srv.URL, "")
 		workers, err := cl.getWorkers()
 		if err != nil {
 			t.Fatalf("getWorkers failed: %v", err)
@@ -232,7 +232,7 @@ func TestWorkerFilterStats(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	cl := newClient(srv.URL)
+	cl := newClient(srv.URL, "")
 	sc := listScope{
 		filter: listFilter{
 			project: "proj1",
@@ -308,7 +308,7 @@ func TestTUIWorkerFilterStats(t *testing.T) {
 	defer srv.Close()
 
 	m := newModel(config{icons: false, refresh: time.Hour}, nil)
-	m.client = newClient(srv.URL)
+	m.client = newClient(srv.URL, "")
 	m.width = 120
 	m.height = 24
 	m.workers = []string{"worker-alpha", "worker-beta"}

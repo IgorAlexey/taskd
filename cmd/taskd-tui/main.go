@@ -313,6 +313,7 @@ func parseFlags(args []string) (config, error) {
 		return cfg, usagef("%w", err)
 	}
 	cfg.url = validURL
+	cfg.token = os.Getenv("TASKD_TOKEN")
 
 	if refresh < 250*time.Millisecond {
 		return cfg, usagef("refresh interval must be at least 250ms: got %v", refresh)
@@ -355,6 +356,7 @@ Options:
 
 Environment variables:
   TASKD_URL           taskd daemon URL
+  TASKD_TOKEN         bearer token the daemon requires
   TASKD_PROJECT       default project filter
   TASKD_WORKER        worker identifier for claiming tasks
   TASKD_QUERY         default search query filter
@@ -570,7 +572,7 @@ func run(stdout io.Writer, args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	p := tea.NewProgram(newModel(cfg, newClient(cfg.url)), tea.WithContext(ctx))
+	p := tea.NewProgram(newModel(cfg, newClient(cfg.url, cfg.token)), tea.WithContext(ctx))
 	if _, err := p.Run(); err != nil && !errors.Is(err, context.Canceled) {
 		return err
 	}

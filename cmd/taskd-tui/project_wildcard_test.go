@@ -82,7 +82,7 @@ func TestProjectFlagWildcard(t *testing.T) {
 			t.Fatalf("parseFlags failed: %v", err)
 		}
 
-		c := newClient(cfg.url)
+		c := newClient(cfg.url, "")
 		m := newModel(cfg, c)
 		res, err := c.list(m.listScope(), "")
 		if err != nil {

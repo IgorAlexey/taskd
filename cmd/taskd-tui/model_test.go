@@ -20,7 +20,7 @@ func TestEmptyWorkerClaimGuard(t *testing.T) {
 	defer ts.Close()
 
 	t.Run("ClaimWithoutWorker", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: ""}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: ""}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:      1,
 			Status:  "pending",
@@ -42,7 +42,7 @@ func TestEmptyWorkerClaimGuard(t *testing.T) {
 	})
 
 	t.Run("TouchWithoutWorker", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: ""}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: ""}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:           2,
 			Status:       "leased",
@@ -82,7 +82,7 @@ func TestEditFormNoChanges(t *testing.T) {
 	}
 
 	t.Run("CtrlSWithoutChanges", func(t *testing.T) {
-		m := newModel(config{project: "proj-clean", worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{project: "proj-clean", worker: "w1"}, newClient(ts.URL, ""))
 		m.tasks = []task{tOriginal}
 		m.rebuildShown()
 		m.cursor = 0
@@ -111,7 +111,7 @@ func TestEditFormNoChanges(t *testing.T) {
 	})
 
 	t.Run("SaveButtonWithoutChanges", func(t *testing.T) {
-		m := newModel(config{project: "proj-clean", worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{project: "proj-clean", worker: "w1"}, newClient(ts.URL, ""))
 		m.tasks = []task{tOriginal}
 		m.rebuildShown()
 		m.cursor = 0
@@ -143,7 +143,7 @@ func TestEditFormNoChanges(t *testing.T) {
 }
 func TestPasteRouting(t *testing.T) {
 	t.Run("PasteInSearch", func(t *testing.T) {
-		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
+		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080", ""))
 		up, _ := m.Update(tea.KeyPressMsg{Text: "/"})
 		m = up.(model)
 		if m.mode != modeSearch {
@@ -164,7 +164,7 @@ func TestPasteRouting(t *testing.T) {
 	})
 
 	t.Run("PasteInForm", func(t *testing.T) {
-		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
+		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080", ""))
 		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})
 		m = up.(model)
 		if m.mode != modeForm {
@@ -186,7 +186,7 @@ func TestPasteRouting(t *testing.T) {
 	})
 
 	t.Run("PasteInNote", func(t *testing.T) {
-		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080"))
+		m := newModel(config{url: "http://localhost:8080", worker: "w1"}, newClient("http://localhost:8080", ""))
 		m.tasks = []task{{ID: 1, Status: "pending", Project: "p1"}}
 		m.rebuildShown()
 		m.cursor = 0

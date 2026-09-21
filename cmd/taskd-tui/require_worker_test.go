@@ -21,7 +21,7 @@ func TestTUIRequireWorkerConsistent(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newModel(config{}, newClient("http://localhost:8080"))
+			m := newModel(config{}, newClient("http://localhost:8080", ""))
 			m.now = time.Now()
 			m.tasks = []task{{
 				ID:           1,
@@ -43,7 +43,7 @@ func TestTUIRequireWorkerConsistent(t *testing.T) {
 	}
 	t.Run("UnleasedTaskReportsNotLeased", func(t *testing.T) {
 		for _, key := range []string{"u", "b"} {
-			m := newModel(config{}, newClient("http://localhost:8080"))
+			m := newModel(config{}, newClient("http://localhost:8080", ""))
 			m.tasks = []task{{
 				ID:     1,
 				Status: "pending",

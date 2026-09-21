@@ -32,7 +32,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 
 	t.Run("DoneTaskPlusMinus", func(t *testing.T) {
 		for _, key := range []string{"+", "-"} {
-			m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+			m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 			m.tasks = []task{{
 				ID:       1,
 				Status:   "done",
@@ -55,7 +55,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 
 	t.Run("ActivelyLeasedTaskPlusMinus", func(t *testing.T) {
 		for _, key := range []string{"+", "-"} {
-			m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+			m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 			m.tasks = []task{{
 				ID:           2,
 				Status:       "leased",
@@ -78,7 +78,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 	})
 
 	t.Run("PriorityOneRaisesToZero", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:       3,
 			Status:   "pending",
@@ -103,7 +103,7 @@ func TestTUIAdjustPriorityGuards(t *testing.T) {
 	})
 
 	t.Run("PriorityZeroAlreadyHighest", func(t *testing.T) {
-		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL))
+		m := newModel(config{url: ts.URL, worker: "w1"}, newClient(ts.URL, ""))
 		m.tasks = []task{{
 			ID:       4,
 			Status:   "pending",

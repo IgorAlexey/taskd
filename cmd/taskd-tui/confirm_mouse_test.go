@@ -8,7 +8,7 @@ import (
 )
 
 func TestClickConfirmModalButtons(t *testing.T) {
-	m := newModel(config{icons: false, refresh: time.Hour}, newClient("http://localhost:8080"))
+	m := newModel(config{icons: false, refresh: time.Hour}, newClient("http://localhost:8080", ""))
 	m.width = 80
 	m.height = 24
 	m.tasks = []task{

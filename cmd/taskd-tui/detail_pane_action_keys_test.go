@@ -29,7 +29,7 @@ func TestDetailPaneActionKeys(t *testing.T) {
 			m := newModel(config{
 				url:    ts.URL,
 				worker: "test-worker",
-			}, newClient(ts.URL))
+			}, newClient(ts.URL, ""))
 			m.tasks = []task{testTask}
 			m.rebuildShown()
 			m.mode = initialMode

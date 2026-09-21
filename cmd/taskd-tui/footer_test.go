@@ -172,7 +172,7 @@ func TestFooterLifecycleClicks(t *testing.T) {
 	defer ts.Close()
 
 	mPending := createTestModelWithTask("pending", 80, 24)
-	mPending.client = newClient(ts.URL)
+	mPending.client = newClient(ts.URL, "")
 	targetsPending := mPending.footerTargets()
 	var claimTarget *footerTarget
 	for i := range targetsPending {
@@ -194,7 +194,7 @@ func TestFooterLifecycleClicks(t *testing.T) {
 	}
 
 	mTouch := createTestModelWithTask("leased", 80, 24)
-	mTouch.client = newClient(ts.URL)
+	mTouch.client = newClient(ts.URL, "")
 	targetsTouch := mTouch.footerTargets()
 	var touchTarget *footerTarget
 	for i := range targetsTouch {
@@ -216,7 +216,7 @@ func TestFooterLifecycleClicks(t *testing.T) {
 	}
 
 	mRelease := createTestModelWithTask("leased", 80, 24)
-	mRelease.client = newClient(ts.URL)
+	mRelease.client = newClient(ts.URL, "")
 	targetsRelease := mRelease.footerTargets()
 	var releaseTarget *footerTarget
 	for i := range targetsRelease {

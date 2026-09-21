@@ -117,7 +117,7 @@ func TestFlagsPriority(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		c := newClient(ts.URL)
+		c := newClient(ts.URL, "")
 		m := newModel(cfg, c)
 
 		lf := m.listFilter()

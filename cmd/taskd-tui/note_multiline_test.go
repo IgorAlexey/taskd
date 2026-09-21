@@ -29,7 +29,7 @@ func TestNoteMultilineEditing(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	m := newModel(config{url: srv.URL, worker: "worker-1", icons: false, refresh: time.Hour}, newClient(srv.URL))
+	m := newModel(config{url: srv.URL, worker: "worker-1", icons: false, refresh: time.Hour}, newClient(srv.URL, ""))
 	m.width = 100
 	m.height = 30
 	m.tasks = []task{

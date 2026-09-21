@@ -71,7 +71,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 	}
 
 	t.Run("CreateFormFocusAndSubmit", func(t *testing.T) {
-		m := newModel(config{project: "default", refresh: time.Hour}, newClient(srv.URL))
+		m := newModel(config{project: "default", refresh: time.Hour}, newClient(srv.URL, ""))
 		m.width = 80
 		m.height = 24
 		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})
@@ -138,7 +138,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 	})
 
 	t.Run("EditFormFocusAndSubmit", func(t *testing.T) {
-		m := newModel(config{project: "default", refresh: time.Hour}, newClient(srv.URL))
+		m := newModel(config{project: "default", refresh: time.Hour}, newClient(srv.URL, ""))
 		m.width = 80
 		m.height = 24
 		m.tasks = []task{
@@ -191,7 +191,7 @@ func TestClickFormFieldsAndSave(t *testing.T) {
 	})
 
 	t.Run("ClicksOutsideModalIgnored", func(t *testing.T) {
-		m := newModel(config{project: "default", refresh: time.Hour}, newClient(srv.URL))
+		m := newModel(config{project: "default", refresh: time.Hour}, newClient(srv.URL, ""))
 		m.width = 80
 		m.height = 24
 		up, _ := m.Update(tea.KeyPressMsg{Text: "n"})

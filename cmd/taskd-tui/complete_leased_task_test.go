@@ -46,7 +46,7 @@ func TestCompleteLeasedTask(t *testing.T) {
 	m := newModel(config{
 		url:    ts.URL,
 		worker: "worker-me",
-	}, newClient(ts.URL))
+	}, newClient(ts.URL, ""))
 	m.tasks = []task{tOwn, tOther}
 	m.rebuildShown()
 

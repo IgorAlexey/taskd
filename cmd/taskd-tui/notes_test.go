@@ -110,7 +110,7 @@ func TestNotes(t *testing.T) {
 	defer srv.Close()
 
 	t.Run("renders_notes_under_separator", func(t *testing.T) {
-		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
+		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL, ""))
 		m.width = 100
 		m.height = 30
 		m.tasks = []task{t1List}
@@ -164,7 +164,7 @@ func TestNotes(t *testing.T) {
 	})
 
 	t.Run("pressing_a_prompts_and_posts_note", func(t *testing.T) {
-		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
+		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL, ""))
 		m.width = 100
 		m.height = 30
 		m.tasks = []task{t1List}
@@ -239,7 +239,7 @@ func TestNotes(t *testing.T) {
 	})
 
 	t.Run("submit_error_keeps_modal_open", func(t *testing.T) {
-		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
+		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL, ""))
 		m.width = 100
 		m.height = 30
 		m.tasks = []task{t1List}
@@ -273,7 +273,7 @@ func TestNotes(t *testing.T) {
 
 	t.Run("prompt_from_detail_and_zoom_modes", func(t *testing.T) {
 		for _, initialMode := range []mode{modeDetail, modeZoom} {
-			m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
+			m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL, ""))
 			m.width = 100
 			m.height = 30
 			m.tasks = []task{t1List}
@@ -303,7 +303,7 @@ func TestNotes(t *testing.T) {
 
 	t.Run("footer_displays_note_action", func(t *testing.T) {
 		for _, currentMode := range []mode{modeDetail, modeZoom} {
-			m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
+			m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL, ""))
 			m.width = 100
 			m.height = 30
 			m.tasks = []task{t1List}
@@ -328,7 +328,7 @@ func TestNotes(t *testing.T) {
 
 	t.Run("navigation_debounces_notes_fetch", func(t *testing.T) {
 		t2 := task{ID: 2, Status: "pending", Body: "second task"}
-		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL))
+		m := newModel(config{url: srv.URL, worker: "charlie", icons: false}, newClient(srv.URL, ""))
 		m.width = 100
 		m.height = 30
 		m.tasks = []task{t1List, t2}
