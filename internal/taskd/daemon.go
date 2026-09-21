@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -129,16 +128,26 @@ func fatal(stderr io.Writer, err error) int {
 	return 1
 }
 
-// Main runs the binary: a bare word is a client command, anything else
-// is the daemon.
+// Main runs a command. The daemon is "serve"; a bare taskd prints the
+// help and does nothing, as a command with no verb should.
 func Main(stdout, stderr io.Writer, stdin io.Reader, args []string) int {
-	if len(args) > 0 && args[0] == "serve" {
-		args = args[1:]
-	} else if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+	verb := ""
+	if len(args) > 0 {
+		verb = args[0]
+	}
+	switch verb {
+	case "", "-h", "-help", "--help":
+		printUsage(stdout)
+		return 0
+	case "-v", "-version", "--version":
+		fmt.Fprintf(stdout, "taskd %s\n", version.Version)
+		return 0
+	case "serve":
+		if err := run(stdout, args[1:]); err != nil {
+			return fatal(stderr, err)
+		}
+		return 0
+	default:
 		return runClient(stdout, stderr, stdin, args)
 	}
-	if err := run(stdout, args); err != nil {
-		return fatal(stderr, err)
-	}
-	return 0
 }

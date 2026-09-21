@@ -25,7 +25,7 @@ claimable.
 Start the daemon:
 
 ```sh
-taskd -addr 127.0.0.1:8080
+taskd serve -addr 127.0.0.1:8080
 ```
 
 Add and work tasks from the command line:
@@ -74,7 +74,7 @@ it in a cookie.
 
 ```sh
 export TASKD_TOKEN=$(openssl rand -hex 16)
-taskd -addr 127.0.0.1:8080
+taskd serve -addr 127.0.0.1:8080
 
 TASKD_URL=http://127.0.0.1:8080 taskd list
 ```

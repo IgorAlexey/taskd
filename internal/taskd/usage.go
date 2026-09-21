@@ -24,12 +24,12 @@ sending TASKD_TOKEN when the daemon requires one:
   note ID [text]     append a note; text from stdin when absent
   show ID            print one task with its notes
   list               print tasks (-project, -status, -q, -limit)
-  serve              run the daemon (the same as no command)
+  serve              run the daemon
   help [command]     this text, or a command's flags
 Each prints the daemon's JSON on stdout; on failure one line on stderr and
 exit 1, or 2 for bad usage. Flags: -url, -worker, -project, and -q for the id.
 
-Options:
+Options of taskd serve:
   -addr <addr>        listen address (e.g. :8080 to expose on all interfaces) (default: 127.0.0.1:8080)
   -backup <path>      backup destination path
   -cors-origin <url>  allowed CORS origin
@@ -101,12 +101,12 @@ HTTP Endpoints:
   GET    /                   web interface
 
 Examples:
-  taskd                                      run daemon on 127.0.0.1:8080 with taskd.db
-  taskd -addr :8080                          expose daemon on all interfaces
-  taskd -addr :9090 -db custom.db            run on custom port and database
-  taskd -lease 600                           use 10 minute task lease duration
-  taskd -max-claims 3                        bury a task after 3 claims
-  taskd -backup backup.db                    backup database to file and exit
+  taskd serve                                run daemon on 127.0.0.1:8080 with taskd.db
+  taskd serve -addr :8080                    expose daemon on all interfaces
+  taskd serve -addr :9090 -db custom.db      run on custom port and database
+  taskd serve -lease 600                     use 10 minute task lease duration
+  taskd serve -max-claims 3                  bury a task after 3 claims
+  taskd serve -backup backup.db              backup database to file and exit
 
   # Task lifecycle (create, claim, complete):
   T=${T:-http://localhost:8080}
