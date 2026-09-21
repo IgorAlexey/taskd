@@ -92,7 +92,13 @@ aside[data-sidebar] nav a[aria-disabled="true"] { color: var(--quiet); opacity: 
 aside[data-sidebar] .count { margin-left: auto; color: var(--quiet); }
 aside[data-sidebar] .badge { margin-left: auto; padding: 0 0.5rem; }
 aside[data-sidebar] .badge .icon-svg { color: inherit; }
-#add-project, #drop-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
+#add-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
+/* each project carries its own bin, shown when the row is pointed at, focused, or open */
+#projects li { display: flex; align-items: center; }
+#projects li a { flex: 1; min-width: 0; }
+#projects li button { flex: none; width: 1.7rem; height: 1.7rem; margin-left: 0.15rem; color: var(--quiet); visibility: hidden; }
+#projects li:is(:hover, :focus-within) button, #projects li:has(a[aria-current]) button { visibility: visible; }
+#projects li button:is(:hover, :focus-visible) { color: var(--stuck); }
 
 /* ---------- the column ---------- */
 main { padding: 1.25rem 2.5rem 6rem; scroll-padding-top: 3rem; }
@@ -211,7 +217,6 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     <button type="button" class="ghost small" id="add-project"><svg class="icon-svg"><use href="#i-plus"/></svg> New project</button>
     <h2 id="in">In this project</h2>
     <ul id="states"></ul>
-    <button type="button" class="ghost small" id="drop-project"><svg class="icon-svg"><use href="#i-trash"/></svg> Delete project</button>
   </nav>
 </aside>
 
@@ -327,7 +332,8 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     $('#projects').innerHTML = projects().map(p => {
       const q = tasks.filter(t => t.project === p && t.state === 'queued').length;
       return `<li><a href="${href(p)}" data-project="${esc(p)}" ${p === project ? 'aria-current="page"' : ''}>${esc(p)}` +
-        (stuckBy[p] ? `<span class="badge n" data-variant="danger" aria-label="${stuckBy[p]} stuck">${icon('alert')}${stuckBy[p]}</span>` : `<span class="count n" aria-label="${q} queued">${q || ''}</span>`) + `</a></li>`;
+        (stuckBy[p] ? `<span class="badge n" data-variant="danger" aria-label="${stuckBy[p]} stuck">${icon('alert')}${stuckBy[p]}</span>` : `<span class="count n" aria-label="${q} queued">${q || ''}</span>`) +
+        `</a><button type="button" class="ghost icon small" data-drop="${esc(p)}" aria-label="Delete ${esc(p)}">${icon('trash')}</button></li>`;
     }).join('');
     $('#in').textContent = 'In ' + project;
     $('#states').innerHTML = Object.entries(sets).map(([s, all]) =>
@@ -683,20 +689,21 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     if (sel) fetchThread(sel);
   }
   $('#projects').addEventListener('click', e => {
+    const bin = e.target.closest('button[data-drop]');
+    if (bin) return dropProject(bin.dataset.drop);
     const a = e.target.closest('a[data-project]');
     if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
     go(a.dataset.project);                         /* walking away from an empty + project closes it */
     $('#main').scrollTop = 0;
   });
-  $('#drop-project').addEventListener('click', async () => {
-    const p = project;
-    const mine = tasks.filter(here);
-    const open = mine.filter(t => t.state !== 'done').length;
-    if (!mine.length) {                          /* a + project with no task is just a name */
+  async function dropProject(p) {
+    if (p === newProject) {                      /* the + project is a name with no task behind it */
       newProject = '';
       return go(projects()[0] || 'taskd');
     }
+    const mine = tasks.filter(t => t.project === p);
+    const open = mine.filter(t => t.state !== 'done').length;
     const typed = await ask({
       title: 'Delete ' + p + '?',
       text: `Every task in it goes: ${open} open and ${mine.length - open} done, with their threads.`,
@@ -707,8 +714,8 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     const res = await api('/projects/' + encodeURIComponent(p), { method: 'DELETE' });
     if (!res.ok) return fail(res);             /* 409 while a worker holds a task: the daemon decides */
     ot.toast(p, 'Deleted', { placement: 'bottom-center' });
-    await load();                              /* a project that is gone lands you on the first remaining one */
-  });
+    await load();                              /* if the open project is the one that went, load() lands on the first remaining */
+  }
   $('#add-project').addEventListener('click', async () => {
     const name = await ask({ title: 'New project', ok: 'Open it', line: { label: 'Name', required: true, pattern: NAME, placeholder: 'taskd-web', hint: 'Letters, digits, dots, dashes and underscores, up to 64. It exists once it has a task.' } });
     if (!name) return;
