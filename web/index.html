@@ -93,12 +93,16 @@ aside[data-sidebar] .count { margin-left: auto; color: var(--quiet); }
 aside[data-sidebar] .badge { margin-left: auto; padding: 0 0.5rem; }
 aside[data-sidebar] .badge .icon-svg { color: inherit; }
 #add-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
-/* each project carries its own bin, shown when the row is pointed at, focused, or open */
-#projects li { display: flex; align-items: center; }
-#projects li a { flex: 1; min-width: 0; }
-#projects li button { flex: none; width: 1.7rem; height: 1.7rem; margin-left: 0.15rem; color: var(--quiet); visibility: hidden; }
-#projects li:is(:hover, :focus-within) button, #projects li:has(a[aria-current]) button { visibility: visible; }
-#projects li button:is(:hover, :focus-visible) { color: var(--stuck); }
+/* pointing at a project row shows its menu button over the count, as every sidebar does */
+#projects li { position: relative; }
+#projects li a { padding-right: 2rem; }
+#projects li > button { position: absolute; top: 50%; right: 0.25rem; transform: translateY(-50%); width: 1.6rem; height: 1.6rem; color: var(--quiet); visibility: hidden; }
+#projects li:is(:hover, :focus-within, [data-menu]) > button { visibility: visible; }
+#projects li:is(:hover, :focus-within, [data-menu]) :is(.count, .badge) { visibility: hidden; }
+#project-menu { position: fixed; inset: auto; margin: 0; padding: 0.25rem; min-width: 8rem; flex-direction: column; background: var(--sheet); color: var(--fg); border: 1px solid var(--rule); border-radius: var(--radius-medium); box-shadow: var(--shadow-medium); }
+#project-menu:popover-open { display: flex; }
+#project-menu [role="menuitem"] { justify-content: flex-start; border: 0; border-radius: var(--radius-small); }
+#project-menu [role="menuitem"][data-variant="danger"] { color: var(--stuck); }
 
 /* ---------- the column ---------- */
 main { padding: 1.25rem 2.5rem 6rem; scroll-padding-top: 3rem; }
@@ -197,7 +201,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 256 256"><path d="M235.54,150.21a104.84,104.84,0,0,1-37,52.91A104,104,0,0,1,32,120,103.09,103.09,0,0,1,52.88,57.48a104.84,104.84,0,0,1,52.91-37,8,8,0,0,1,10,10,88.08,88.08,0,0,0,109.8,109.8,8,8,0,0,1,10,10Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 256 256"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></symbol>
-  <symbol id="i-trash" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 256 256"><path d="M144,128a16,16,0,1,1-16-16A16,16,0,0,1,144,128Zm-16-48a16,16,0,1,0-16-16A16,16,0,0,0,128,80Zm0,96a16,16,0,1,0,16,16A16,16,0,0,0,128,176Z"/></symbol>
   <symbol id="i-list" viewBox="0 0 256 256"><path d="M40,52H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Z"/></symbol>
 </svg>
 
@@ -219,6 +223,10 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     <ul id="states"></ul>
   </nav>
 </aside>
+<div id="project-menu" popover role="menu">
+  <button type="button" class="ghost small" role="menuitem" data-act="rename">Rename</button>
+  <button type="button" class="ghost small" role="menuitem" data-act="delete" data-variant="danger">Delete</button>
+</div>
 
 <main id="main">
   <div class="ledger">
@@ -333,7 +341,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       const q = tasks.filter(t => t.project === p && t.state === 'queued').length;
       return `<li><a href="${href(p)}" data-project="${esc(p)}" ${p === project ? 'aria-current="page"' : ''}>${esc(p)}` +
         (stuckBy[p] ? `<span class="badge n" data-variant="danger" aria-label="${stuckBy[p]} stuck">${icon('alert')}${stuckBy[p]}</span>` : `<span class="count n" aria-label="${q} queued">${q || ''}</span>`) +
-        `</a><button type="button" class="ghost icon small" data-drop="${esc(p)}" aria-label="Delete ${esc(p)}">${icon('trash')}</button></li>`;
+        `</a><button type="button" class="ghost icon small" data-menu-for="${esc(p)}" aria-label="More for ${esc(p)}" aria-haspopup="menu">${icon('dots')}</button></li>`;
     }).join('');
     $('#in').textContent = 'In ' + project;
     $('#states').innerHTML = Object.entries(sets).map(([s, all]) =>
@@ -568,6 +576,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       const el = line ? f.line : f.para;
       el.required = !!field.required;
       el.placeholder = field.placeholder || '';
+      el.value = field.value || '';
       if (line) field.pattern ? f.line.setAttribute('pattern', field.pattern) : f.line.removeAttribute('pattern');
     }
     const go = $('button[type="submit"]', d);
@@ -688,9 +697,46 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     render();
     if (sel) fetchThread(sel);
   }
+  /* the row menu: one popover, opened beside whichever row asked for it */
+  const menu = $('#project-menu');
+  let menuFor = null, menuRow = null;
+  function openMenu(btn) {
+    menuFor = btn.dataset.menuFor;
+    menuRow = btn.parentElement;
+    menuRow.dataset.menu = '';
+    menu.showPopover();                          /* laid out first, so it can be measured */
+    const r = btn.getBoundingClientRect();
+    menu.style.top = r.bottom + 2 + 'px';
+    menu.style.left = Math.min(r.left, innerWidth - menu.offsetWidth - 8) + 'px';
+    $('[role="menuitem"]', menu).focus();
+  }
+  menu.addEventListener('toggle', e => {
+    if (e.newState !== 'closed') return;
+    if (menuRow) delete menuRow.dataset.menu;
+    menuRow = menuFor = null;
+  });
+  menu.addEventListener('click', e => {
+    const act = e.target.closest('[role="menuitem"]')?.dataset.act, p = menuFor;
+    if (!act) return;
+    menu.hidePopover();
+    if (act === 'rename') renameProject(p); else dropProject(p);
+  });
+  menu.addEventListener('keydown', e => {
+    const items = $$('[role="menuitem"]', menu), i = items.indexOf(document.activeElement);
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(i + (e.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+  });
+  async function renameProject(p) {
+    const name = await ask({ title: 'Rename ' + p, ok: 'Rename', line: { label: 'Name', required: true, pattern: NAME, value: p, hint: 'Every task in it moves to the new name.' } });
+    if (!name || name === p) return;
+    if (p === newProject) { newProject = name; return go(name); }   /* a name with no task behind it is renamed in place */
+    const res = await api('/projects/' + encodeURIComponent(p), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    if (!res.ok) return fail(res);
+    if (p === project) { setProject(name); syncURL(); }
+    await load();
+  }
   $('#projects').addEventListener('click', e => {
-    const bin = e.target.closest('button[data-drop]');
-    if (bin) return dropProject(bin.dataset.drop);
+    const more = e.target.closest('button[data-menu-for]');
+    if (more) return openMenu(more);
     const a = e.target.closest('a[data-project]');
     if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
     e.preventDefault();
