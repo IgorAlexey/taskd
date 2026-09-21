@@ -92,7 +92,7 @@ aside[data-sidebar] nav a[aria-disabled="true"] { color: var(--quiet); opacity: 
 aside[data-sidebar] .count { margin-left: auto; color: var(--quiet); }
 aside[data-sidebar] .badge { margin-left: auto; padding: 0 0.5rem; }
 aside[data-sidebar] .badge .icon-svg { color: inherit; }
-#add-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
+#add-project, #drop-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
 
 /* ---------- the column ---------- */
 main { padding: 1.25rem 2.5rem 6rem; scroll-padding-top: 3rem; }
@@ -191,6 +191,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 256 256"><path d="M235.54,150.21a104.84,104.84,0,0,1-37,52.91A104,104,0,0,1,32,120,103.09,103.09,0,0,1,52.88,57.48a104.84,104.84,0,0,1,52.91-37,8,8,0,0,1,10,10,88.08,88.08,0,0,0,109.8,109.8,8,8,0,0,1,10,10Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 256 256"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 256 256"><path d="M216,48H176V40a24,24,0,0,0-24-24H104A24,24,0,0,0,80,40v8H40a8,8,0,0,0,0,16h8V208a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V64h8a8,8,0,0,0,0-16ZM96,40a8,8,0,0,1,8-8h48a8,8,0,0,1,8,8v8H96Zm96,168H64V64H192ZM112,104v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Zm48,0v64a8,8,0,0,1-16,0V104a8,8,0,0,1,16,0Z"/></symbol>
   <symbol id="i-list" viewBox="0 0 256 256"><path d="M40,52H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Z"/></symbol>
 </svg>
 
@@ -210,6 +211,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     <button type="button" class="ghost small" id="add-project"><svg class="icon-svg"><use href="#i-plus"/></svg> New project</button>
     <h2 id="in">In this project</h2>
     <ul id="states"></ul>
+    <button type="button" class="ghost small" id="drop-project"><svg class="icon-svg"><use href="#i-trash"/></svg> Delete project</button>
   </nav>
 </aside>
 
@@ -686,6 +688,26 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     e.preventDefault();
     go(a.dataset.project);                         /* walking away from an empty + project closes it */
     $('#main').scrollTop = 0;
+  });
+  $('#drop-project').addEventListener('click', async () => {
+    const p = project;
+    const mine = tasks.filter(here);
+    const open = mine.filter(t => t.state !== 'done').length;
+    if (!mine.length) {                          /* a + project with no task is just a name */
+      newProject = '';
+      return go(projects()[0] || 'taskd');
+    }
+    const typed = await ask({
+      title: 'Delete ' + p + '?',
+      text: `Every task in it goes: ${open} open and ${mine.length - open} done, with their threads.`,
+      ok: 'Delete the project', danger: true,
+      line: { label: 'Type the project name to confirm', required: true, pattern: p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') },
+    });
+    if (!typed) return;
+    const res = await api('/projects/' + encodeURIComponent(p), { method: 'DELETE' });
+    if (!res.ok) return fail(res);             /* 409 while a worker holds a task: the daemon decides */
+    ot.toast(p, 'Deleted', { placement: 'bottom-center' });
+    await load();                              /* a project that is gone lands you on the first remaining one */
   });
   $('#add-project').addEventListener('click', async () => {
     const name = await ask({ title: 'New project', ok: 'Open it', line: { label: 'Name', required: true, pattern: NAME, placeholder: 'taskd-web', hint: 'Letters, digits, dots, dashes and underscores, up to 64. It exists once it has a task.' } });
