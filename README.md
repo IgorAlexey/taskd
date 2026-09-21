@@ -31,6 +31,24 @@ Tasks declare prerequisites with an `"after": [ids...]` array on `POST /tasks` o
 By default, taskd listens on 127.0.0.1:8080 with no authentication. To expose
 it on all interfaces, pass `-addr :8080` or an explicit host and port.
 
+## From a shell
+
+The same binary is the client. Point it at a daemon and work a task:
+
+```sh
+export TASKD_URL=http://queue.example:8080 TASKD_PROJECT=myapp
+taskd add 'Fix the login redirect'       # or: cat spec.md | taskd add
+taskd claim                              # prints the task; exit 3 when there is nothing to do
+taskd note 12 'root cause is the cookie path'
+taskd done 12 -result '{"commit":"abc123"}'
+```
+
+Every command prints the daemon's JSON on stdout and one line on stderr
+when something went wrong. The worker's name comes from `TASKD_WORKER`
+(default `user@host`). `taskd help` lists the commands, `taskd <command> -h`
+the flags. This is how a coding agent is meant to use taskd: those five
+lines pasted into its instructions are the whole integration.
+
 ## Install
 
 ```sh
