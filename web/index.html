@@ -213,7 +213,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     <div id="status" aria-live="polite"></div>
     <div class="top">
       <form class="add"><div class="drop">
-        <textarea name="body" required aria-label="New task" placeholder="Write a new task. The first line is the title; the rest is what the worker will read."></textarea>
+        <textarea name="body" required aria-label="New task" placeholder="Write a new task. The first line is the title."></textarea>
         <div class="fields more">
           <p class="field">Project <b class="project"></b></p>
           <label>Priority <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select></label>
@@ -352,7 +352,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
       claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
       queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="${href(a.project, a.id)}" data-task="${a.id}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
-                              : 'Queued, waiting for a worker.',
+                              : '',
       done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
     }[t.state]();
     const editable = t.state === 'stuck' || t.state === 'queued';
@@ -370,7 +370,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
          <div class="fields"><span class="end"><button type="button" class="outline" data-act="cancel">Cancel</button><button type="submit">Save</button></span></div></form>`
       : '';
     const text = edit ? '' : `<p class="body">${esc(t.body)}</p>` + (editable ? `<p><button type="button" class="outline small" data-act="edit">Edit the task text</button></p>` : '');
-    const heads = [`<p>${state}</p>${text}`,
+    const heads = [`${state ? `<p>${state}</p>` : ''}${text}`,
       (t.thread.length ? `<h3>Thread</h3><ol class="thread">${t.thread.map(n => `<li><b>${esc(n.author)}</b>${esc(n.text)}</li>`).join('')}</ol>` : '') +
       `<p class="facts">Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>`];
     /* the forms depend on this much; while it holds, an update rewrites the heads and leaves the forms alone */
