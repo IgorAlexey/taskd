@@ -18,65 +18,75 @@
 <style>
 :root {
   color-scheme: light dark;
-  /* the taskd palette: a near-black canvas, warm amber for what is ours, one colour per state */
-  --bg:         light-dark(#f8fafc, #14161b);
-  --surface:    light-dark(#ffffff, #1c2027);
-  --raised:     light-dark(#f1f5f9, #252b35);
-  --border:     light-dark(#94a3b8, #4a5568);
-  --rule:       color-mix(in srgb, var(--border) 45%, transparent);
-  --fg:         light-dark(#0f172a, #e8ecf1);
-  --quiet:      light-dark(#475569, #8b949e);
-  --amber:      light-dark(#b45309, #e5a54b);
-  --amber-hi:   light-dark(#92400e, #f0b869);
-  --pending:    light-dark(#b45309, #f0a638);
-  --leased:     light-dark(#1d4ed8, #60a5fa);
-  --done:       light-dark(#15803d, #3fb950);
-  --danger:     light-dark(#b91c1c, #f87171);
-  --buried:     light-dark(#6d28d9, #a78bfa);
+  /* Radix Colors 3.0, three scales: gray for the page, amber for what is selected or primary,
+     red for what is stuck. Each step does the job Radix documents for it: 1 page, 2 subtle
+     surface, 3 control, 4 hover, 6 rules, 7 control borders, 8 focus, 9 solid, 11 text, 12 text. */
+  --gray-1:  light-dark(#fcfcfc, #111111);
+  --gray-2:  light-dark(#f9f9f9, #191919);
+  --gray-3:  light-dark(#f0f0f0, #222222);
+  --gray-4:  light-dark(#e8e8e8, #2a2a2a);
+  --gray-6:  light-dark(#d9d9d9, #3a3a3a);
+  --gray-7:  light-dark(#cecece, #484848);
+  --gray-11: light-dark(#646464, #b4b4b4);
+  --gray-12: light-dark(#202020, #eeeeee);
+  --amber-3: light-dark(#fff7c2, #302008);
+  --amber-8: light-dark(#e2a336, #8f6424);
+  --amber-9: #ffc53d;
+  --amber-11: light-dark(#ab6400, #ffca16);
+  --amber-contrast: #21201c;
+  --red-9:   #e5484d;
+  --red-11:  light-dark(#ce2c31, #ff9592);
   --work: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --work-size: 0.875rem;
 
-  /* Oat's tokens, pointed at the palette above */
-  --background: var(--bg);          --foreground: var(--fg);
-  --card: var(--surface);           --card-foreground: var(--fg);
-  --primary: var(--amber);          --primary-foreground: var(--bg);
-  --secondary: var(--raised);       --secondary-foreground: var(--fg);
-  --muted: var(--surface);          --muted-foreground: var(--quiet);
-  --faint: var(--surface);          --accent: var(--raised);
-  --danger-foreground: var(--bg);   --success: var(--done);   --warning: var(--pending);
-  --input: var(--border);           --ring: var(--amber);
+  /* the jobs, each on one step */
+  --page: var(--gray-1);    --sheet: var(--gray-2);   --control: var(--gray-3);   --hover: var(--gray-4);
+  --rule: var(--gray-6);    --edge: var(--gray-7);    --quiet: var(--gray-11);    --fg: var(--gray-12);
+  --picked-bg: var(--amber-3);   --picked: var(--amber-11);   --solid: var(--amber-9);   --focus: var(--amber-8);
+  --stuck: var(--red-11);
+
+  /* Oat's tokens, pointed at the jobs above */
+  --background: var(--page);          --foreground: var(--fg);
+  --card: var(--sheet);               --card-foreground: var(--fg);
+  --primary: var(--solid);            --primary-foreground: var(--amber-contrast);
+  --secondary: var(--control);        --secondary-foreground: var(--fg);
+  --muted: var(--control);            --muted-foreground: var(--quiet);
+  --faint: var(--sheet);              --accent: var(--hover);
+  --danger: var(--red-9);             --danger-foreground: #fff;
+  --border: var(--rule);              --input: var(--edge);   --ring: var(--focus);
   --radius-small: 3px; --radius-medium: 4px; --radius-large: 6px;
   --font-sans: var(--work);
   --text-7: var(--work-size);
   --sidebar-width: 13.5rem;
 }
 html { font-variant-numeric: lining-nums; }
-.warn, strong { color: var(--danger); font-weight: 600; }
+.warn { color: var(--stuck); font-weight: 600; }
 a { text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
 .icon-svg { width: 1em; height: 1em; fill: currentColor; flex: none; vertical-align: -0.12em; }
 .n { font-variant-numeric: lining-nums tabular-nums; }
-.stuck .icon-svg, a[href="#stuck"] .icon-svg { color: var(--buried); }
-.claimed .icon-svg, a[href="#claimed"] .icon-svg { color: var(--leased); }
-.queued .icon-svg, a[href="#queued"] .icon-svg { color: var(--pending); }
-.done .icon-svg, a[href="#done"] .icon-svg { color: var(--done); }
+.icon-svg { color: var(--quiet); }
+.stuck .icon-svg, a[href="#stuck"] .icon-svg, #status .icon-svg { color: var(--stuck); }
 
 /* ---------- top: the name and the light switch ---------- */
 nav[data-topnav] { gap: 0.75rem; padding: 0.55rem 1.25rem; box-shadow: none; }
 nav[data-topnav] h1 { font: 600 1.05rem/1.2 var(--work); margin: 0; }
 #theme { margin: 0 0 0 auto; }
 #theme button { color: var(--quiet); width: 2.1rem; height: 1.9rem; }
-#theme button[aria-pressed="true"] { background: var(--raised); color: var(--amber); }
+#theme button[aria-pressed="true"] { background: var(--picked-bg); color: var(--picked); }
+#theme button[aria-pressed="true"] .icon-svg { color: inherit; }
 
 /* ---------- left: getting around ---------- */
-aside[data-sidebar] { box-shadow: none; background: var(--surface); }
+aside[data-sidebar] { box-shadow: none; background: var(--sheet); }
 aside[data-sidebar] > nav { padding: 1rem 0.6rem; }
-aside[data-sidebar] h2 { font: 600 0.75rem/1.2 var(--work); letter-spacing: 0; text-transform: uppercase; color: var(--quiet); margin: 1.5rem 0 0.4rem 0.65rem; }
+aside[data-sidebar] h2 { font: 600 0.75rem/1.2 var(--work); text-transform: uppercase; color: var(--quiet); margin: 1.5rem 0 0.4rem 0.65rem; }
 aside[data-sidebar] h2:first-child { margin-top: 0.2rem; }
 aside[data-sidebar] nav a { align-items: center; padding: 0.3rem 0.65rem; text-decoration: none; }
-aside[data-sidebar] nav a[aria-current] { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+aside[data-sidebar] nav a[aria-current] { background: var(--picked-bg); color: var(--picked); }
+aside[data-sidebar] nav a[aria-current] .icon-svg { color: inherit; }
 aside[data-sidebar] nav a[aria-disabled="true"] { color: var(--quiet); opacity: 0.6; pointer-events: none; }
 aside[data-sidebar] .count { margin-left: auto; color: var(--quiet); }
 aside[data-sidebar] .badge { margin-left: auto; padding: 0 0.5rem; }
+aside[data-sidebar] .badge .icon-svg { color: inherit; }
 #add-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
 
 /* ---------- the column ---------- */
@@ -84,6 +94,7 @@ main { padding: 1.25rem 2.5rem 6rem; scroll-padding-top: 3rem; }
 .ledger { max-width: 58rem; }
 #status { margin-bottom: 1.25rem; }
 #status p { margin: 0; }
+#status [role="alert"] { color: var(--fg); }
 #status a { color: inherit; }
 
 /* one row: a blank task and the filter. Writing in the blank drops a panel over the list instead of
@@ -94,7 +105,7 @@ form.add { position: relative; z-index: 3; flex: 1; min-width: 0; height: 2.45re
 form.add .drop { position: absolute; inset: 0 0 auto 0; }
 form.add textarea { display: block; margin: 0; min-height: 2.45rem; height: 2.45rem; resize: none; overflow: hidden; white-space: nowrap; padding: 0.55rem 0.75rem; font: 1rem/1.35 var(--work); }
 form.add .more { display: none; }
-form.add.open .drop { margin: calc(-0.75rem - 1px); padding: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-large); box-shadow: var(--shadow-large); }
+form.add.open .drop { margin: calc(-0.75rem - 1px); padding: 0.75rem; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius-large); box-shadow: var(--shadow-large); }
 form.add.open textarea { height: 12rem; resize: vertical; overflow: auto; white-space: pre-wrap; }
 form.add.open .more { display: flex; }
 .fields { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.25rem; margin-top: 0.75rem; }
@@ -107,7 +118,7 @@ form.add.open .more { display: flex; }
 
 /* one section per state; the heading carries the column labels so rows need none */
 section { margin-bottom: 2.25rem; }
-.head { position: sticky; top: -1.25rem; z-index: 2; display: flex; align-items: baseline; background: var(--bg); padding: 1rem 0.4rem 0.4rem; border-bottom: 1px solid var(--border); font: var(--work-size)/1.2 var(--work); color: var(--quiet); }
+.head { position: sticky; top: -1.25rem; z-index: 2; display: flex; align-items: baseline; background: var(--page); padding: 1rem 0.4rem 0.4rem; border-bottom: 1px solid var(--edge); font: var(--work-size)/1.2 var(--work); color: var(--quiet); }
 .head h2 { flex: 1; font: 600 1.1rem/1.2 var(--work); color: var(--fg); margin: 0; }
 .head h2 small { font: var(--work-size)/1 var(--work); font-weight: normal; color: var(--quiet); margin-left: 0.5rem; }
 .c-n { flex: none; width: 5rem; text-align: right; }
@@ -123,12 +134,12 @@ section { margin-bottom: 2.25rem; }
 .lead { flex: none; width: 2rem; color: var(--quiet); }
 .t { flex: 1; min-width: 0; }
 .t a { color: var(--fg); text-decoration: none; }
-.t a:hover { text-decoration: underline; color: var(--amber-hi); }
+.t a:hover { text-decoration: underline; color: var(--picked); }
 .why { display: block; font-size: var(--work-size); line-height: 1.4; color: var(--quiet); margin-top: 0.1rem; max-width: 40rem; }
 .task > summary > :is(.c-n, .c-d, .c-w) { color: var(--quiet); }
 
 /* the picked row unfolds in place */
-.task[open] { background: var(--surface); box-shadow: inset 2px 0 0 var(--amber); }
+.task[open] { background: var(--sheet); box-shadow: inset 2px 0 0 var(--solid); }
 .task[open] > summary { padding-top: 1rem; }
 .task[open] > summary:hover { background: none; }
 .task[open] .t a { font: 600 1.2rem/1.25 var(--work); }
@@ -142,7 +153,7 @@ section { margin-bottom: 2.25rem; }
 .sheet h3 { font: 600 var(--work-size)/1.3 var(--work); color: var(--quiet); margin: 1.5rem 0 0.5rem; }
 .thread { list-style: none; padding: 0; margin: 0 0 1rem; }
 .thread li { margin: 0 0 0.75rem; white-space: pre-wrap; }
-.thread b { display: block; font: var(--work-size)/1.3 var(--work); color: var(--amber); }
+.thread b { display: block; font: var(--work-size)/1.3 var(--work); color: var(--quiet); }
 .sheet .facts { color: var(--quiet); }
 .sheet textarea { display: block; min-height: 7rem; margin: 0; font: 1rem/1.45 var(--work); }
 .sheet form { margin-top: 1.25rem; }
@@ -265,7 +276,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   };
   const until = (ts, warn) => `<span data-until="${ts}" data-warn="${warn}"></span>`;
   const fail = async res => ot.toast(await res.json().then(e => (e.field ? e.field + ': ' : '') + (e.error || 'Request failed'), () => 'Request failed'), 'Not saved', { variant: 'danger', placement: 'bottom-center', duration: 8000 });
-  const stale = () => ot.toast('Someone else changed this task. Here is the current version.', 'Reloaded', { variant: 'warning', placement: 'bottom-center' });
+  const stale = () => ot.toast('Someone else changed this task. Here is the current version.', 'Reloaded', { placement: 'bottom-center' });
   /* half-written replies and edits outlive a re-render and a reload of the page */
   const draft = k => { try { return sessionStorage.getItem('draft:' + k) || ''; } catch (_) { return ''; } };
   const setDraft = (k, v) => { try { v ? sessionStorage.setItem('draft:' + k, v) : sessionStorage.removeItem('draft:' + k); } catch (_) {} };
@@ -436,7 +447,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     const where = Object.entries(stuckBy).sort().map(([p, k]) => `<a href="#stuck" class="warn" data-project="${esc(p)}">${k} in ${esc(p)}</a>`);
     const counts = `${n('claimed')} ${is(n('claimed'))} claimed, ${n('queued')} queued${b ? ` (${b} waiting on other tasks)` : ''}, ${n('done')} done.`;
     $('#status').innerHTML = s
-      ? `<div role="alert" data-variant="warning"><p><strong>${s} ${is(s)} stuck</strong> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ${counts}</p></div>`
+      ? `<div role="alert" data-variant="danger"><p>${icon('alert')} <span class="warn">${s} ${is(s)} stuck</span> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ${counts}</p></div>`
       : `<p class="text-light">${counts}</p>`;
     document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
   }
@@ -633,7 +644,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       if (v.get('after') && !await patch(t, { after: [...t.after, +v.get('after')] })) return;
       const kick = await post('/tasks/' + t.id + '/kick', {});
       if (!kick.ok) return fail(kick);
-      ot.toast(t.title, 'Replied and requeued', { variant: 'success', placement: 'bottom-center' });
+      ot.toast(t.title, 'Replied and requeued', { placement: 'bottom-center' });
       return load();
     }
   });
@@ -654,7 +665,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     const res = await post('/tasks', { body, project, priority: +v.get('pri'), after: v.get('after') ? [+v.get('after')] : [] });
     if (!res.ok) return fail(res);
     add.reset(); shut();
-    ot.toast(body.split('\n')[0], 'Added to the queue', { variant: 'success', placement: 'bottom-center' });
+    ot.toast(body.split('\n')[0], 'Added to the queue', { placement: 'bottom-center' });
     await load();
   });
 
