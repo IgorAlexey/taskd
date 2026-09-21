@@ -89,7 +89,8 @@ func (s *server) handler() http.Handler {
 		http.MethodDelete: {handler: s.deleteTaskHandler, params: []string{"force"}},
 	})
 	handleMethods(mux, "/projects", map[string]route{
-		http.MethodGet: {handler: s.projectsHandler},
+		http.MethodGet:  {handler: s.projectsHandler},
+		http.MethodPost: {handler: s.createProjectHandler},
 	})
 	handleMethods(mux, "/projects/{project}", map[string]route{
 		http.MethodPatch:  {handler: s.renameProjectHandler},

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -153,5 +154,91 @@ func TestRenameProject(t *testing.T) {
 	}
 	if got := do("POST", "/tasks/claim", `{"worker":"w","project":"new"}`); got != http.StatusOK {
 		t.Fatalf("expected a claim under the new name to land, got %d", got)
+	}
+}
+
+func TestProjectRows(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 300)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	do := func(method, path, body string) (int, string) {
+		req, _ := http.NewRequest(method, srv.URL+path, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		defer res.Body.Close()
+		var buf bytes.Buffer
+		buf.ReadFrom(res.Body)
+		return res.StatusCode, strings.TrimSpace(buf.String())
+	}
+	list := func() string { _, b := do("GET", "/projects", ""); return b }
+
+	if got := list(); got != "[]" {
+		t.Fatalf("fresh database lists %s", got)
+	}
+	if code, body := do("POST", "/projects", `{"name":"empty"}`); code != http.StatusCreated || body != `{"name":"empty"}` {
+		t.Fatalf("create: %d %s", code, body)
+	}
+	if code, _ := do("POST", "/projects", `{"name":"empty"}`); code != http.StatusConflict {
+		t.Fatalf("create twice: %d", code)
+	}
+	if code, _ := do("POST", "/projects", `{"name":"bad name"}`); code != http.StatusBadRequest {
+		t.Fatalf("bad name: %d", code)
+	}
+	if code, _ := do("POST", "/tasks", `{"project":"byTask","body":"one"}`); code != http.StatusCreated {
+		t.Fatalf("task: %d", code)
+	}
+	if got := list(); got != `["byTask","empty"]` {
+		t.Fatalf("after a task and a create: %s", got)
+	}
+	if code, _ := do("DELETE", "/tasks/1", ""); code != http.StatusNoContent {
+		t.Fatalf("delete task: %d", code)
+	}
+	if got := list(); got != `["byTask","empty"]` {
+		t.Fatalf("a project outlives its last task: %s", got)
+	}
+	if code, _ := do("PATCH", "/projects/empty", `{"name":"byTask"}`); code != http.StatusConflict {
+		t.Fatalf("rename onto an existing project: %d", code)
+	}
+	if code, _ := do("PATCH", "/projects/empty", `{"name":"renamed"}`); code != http.StatusNoContent {
+		t.Fatalf("rename empty project: %d", code)
+	}
+	if code, _ := do("POST", "/tasks", `{"project":"renamed","body":"two"}`); code != http.StatusCreated {
+		t.Fatalf("task in renamed: %d", code)
+	}
+	if code, _ := do("PATCH", "/projects/renamed", `{"name":"again"}`); code != http.StatusNoContent {
+		t.Fatalf("rename with a task: %d", code)
+	}
+	if code, body := do("GET", "/tasks/2", ""); code != http.StatusOK || !strings.Contains(body, `"project":"again"`) {
+		t.Fatalf("task follows the rename: %d %s", code, body)
+	}
+	if code, _ := do("DELETE", "/projects/again", ""); code != http.StatusNoContent {
+		t.Fatalf("delete project with a task: %d", code)
+	}
+	if code, _ := do("GET", "/tasks/2", ""); code != http.StatusNotFound {
+		t.Fatalf("task should go with its project: %d", code)
+	}
+	if code, _ := do("DELETE", "/projects/again", ""); code != http.StatusNotFound {
+		t.Fatalf("delete twice: %d", code)
+	}
+	if got := list(); got != `["byTask"]` {
+		t.Fatalf("at the end: %s", got)
+	}
+}
+
+// seedProjects makes the rows a raw INSERT INTO tasks needs.
+func seedProjects(t *testing.T, db *store, names ...string) {
+	t.Helper()
+	for _, n := range names {
+		if _, err := db.rw.Exec("INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, 0)", n); err != nil {
+			t.Fatalf("insert project %s: %v", n, err)
+		}
 	}
 }

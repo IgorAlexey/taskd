@@ -22,6 +22,7 @@ func TestWorkersProjectFilter(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	now := time.Now().Unix()
+	seedProjects(t, db, "foo", "bar")
 	_, err = db.rw.Exec(`INSERT INTO tasks (project, status, body, worker, lease_expires, created_at) VALUES
 		('foo', 'leased', 'b1', 'w1', ?, ?),
 		('foo', 'done',   'b2', 'w2', NULL, ?),
@@ -111,6 +112,7 @@ func TestWorkersFilterStatus(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	now := time.Now().Unix()
+	seedProjects(t, db, "foo", "bar")
 	_, err = db.rw.Exec(`INSERT INTO tasks (project, status, body, worker, lease_expires, created_at) VALUES
 		('foo', 'leased', 'b1', 'w1', ?, ?),
 		('foo', 'done',   'b2', 'w2', NULL, ?),

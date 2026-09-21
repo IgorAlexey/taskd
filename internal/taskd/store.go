@@ -339,7 +339,11 @@ func openRW(path string) (*sql.DB, bool, error) {
 		db.Close()
 		return nil, false, fmt.Errorf("unsupported schema version %d (this binary supports %d)", version, schemaVersion)
 	}
-	const fullSchema = "CREATE TABLE IF NOT EXISTS tasks (" + taskColumns + `);
+	const fullSchema = `CREATE TABLE IF NOT EXISTS projects (
+  name TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tasks (` + taskColumns + `);
 CREATE INDEX IF NOT EXISTS idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';

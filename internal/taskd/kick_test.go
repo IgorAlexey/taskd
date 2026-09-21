@@ -23,6 +23,7 @@ func TestBulkKick(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
+	seedProjects(t, db, "test", "other")
 	for i := 0; i < 15; i++ {
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (project, status, body, priority, claim_count, worker, created_at) VALUES ('test', 'buried', ?, 3, 2, 'w1', ?)",
@@ -192,6 +193,7 @@ func TestBulkKickWakesWaiters(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
+	seedProjects(t, db, "wake-proj")
 	for i := 1; i <= 2; i++ {
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (project, status, body, priority, claim_count, worker, created_at) VALUES ('wake-proj', 'buried', 'task', 3, 1, 'w1', ?)",

@@ -24,6 +24,7 @@ func TestPurgeDoneTasks(t *testing.T) {
 
 	create := func(id int64, project, status string) {
 		t.Helper()
+		seedProjects(t, db, project)
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (id, project, status, body, priority, created_at) VALUES (?, ?, ?, ?, 3, unixepoch())",
 			id, project, status, fmt.Sprintf("task %d", id),
@@ -186,6 +187,7 @@ func TestPurgeJSONBody(t *testing.T) {
 
 	create := func(id int64, project, status string) {
 		t.Helper()
+		seedProjects(t, db, project)
 		_, err := db.rw.Exec(
 			"INSERT INTO tasks (id, project, status, body, priority, created_at) VALUES (?, ?, ?, ?, 3, unixepoch())",
 			id, project, status, fmt.Sprintf("task %d", id),

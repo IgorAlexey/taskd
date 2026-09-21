@@ -109,7 +109,7 @@ PRAGMA user_version = 14;`
 		rawDB.Close()
 		t.Fatalf("init v14 schema failed: %v", err)
 	}
-	if _, err := rawDB.Exec("INSERT INTO tasks (id, body, project) VALUES (1, 'task 1', 'p')"); err != nil {
+	if _, err := rawDB.Exec("INSERT INTO tasks (id, body, project) VALUES (1, 'task 1', 'p'), (2, 'no project', '')"); err != nil {
 		rawDB.Close()
 		t.Fatalf("insert task failed: %v", err)
 	}
@@ -126,8 +126,16 @@ PRAGMA user_version = 14;`
 	if err := db.ro.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version failed: %v", err)
 	}
-	if version != 15 {
-		t.Fatalf("expected user_version 15, got %d", version)
+	if version != schemaVersion {
+		t.Fatalf("expected user_version %d, got %d", schemaVersion, version)
+	}
+	var projects int
+	if err := db.ro.QueryRow("SELECT count(*) FROM projects WHERE name = 'p'").Scan(&projects); err != nil || projects != 1 {
+		t.Fatalf("project p should have become a row: %d, %v", projects, err)
+	}
+	var unfiled string
+	if err := db.ro.QueryRow("SELECT project FROM tasks WHERE id = 2").Scan(&unfiled); err != nil || unfiled != "unfiled" {
+		t.Fatalf("a task with no project should be kept as unfiled: %q, %v", unfiled, err)
 	}
 
 	var hasTable int

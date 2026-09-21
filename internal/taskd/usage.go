@@ -88,7 +88,8 @@ HTTP Endpoints:
   POST   /tasks/{id}/notes   append a note (requires author, text)
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   POST   /tasks/kick         bulk-unbury tasks (optional project, limit)
-  GET    /projects           list active projects
+  GET    /projects           list projects
+  POST   /projects           create a project (requires name; 409 if it exists)
   PATCH  /projects/{name}    rename a project (requires name; 409 if the name is in use)
   DELETE /projects/{name}    delete a project and every task in it (409 while one is claimed)
   GET    /workers            list active workers

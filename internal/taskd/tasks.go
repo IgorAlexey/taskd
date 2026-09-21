@@ -130,6 +130,17 @@ func (s *server) createTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer stmt.Close()
 
+	projects := map[string]bool{}
+	for _, t := range tasks {
+		if projects[t.project] {
+			continue
+		}
+		projects[t.project] = true
+		if _, err := tx.Exec("INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, unixepoch())", t.project); err != nil {
+			internalError(w, err)
+			return
+		}
+	}
 	createdIDs := make([]int64, len(tasks))
 	for i, t := range tasks {
 		if err := stmt.QueryRow(t.body, t.priority, t.project).Scan(&createdIDs[i]); err != nil {
@@ -307,6 +318,12 @@ func (s *server) patchTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 
+	if req.Project != nil {
+		if _, err := tx.Exec("INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, unixepoch())", *req.Project); err != nil {
+			internalError(w, err)
+			return
+		}
+	}
 	var updatedStatus, updatedProject string
 	err = tx.QueryRow(`UPDATE tasks
 SET body = COALESCE(?, body), priority = COALESCE(?, priority), project = COALESCE(?, project), version = version + 1

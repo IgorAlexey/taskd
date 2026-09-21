@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15}
+var migrations = [...]func(*sql.DB) error{migrateV2, migrateV3, migrateV4, migrateV5, migrateV6, migrateV7, migrateV8, migrateV9, migrateV10, migrateV11, migrateV12, migrateV13, migrateV14, migrateV15, migrateV16}
 
 // schemaVersion is the user_version a fresh database gets.
 const schemaVersion = len(migrations) + 1
@@ -209,7 +209,7 @@ const taskColumnsV13 = `
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   version INTEGER NOT NULL DEFAULT 1`
 
-const taskColumns = `
+const taskColumnsV14 = `
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   status TEXT DEFAULT 'pending',
   worker TEXT CHECK (octet_length(worker) <= 128),
@@ -218,6 +218,21 @@ const taskColumns = `
   body TEXT NOT NULL DEFAULT '',
   priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
   project TEXT NOT NULL DEFAULT '',
+  claim_count INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+  version INTEGER NOT NULL DEFAULT 1`
+
+// taskColumns is the current table: a task belongs to a project row, and
+// follows it through a rename and a delete.
+const taskColumns = `
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  status TEXT DEFAULT 'pending',
+  worker TEXT CHECK (octet_length(worker) <= 128),
+  lease_expires INTEGER,
+  primitives JSON,
+  body TEXT NOT NULL DEFAULT '',
+  priority INTEGER NOT NULL DEFAULT 3 CHECK (priority >= 0),
+  project TEXT NOT NULL REFERENCES projects(name) ON DELETE CASCADE ON UPDATE CASCADE,
   claim_count INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT (unixepoch()),
   version INTEGER NOT NULL DEFAULT 1`
@@ -413,7 +428,7 @@ func migrateV14(db *sql.DB) error {
 	defer tx.Rollback()
 
 	stmts := []string{
-		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		"CREATE TABLE tasks_new (" + taskColumnsV14 + ");",
 		`CREATE TEMP TABLE idmap AS
 SELECT id AS old_id, row_number() OVER (ORDER BY rowid) AS new_id FROM tasks;`,
 		`INSERT INTO tasks_new (id, status, worker, lease_expires, primitives, body, priority, project, claim_count, created_at, version)
@@ -472,6 +487,58 @@ func migrateV15(db *sql.DB) error {
 		if _, err := tx.Exec(stmt); err != nil {
 			return err
 		}
+	}
+	return tx.Commit()
+}
+
+// A project is a row of its own now, so one can exist before its first
+// task and after its last. The projects the tasks name become rows, and
+// tasks are rebuilt to reference them. A task from before projects were
+// required, with none, goes into "unfiled" rather than being lost.
+func migrateV16(db *sql.DB) error {
+	if _, err := db.Exec("PRAGMA foreign_keys = OFF;"); err != nil {
+		return err
+	}
+	defer db.Exec("PRAGMA foreign_keys = ON;")
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmts := []string{
+		`CREATE TABLE projects (
+  name TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);`,
+		"UPDATE tasks SET project = 'unfiled' WHERE project = '';",
+		"INSERT INTO projects (name, created_at) SELECT DISTINCT project, unixepoch() FROM tasks;",
+		"CREATE TABLE tasks_new (" + taskColumns + ");",
+		`INSERT INTO tasks_new (id, status, worker, lease_expires, primitives, body, priority, project, claim_count, created_at, version)
+SELECT id, status, worker, lease_expires, primitives, body, priority, project, claim_count, created_at, version
+FROM tasks;`,
+		"DROP TABLE tasks;",
+		"ALTER TABLE tasks_new RENAME TO tasks;",
+		"CREATE INDEX idx_tasks_pending ON tasks (priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX idx_tasks_pending_project ON tasks (project, priority ASC, created_at ASC) WHERE status = 'pending';",
+		"CREATE INDEX idx_tasks_lease_timeout ON tasks (lease_expires ASC) WHERE status = 'leased';",
+		"CREATE INDEX idx_tasks_project ON tasks (project, status, priority ASC);",
+		"CREATE INDEX idx_tasks_claim_count ON tasks (status, claim_count) WHERE claim_count > 0;",
+		"CREATE INDEX idx_tasks_done ON tasks (project) WHERE status = 'done';",
+		"PRAGMA user_version = 16;",
+	}
+	for _, stmt := range stmts {
+		if _, err := tx.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	var bad int
+	if err := tx.QueryRow("SELECT COUNT(*) FROM pragma_foreign_key_check").Scan(&bad); err != nil {
+		return err
+	}
+	if bad > 0 {
+		return fmt.Errorf("migration v16: %d rows break a foreign key", bad)
 	}
 	return tx.Commit()
 }

@@ -17,6 +17,7 @@ func TestWALCheckpointOnClose(t *testing.T) {
 		_ = s.Close()
 	})
 
+	seedProjects(t, s, "proj")
 	_, err = s.rw.Exec("INSERT INTO tasks (body, priority, project, created_at) VALUES (?, ?, ?, unixepoch())", "wal test task", 3, "proj")
 	if err != nil {
 		t.Fatalf("insert task failed: %v", err)

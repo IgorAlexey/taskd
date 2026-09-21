@@ -6,8 +6,10 @@ import (
 	"time"
 )
 
+// A project is a row: made by POST /projects or by the first task that
+// names it, gone when deleted, whatever its tasks do in between.
 func (s *server) projectsHandler(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.db.ro.Query("SELECT DISTINCT project FROM tasks WHERE project != '' ORDER BY project ASC")
+	rows, err := s.db.ro.Query("SELECT name FROM projects ORDER BY name ASC")
 	if err != nil {
 		internalError(w, err)
 		return
@@ -32,9 +34,34 @@ func (s *server) projectsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(projects)
 }
 
-// A project is the tasks that name it; deleting one deletes them all,
-// unless a worker still holds one, since that worker would report to
-// a task that no longer exists.
+func (s *server) createProjectHandler(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Name string `json:"name"`
+	}
+	if !decodeBody(w, r, &req, false) {
+		return
+	}
+	if msg, ok := checkProject(req.Name); !ok {
+		writeFieldError(w, http.StatusBadRequest, msg, "name")
+		return
+	}
+	res, err := s.db.rw.Exec("INSERT OR IGNORE INTO projects (name, created_at) VALUES (?, unixepoch())", req.Name)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeFieldError(w, http.StatusConflict, "project exists", "name")
+		return
+	}
+	s.db.events.publish()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]string{"name": req.Name})
+}
+
+// Deleting a project deletes its tasks, unless a worker still holds one,
+// since that worker would report to a task that no longer exists.
 func (s *server) deleteProjectHandler(w http.ResponseWriter, r *http.Request) {
 	project := r.PathValue("project")
 	if msg, ok := checkProject(project); !ok {
@@ -47,14 +74,10 @@ func (s *server) deleteProjectHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback()
-	var total, leased int
-	err = tx.QueryRow("SELECT COUNT(*), COUNT(CASE WHEN status = 'leased' AND lease_expires >= ? THEN 1 END) FROM tasks WHERE project = ?", time.Now().Unix(), project).Scan(&total, &leased)
+	var leased int
+	err = tx.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = ? AND status = 'leased' AND lease_expires >= ?", project, time.Now().Unix()).Scan(&leased)
 	if err != nil {
 		internalError(w, err)
-		return
-	}
-	if total == 0 {
-		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
 	if leased > 0 {
@@ -66,8 +89,13 @@ func (s *server) deleteProjectHandler(w http.ResponseWriter, r *http.Request) {
 		internalError(w, err)
 		return
 	}
-	if _, err := tx.Exec("DELETE FROM tasks WHERE project = ?", project); err != nil {
+	res, err := tx.Exec("DELETE FROM projects WHERE name = ?", project)
+	if err != nil {
 		internalError(w, err)
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}
 	if err := tx.Commit(); err != nil {
@@ -101,7 +129,7 @@ func (s *server) renameProjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Name == project {
 		var exists bool
-		if err := s.db.ro.QueryRow("SELECT EXISTS(SELECT 1 FROM tasks WHERE project = ?)", project).Scan(&exists); err != nil {
+		if err := s.db.ro.QueryRow("SELECT EXISTS(SELECT 1 FROM projects WHERE name = ?)", project).Scan(&exists); err != nil {
 			internalError(w, err)
 			return
 		}
@@ -119,7 +147,7 @@ func (s *server) renameProjectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	defer tx.Rollback()
 	var taken bool
-	if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM tasks WHERE project = ?)", req.Name).Scan(&taken); err != nil {
+	if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM projects WHERE name = ?)", req.Name).Scan(&taken); err != nil {
 		internalError(w, err)
 		return
 	}
@@ -127,17 +155,12 @@ func (s *server) renameProjectHandler(w http.ResponseWriter, r *http.Request) {
 		writeFieldError(w, http.StatusConflict, "project exists", "name")
 		return
 	}
-	res, err := tx.Exec("UPDATE tasks SET project = ? WHERE project = ?", req.Name, project)
+	res, err := tx.Exec("UPDATE projects SET name = ? WHERE name = ?", req.Name, project)
 	if err != nil {
 		internalError(w, err)
 		return
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		internalError(w, err)
-		return
-	}
-	if n == 0 {
+	if n, _ := res.RowsAffected(); n == 0 {
 		writeError(w, http.StatusNotFound, "project not found")
 		return
 	}

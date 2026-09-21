@@ -122,6 +122,7 @@ main { padding: 1.25rem 2.5rem 6rem; scroll-padding-top: 3rem; }
 /* one row: a blank task and the filter. Writing in the blank drops a panel over the list instead of
    pushing it down, so nothing moves under the pointer when you leave it. A draft stays in the line. */
 .top { display: flex; gap: 1rem; margin-bottom: 1.25rem; }
+body:not([data-project]) .top { display: none; }   /* nothing to write into until a project exists */
 #q { width: 13rem; margin: 0; flex: none; }
 form.add { position: relative; z-index: 3; flex: 1; min-width: 0; height: 2.45rem; }
 form.add .drop { position: absolute; inset: 0 0 auto 0; }
@@ -291,7 +292,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   let first = true;
   const threads = new Map();               /* whole threads, by task id, for the rows that were opened */
   let project = new URLSearchParams(location.search).get('p') || store('project') || '';
-  let newProject = '';                     /* a project opened with + before it has any task */
+  let projectList = [];                    /* what the daemon has, in order */
 
   /* ---------- helpers ---------- */
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -302,7 +303,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   const waits = t => (t.after || []).map(get).filter(a => a && a.state !== 'done');
   const order = (a, b) => a.pri - b.pri || a.added - b.added;
   const here = t => t.project === project;
-  const projects = () => [...new Set([...tasks.map(t => t.project), newProject].filter(Boolean))].sort();
+  const projects = () => projectList;
   const ICON = { stuck: 'alert', claimed: 'bolt', queued: 'clock', done: 'check' };
   const icon = n => `<svg class="icon-svg" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const cap = s => s[0].toUpperCase() + s.slice(1);
@@ -339,13 +340,12 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   /* the one place the active project changes */
   function setProject(p) {
     project = p;
-    if (p !== newProject) newProject = '';
     allDone = false;
     store('project', p);
   }
   /* the address: ?p= is the project, &t= the open task. Opening a row is a step, so Back retraces
      the rows you opened; closing one, or anything else, rewrites the entry you are on. */
-  const href = (p, id) => '?p=' + encodeURIComponent(p) + (id ? '&t=' + id : '');
+  const href = (p, id) => p ? '?p=' + encodeURIComponent(p) + (id ? '&t=' + id : '') : location.pathname;
   function syncURL(push = false) {
     try { history[push ? 'pushState' : 'replaceState'](null, '', href(project, sel)); } catch (_) {}
   }
@@ -364,7 +364,8 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
         (stuckBy[p] ? `<span class="badge n" data-variant="danger" aria-label="${stuckBy[p]} stuck">${icon('alert')}${stuckBy[p]}</span>` : `<span class="count n" aria-label="${q} queued">${q || ''}</span>`) +
         `</a><button type="button" class="ghost icon small" data-menu-for="${esc(p)}" aria-label="More for ${esc(p)}" aria-haspopup="menu">${icon('dots')}</button></li>`;
     }).join('');
-    $('#in').textContent = 'In ' + project;
+    $('#in').textContent = project ? 'In ' + project : '';
+    document.body.toggleAttribute('data-project', !!project);
     $('#states').innerHTML = Object.entries(sets).map(([s, all]) =>
       `<li><a href="#${s}" ${all.length ? '' : 'aria-disabled="true" tabindex="-1"'}>${icon(ICON[s])}${cap(s)}<span class="count n">${all.length}</span></a></li>`).join('');
   }
@@ -473,7 +474,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
         ...(rows.length < total ? [{ k: 'more', tag: 'p', cls: 'more-done', html: `<button type="button" class="ghost small" data-act="all-done">Show all ${total} done</button>` }] : []),
       ] });
     }
-    if (!sections.length) sections.push({ k: 'empty', tag: 'p', cls: 'empty', html: q ? 'Nothing matches “' + esc(q) + '”.' : 'Nothing in ' + esc(project) + ' yet. Write its first task above.' });
+    if (!sections.length) sections.push({ k: 'empty', tag: 'p', cls: 'empty', html: !project ? 'No projects yet. Make one with + New project.' : q ? 'Nothing matches “' + esc(q) + '”.' : 'Nothing in ' + esc(project) + ' yet. Write its first task above.' });
     reconcile($('#list'), sections,
       it => { const el = document.createElement(it.items ? 'section' : it.tag); if (it.items) el.id = it.k; return el; },
       (el, it) => it.items ? reconcile(el, it.items, part.make, part.update) : part.update(el, it));
@@ -564,16 +565,16 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   }
 
   async function load() {
-    let raw;
+    let raw, names;
     try {
-      const res = await api('/tasks?limit=1000');
-      if (!res.ok) throw 0;
-      raw = await res.json();
+      const [t, p] = await Promise.all([api('/tasks?limit=1000'), api('/projects')]);
+      if (!t.ok || !p.ok) throw 0;
+      [raw, names] = await Promise.all([t.json(), p.json()]);
     } catch (_) { return; }
     tasks = raw.map(mapTask);
-    if (tasks.some(t => t.project === newProject)) newProject = '';   /* the + project has a task now; the data carries it */
+    projectList = names;
     const all = projects(), was = project;
-    if (!all.includes(project)) { setProject(all[0] || 'taskd'); if (!all.length) newProject = 'taskd'; }   /* a bookmark to a project that is gone, or a fresh database */
+    if (!all.includes(project)) setProject(all[0] || '');   /* a bookmark to a project that is gone, or a fresh database */
     if (sel && get(sel) && get(sel).project !== project) setProject(get(sel).project);   /* a link to a task lands on its project */
     if (first && !sel) sel = tasks.find(t => t.state === 'stuck' && here(t))?.id || null;   /* you arrive, the thing that needs you is already open */
     if (project !== was || first) syncURL();
@@ -749,7 +750,6 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   async function renameProject(p) {
     const name = await ask({ title: 'Rename ' + p, ok: 'Rename', line: { label: 'Name', required: true, pattern: NAME, value: p, hint: 'Every task in it moves to the new name.' } });
     if (!name || name === p) return;
-    if (p === newProject) { newProject = name; return go(name); }   /* a name with no task behind it is renamed in place */
     const res = await api('/projects/' + encodeURIComponent(p), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
     if (!res.ok) return fail(res);
     if (p === project) { setProject(name); syncURL(); }
@@ -765,10 +765,6 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     $('#main').scrollTop = 0;
   });
   async function dropProject(p) {
-    if (p === newProject) {                      /* the + project is a name with no task behind it */
-      newProject = '';
-      return go(projects()[0] || 'taskd');
-    }
     const mine = tasks.filter(t => t.project === p);
     const open = mine.filter(t => t.state !== 'done').length;
     const typed = await ask({
@@ -784,9 +780,11 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     await load();                              /* if the open project is the one that went, load() lands on the first remaining */
   }
   $('#add-project').addEventListener('click', async () => {
-    const name = await ask({ title: 'New project', ok: 'Open it', line: { label: 'Name', required: true, pattern: NAME, placeholder: 'taskd-web', hint: 'Letters, digits, dots, dashes and underscores, up to 64. It exists once it has a task.' } });
+    const name = await ask({ title: 'New project', ok: 'Open it', line: { label: 'Name', required: true, pattern: NAME, placeholder: 'taskd-web', hint: 'Letters, digits, dots, dashes and underscores, up to 64.' } });
     if (!name) return;
-    newProject = name;
+    const res = await post('/projects', { name });
+    if (!res.ok && res.status !== 409) return fail(res);   /* one that exists is opened, not refused */
+    await load();
     go(name);
     add.body.focus();
   });
