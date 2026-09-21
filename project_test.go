@@ -103,3 +103,55 @@ func TestDeleteProject(t *testing.T) {
 		t.Fatalf("expected 404 after deletion, got %d", got)
 	}
 }
+
+func TestRenameProject(t *testing.T) {
+	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 300)
+	if err != nil {
+		t.Fatalf("openDB failed: %v", err)
+	}
+	defer db.Close()
+	srv := httptest.NewServer(newHandler(db, 300))
+	defer srv.Close()
+
+	do := func(method, path, body string) int {
+		req, _ := http.NewRequest(method, srv.URL+path, bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("%s %s: %v", method, path, err)
+		}
+		res.Body.Close()
+		return res.StatusCode
+	}
+	count := func(project string) int {
+		var n int
+		db.ro.QueryRow("SELECT COUNT(*) FROM tasks WHERE project = ?", project).Scan(&n)
+		return n
+	}
+
+	do("POST", "/tasks", `{"project":"old","body":"a"}`)
+	do("POST", "/tasks", `{"project":"old","body":"b"}`)
+	do("POST", "/tasks", `{"project":"other","body":"c"}`)
+	cases := []struct {
+		path, body string
+		want       int
+	}{
+		{"/projects/nothing", `{"name":"x"}`, http.StatusNotFound},
+		{"/projects/nothing", `{"name":"nothing"}`, http.StatusNotFound},
+		{"/projects/old", `{"name":"bad name"}`, http.StatusBadRequest},
+		{"/projects/old", `{"name":"other"}`, http.StatusConflict},
+		{"/projects/old", `{"name":"old"}`, http.StatusNoContent},
+		{"/projects/old", `{"name":"new"}`, http.StatusNoContent},
+	}
+	for _, c := range cases {
+		if got := do("PATCH", c.path, c.body); got != c.want {
+			t.Fatalf("PATCH %s %s: expected %d, got %d", c.path, c.body, c.want, got)
+		}
+	}
+	if count("old") != 0 || count("new") != 2 || count("other") != 1 {
+		t.Fatalf("after rename: old=%d new=%d other=%d", count("old"), count("new"), count("other"))
+	}
+	if got := do("POST", "/tasks/claim", `{"worker":"w","project":"new"}`); got != http.StatusOK {
+		t.Fatalf("expected a claim under the new name to land, got %d", got)
+	}
+}

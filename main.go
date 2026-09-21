@@ -2903,6 +2903,74 @@ FROM json_each(?) j JOIN notes n ON n.id = (SELECT MAX(id) FROM notes WHERE task
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+	// Renaming a project moves every task that names it. The new name must
+	// not already be in use: merging two projects is not what a rename means.
+	renameProjectHandler := func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if msg, ok := checkProject(project); !ok {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+		var req struct {
+			Name string `json:"name"`
+		}
+		if !decodeBody(w, r, &req, false) {
+			return
+		}
+		if msg, ok := checkProject(req.Name); !ok {
+			writeFieldError(w, http.StatusBadRequest, msg, "name")
+			return
+		}
+		if req.Name == project {
+			var exists bool
+			if err := db.ro.QueryRow("SELECT EXISTS(SELECT 1 FROM tasks WHERE project = ?)", project).Scan(&exists); err != nil {
+				internalError(w, err)
+				return
+			}
+			if !exists {
+				writeError(w, http.StatusNotFound, "project not found")
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		tx, err := db.rw.Begin()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer tx.Rollback()
+		var taken bool
+		if err := tx.QueryRow("SELECT EXISTS(SELECT 1 FROM tasks WHERE project = ?)", req.Name).Scan(&taken); err != nil {
+			internalError(w, err)
+			return
+		}
+		if taken {
+			writeFieldError(w, http.StatusConflict, "project exists", "name")
+			return
+		}
+		res, err := tx.Exec("UPDATE tasks SET project = ? WHERE project = ?", req.Name, project)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if n == 0 {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			internalError(w, err)
+			return
+		}
+		db.events.publish()
+		db.notifyPending(req.Name)
+		w.WriteHeader(http.StatusNoContent)
+	}
 	workersHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
 		project, ok := validateProjectFilter(w, q)
@@ -3371,6 +3439,7 @@ RETURNING status, project`,
 		http.MethodGet: {handler: projectsHandler},
 	})
 	handleMethods(mux, "/projects/{project}", map[string]route{
+		http.MethodPatch:  {handler: renameProjectHandler},
 		http.MethodDelete: {handler: deleteProjectHandler},
 	})
 	handleMethods(mux, "/workers", map[string]route{
@@ -3492,6 +3561,7 @@ HTTP Endpoints:
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   POST   /tasks/kick         bulk-unbury tasks (optional project, limit)
   GET    /projects           list active projects
+  PATCH  /projects/{name}    rename a project (requires name; 409 if the name is in use)
   DELETE /projects/{name}    delete a project and every task in it (409 while one is claimed)
   GET    /workers            list active workers
          ?project=           exact match; project=* matches all projects
