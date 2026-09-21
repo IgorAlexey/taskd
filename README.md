@@ -38,7 +38,7 @@ taskd note 1 'root cause is the cookie path'
 taskd done 1
 ```
 
-Open `http://127.0.0.1:8080/ui` in a browser for the web ledger, or launch
+Open `http://127.0.0.1:8080` in a browser for the web ledger, or launch
 the terminal UI:
 
 ```sh

@@ -12,13 +12,13 @@ import (
 // header or, for the browser, as the taskd_token cookie. The page and its
 // assets stay open so it can ask for the token, and /health stays open for
 // load balancers. Preflight requests carry no credentials by design. The
-// path is cleaned first so /ui/../tasks is judged as /tasks.
+// path is cleaned first so /static/../tasks is judged as /tasks.
 func requireToken(next http.Handler, token string) http.Handler {
 	want := sha256.Sum256([]byte(token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := path.Clean(r.URL.Path)
 		open := r.Method == http.MethodOptions ||
-			r.Method == http.MethodGet && (p == "/" || p == "/health" || p == "/ui" || strings.HasPrefix(p, "/ui/"))
+			r.Method == http.MethodGet && (p == "/" || p == "/health" || strings.HasPrefix(p, "/static/"))
 		if open || tokenMatches(r, want) {
 			next.ServeHTTP(w, r)
 			return

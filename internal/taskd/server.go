@@ -29,17 +29,9 @@ func (s *server) handler() http.Handler {
 	mux := http.NewServeMux()
 
 	handleMethods(mux, "/{$}", map[string]route{
-		http.MethodGet: {handler: func(w http.ResponseWriter, r *http.Request) {
-			redirectWithQuery(w, r, "/ui", http.StatusFound)
-		}, anyParams: true},
-	})
-	handleMethods(mux, "/ui", map[string]route{
 		http.MethodGet: {handler: uiHandler, anyParams: true},
 	})
-	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
-		redirectWithQuery(w, r, "/ui", http.StatusPermanentRedirect)
-	})
-	mux.HandleFunc("GET /ui/{file}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /static/{file}", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, web.FS, r.PathValue("file"))
 	})
 

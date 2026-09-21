@@ -97,7 +97,7 @@ HTTP Endpoints:
   GET    /stats              task queue statistics
          ?project=           exact match; project=* matches all projects
          ?worker=            exact match; empty value selects unassigned
-  GET    /ui                 web interface
+  GET    /                   web interface
 
 Examples:
   taskd                                      run daemon on 127.0.0.1:8080 with taskd.db

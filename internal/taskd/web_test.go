@@ -17,9 +17,9 @@ func TestWebUIServe(t *testing.T) {
 	srv := httptest.NewServer(newHandler(db, 300))
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/ui")
+	resp, err := http.Get(srv.URL + "/")
 	if err != nil {
-		t.Fatalf("GET /ui: %v", err)
+		t.Fatalf("GET /: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -30,13 +30,7 @@ func TestWebUIServe(t *testing.T) {
 	if !strings.HasPrefix(ct, "text/html") {
 		t.Errorf("content-type = %q, want text/html", ct)
 	}
-	noFollow := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	if res, err := noFollow.Get(srv.URL + "/ui/"); err != nil {
-		t.Fatalf("GET /ui/: %v", err)
-	} else if res.StatusCode != http.StatusPermanentRedirect || res.Header.Get("Location") != "/ui" {
-		t.Errorf("GET /ui/ = %d %q, want 308 to /ui", res.StatusCode, res.Header.Get("Location"))
-	}
-	for _, p := range []string{"/ui/oat.min.css", "/ui/oat.min.js"} {
+	for _, p := range []string{"/static/oat.min.css", "/static/oat.min.js"} {
 		res, err := http.Get(srv.URL + p)
 		if err != nil {
 			t.Fatalf("GET %s: %v", p, err)

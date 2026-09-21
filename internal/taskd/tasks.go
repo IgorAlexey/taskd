@@ -159,7 +159,7 @@ func (s *server) createTaskHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if isForm && strings.Contains(r.Header.Get("Accept"), "text/html") {
-		http.Redirect(w, r, "/ui", http.StatusSeeOther)
+		http.Redirect(w, r, "/", http.StatusSeeOther)
 		return
 	}
 

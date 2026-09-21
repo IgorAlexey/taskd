@@ -53,7 +53,7 @@ func TestRequireToken(t *testing.T) {
 	if res := get("/tasks", cookie("s3cret")); res.StatusCode != http.StatusOK {
 		t.Fatalf("cookie: %d", res.StatusCode)
 	}
-	for _, p := range []string{"/health", "/ui"} {
+	for _, p := range []string{"/", "/health", "/static/oat.min.css"} {
 		if res := get(p, nil); res.StatusCode != http.StatusOK {
 			t.Fatalf("%s should be open: %d", p, res.StatusCode)
 		}
@@ -61,8 +61,8 @@ func TestRequireToken(t *testing.T) {
 	if res := get("/api/events", nil); res.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("/api/events without token: %d", res.StatusCode)
 	}
-	if res := get("/ui/../tasks", nil); res.StatusCode == http.StatusOK {
-		t.Fatal("/ui/../tasks was served without a token")
+	if res := get("/static/../tasks", nil); res.StatusCode == http.StatusOK {
+		t.Fatal("/static/../tasks was served without a token")
 	}
 }
 
