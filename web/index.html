@@ -612,7 +612,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       e.preventDefault();
       if (e.detail && !getSelection().isCollapsed) return;   /* dragging over a title to copy it is not a click */
       const id = +sum.parentElement.dataset.id;
-      return select(id === sel ? null : id);
+      return select(id === sel ? null : id, false);   /* the row was clicked, so it is on screen: stay put */
     }
     const link = e.target.closest('.sheet a[data-task]');
     if (link) { e.preventDefault(); return select(link.dataset.task); }
