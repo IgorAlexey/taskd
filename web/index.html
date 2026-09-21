@@ -261,7 +261,6 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   const waits = t => (t.after || []).map(get).filter(a => a && a.state !== 'done');
   const order = (a, b) => a.pri - b.pri || a.added - b.added;
   const here = t => t.project === project;
-  const ready = ts => ts.filter(t => t.state === 'queued' && !waits(t).length).sort(order);
   const projects = () => [...new Set([...tasks.map(t => t.project), newProject].filter(Boolean))].sort();
   const ICON = { stuck: 'alert', claimed: 'bolt', queued: 'clock', done: 'check' };
   const icon = n => `<svg class="icon-svg" aria-hidden="true"><use href="#i-${n}"/></svg>`;
@@ -353,7 +352,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
       claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
       queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="${href(a.project, a.id)}" data-task="${a.id}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
-                              : `Number ${ready(tasks.filter(x => x.project === t.project)).indexOf(t) + 1} in the queue.`,
+                              : 'Queued, waiting for a worker.',
       done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
     }[t.state]();
     const editable = t.state === 'stuck' || t.state === 'queued';
@@ -379,12 +378,12 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
   }
 
   /* one row. The node is kept across renders; only what changed is written. */
-  function row(el, { t, state, rdy }) {
+  function row(el, { t, state }) {
     const w = state === 'queued' ? waits(t) : [];
     const last = t.thread[t.thread.length - 1];
     const why = w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ')
               : state === 'stuck' && last ? last.author + ': ' + clip(last.text) : '';
-    const lead = state === 'queued' ? (w.length ? '' : rdy.indexOf(t) + 1) : icon(ICON[state]);
+    const lead = icon(ICON[state]);
     const open = t.id === sel;
     el.className = `task ${state}${open && fresh === t.id ? ' fresh' : ''}`;
     el.dataset.id = t.id;
@@ -417,7 +416,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     update: (el, it) => it.t ? row(el, it) : (el.innerHTML = it.html, el.className = it.cls || ''),
   };
 
-  function list(sets, rdy) {
+  function list(sets) {
     const q = $('#q').value.trim().toLowerCase();
     const hit = t => !q || [String(t.id), t.title, t.body, t.worker, ...t.thread.map(n => n.text)].some(x => x && String(x).toLowerCase().includes(q));
     const sections = [];
@@ -428,7 +427,7 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
       if (state === 'done' && !q && !allDone) rows = rows.slice(0, DONE_CAP);
       sections.push({ k: state, items: [
         { k: 'head', tag: 'header', cls: 'head', html: `<h2>${cap(state)}${rows.length < total ? `<small>latest ${rows.length} of ${total}</small>` : ''}</h2>${HEAD[state].map(([l, c]) => `<span class="${c}">${l}</span>`).join('')}` },
-        ...rows.map(t => ({ k: String(t.id), t, state, rdy })),
+        ...rows.map(t => ({ k: String(t.id), t, state })),
         ...(rows.length < total ? [{ k: 'more', tag: 'p', cls: 'more-done', html: `<button type="button" class="ghost small" data-act="all-done">Show all ${total} done</button>` }] : []),
       ] });
     }
@@ -470,12 +469,11 @@ dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
     }
     sets.claimed.sort((a, b) => a.exp - b.exp);
     sets.done.sort((a, b) => b.added - a.added || b.id - a.id);
-    const rdy = sets.queued.sort(order);
-    sets.queued = [...rdy, ...sets.blocked.sort(order)];
+    sets.queued = [...sets.queued.sort(order), ...sets.blocked.sort(order)];
     delete sets.blocked;
     if (sets.done.findIndex(t => t.id === sel) >= DONE_CAP) allDone = true;     /* a link to an old task still opens it */
     const cursor = document.activeElement?.matches?.('#list summary') && document.activeElement.parentElement.dataset.id;   /* where j and k were */
-    rail(sets); list(sets, rdy); alarm(); composer(); tick();
+    rail(sets); list(sets); alarm(); composer(); tick();
     if (cursor && !document.activeElement?.matches?.('summary')) $(`details[data-id="${cursor}"] > summary`)?.focus({ preventScroll: true });
   }
 
