@@ -3503,6 +3503,24 @@ func printUsage(w io.Writer) {
 
 taskd is a lightweight task queue daemon backed by SQLite.
 
+Commands talk to a running daemon at TASKD_URL (default http://127.0.0.1:8080)
+as the worker named by TASKD_WORKER (default user@host) in TASKD_PROJECT:
+  add [body]         create a task; body from stdin when piped or "-"
+  claim [id]         claim the next task, or the one named; exit 3 when none
+  done ID            finish a claimed task (-result JSON)
+  close ID           finish a task without a result
+  touch ID           extend the lease on a claimed task
+  release ID         put a claimed task back in the queue
+  bury ID            park a task that cannot proceed
+  kick ID            return a parked task to the queue
+  note ID [text]     append a note; text from stdin when absent
+  show ID            print one task with its notes
+  list               print tasks (-project, -status, -q, -limit)
+  serve              run the daemon (the same as no command)
+  help [command]     this text, or a command's flags
+Each prints the daemon's JSON on stdout; on failure one line on stderr and
+exit 1, or 2 for bad usage. Flags: -url, -worker, -project, and -q for the id.
+
 Options:
   -addr <addr>        listen address (e.g. :8080 to expose on all interfaces) (default: 127.0.0.1:8080)
   -backup <path>      backup destination path
@@ -4044,7 +4062,13 @@ func fatal(stderr io.Writer, err error) int {
 }
 
 func main() {
-	if err := run(os.Stdout, os.Args[1:]); err != nil {
+	args := os.Args[1:]
+	if len(args) > 0 && args[0] == "serve" {
+		args = args[1:]
+	} else if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		os.Exit(runClient(os.Stdout, os.Stderr, os.Stdin, args))
+	}
+	if err := run(os.Stdout, args); err != nil {
 		os.Exit(fatal(os.Stderr, err))
 	}
 }
