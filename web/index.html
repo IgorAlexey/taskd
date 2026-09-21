@@ -417,7 +417,7 @@ aside nav .badge { margin-inline-start: auto; }
 
   /* a PATCH carries the version we saw; 409 means someone else got there first */
   async function patch(t, data) {
-    if (t.version != null) data.version = t.version;
+    if (t.version != null) data.if_version = t.version;
     const res = await json('PATCH', '/tasks/' + t.id, data);
     if (res.status === 409) { toast('Changed elsewhere, reloading'); load(); return false; }
     if (!res.ok) { fail(await res.json().catch(() => ({}))); return false; }
