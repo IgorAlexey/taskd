@@ -18,9 +18,10 @@
 <style>
 :root {
   color-scheme: light dark;
-  /* Radix Colors 3.0, three scales: gray for the page, amber for what is selected or primary,
-     red for what is stuck. Each step does the job Radix documents for it: 1 page, 2 subtle
-     surface, 3 control, 4 hover, 6 rules, 7 control borders, 8 focus, 9 solid, 11 text, 12 text. */
+  /* Radix Colors 3.0: gray for the page, amber for what is selected or primary, red for what is
+     stuck, blue for claimed and green for done. Each step does the job Radix documents for it:
+     1 page, 2 subtle surface, 3 control, 4 hover, 6 rules, 7 control borders, 8 focus, 9 solid,
+     11 text, 12 text. */
   --gray-1:  light-dark(#fcfcfc, #111111);
   --gray-2:  light-dark(#f9f9f9, #191919);
   --gray-3:  light-dark(#f0f0f0, #222222);
@@ -36,6 +37,8 @@
   --amber-contrast: #21201c;
   --red-9:   #e5484d;
   --red-11:  light-dark(#ce2c31, #ff9592);
+  --blue-11: light-dark(#0d74ce, #70b8ff);
+  --green-11: light-dark(#218358, #3dd68c);
   --work: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --work-size: 0.875rem;
 
@@ -43,7 +46,7 @@
   --page: var(--gray-1);    --sheet: var(--gray-2);   --control: var(--gray-3);   --hover: var(--gray-4);
   --rule: var(--gray-6);    --edge: var(--gray-7);    --quiet: var(--gray-11);    --fg: var(--gray-12);
   --picked-bg: var(--amber-3);   --picked: var(--amber-11);   --solid: var(--amber-9);   --focus: var(--amber-8);
-  --stuck: var(--red-11);
+  --stuck: var(--red-11);   --claimed: var(--blue-11);   --done: var(--green-11);
 
   /* Oat's tokens, pointed at the jobs above */
   --background: var(--page);          --foreground: var(--fg);
@@ -66,6 +69,8 @@ a { text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
 .n { font-variant-numeric: lining-nums tabular-nums; }
 .icon-svg { color: var(--quiet); }
 .stuck .icon-svg, a[href="#stuck"] .icon-svg, #status .icon-svg { color: var(--stuck); }
+.claimed .icon-svg, a[href="#claimed"] .icon-svg { color: var(--claimed); }
+.done .icon-svg, a[href="#done"] .icon-svg { color: var(--done); }
 
 /* ---------- top: the name and the light switch ---------- */
 nav[data-topnav] { gap: 0.75rem; padding: 0.55rem 1.25rem; box-shadow: none; }
