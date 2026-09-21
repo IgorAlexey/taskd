@@ -5,7 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -1561,8 +1561,8 @@ func validateProjectFilter(w http.ResponseWriter, q url.Values) (string, bool) {
 	return project, true
 }
 
-//go:embed web/index.html
-var uiHTML []byte
+//go:embed web
+var webFS embed.FS
 
 func redirectWithQuery(w http.ResponseWriter, r *http.Request, path string, code int) {
 	if r.URL.RawQuery != "" {
@@ -1743,8 +1743,7 @@ func newHandlerWithCORS(db *store, lease int, corsOrigin string) http.Handler {
 		return sweepLapsed(db.rw, db.maxClaims, id)
 	}
 	uiHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Write(uiHTML)
+		http.ServeFileFS(w, r, webFS, "web/index.html")
 	}
 	handleMethods(mux, "/{$}", map[string]route{
 		http.MethodGet: {handler: func(w http.ResponseWriter, r *http.Request) {
@@ -1753,6 +1752,12 @@ func newHandlerWithCORS(db *store, lease int, corsOrigin string) http.Handler {
 	})
 	handleMethods(mux, "/ui", map[string]route{
 		http.MethodGet: {handler: uiHandler, anyParams: true},
+	})
+	mux.HandleFunc("GET /ui/{$}", func(w http.ResponseWriter, r *http.Request) {
+		redirectWithQuery(w, r, "/ui", http.StatusPermanentRedirect)
+	})
+	mux.HandleFunc("GET /ui/{file}", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, webFS, "web/"+r.PathValue("file"))
 	})
 	statsHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)

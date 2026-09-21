@@ -3,159 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="light dark">
 <title>taskd</title>
 <!--
-  Two regions and one rule between them. Left: every task, in the order you need them.
-  Right: the task you picked, or, when you have picked nothing, a blank task to write.
-  The page never scrolls; each side scrolls on its own.
-  Colour: Radix Colors, neutral gray plus blue for links and red for things about to go wrong.
+  Oat UI (knadh/oat, MIT) does the styling; this file adds a handful of rules Oat has no opinion on.
+  Left: one link per project. Right: the project's tasks, or the one task you opened.
 -->
+<link rel="stylesheet" href="/ui/oat.min.css">
+<script src="/ui/oat.min.js" defer></script>
 <style>
-:root {
-  color-scheme: light dark;
-  /* Radix Colors 3.0 (gray, blue, red), each step used for the job Radix documents for it:
-     1 page background, 3 control background, 4 hovered, 5 pressed, 6 separators,
-     7 control borders, 8 hovered borders and focus, 11 coloured text, 12 text. */
-  --bg:      light-dark(#fcfcfc, #111111);   /* gray 1 */
-  --control: light-dark(#f0f0f0, #222222);   /* gray 3 */
-  --hover:   light-dark(#e8e8e8, #2a2a2a);   /* gray 4 */
-  --press:   light-dark(#e0e0e0, #313131);   /* gray 5 */
-  --rule:    light-dark(#d9d9d9, #3a3a3a);   /* gray 6 */
-  --edge:    light-dark(#cecece, #484848);   /* gray 7 */
-  --edge-hi: light-dark(#bbbbbb, #606060);   /* gray 8 */
-  --quiet:   light-dark(#646464, #b4b4b4);   /* gray 11 */
-  --fg:      light-dark(#202020, #eeeeee);   /* gray 12 */
-  --link:    light-dark(#0d74ce, #70b8ff);   /* blue 11 */
-  --focus:   light-dark(#5eb1ef, #2870bd);   /* blue 8 */
-  --tint:    light-dark(#e6f4fe, #0d2847);   /* blue 3, the selected row */
-  --warn:    light-dark(#ce2c31, #ff9592);   /* red 11 */
-
-  /* Two voices. The document speaks in a sturdy reading serif: Carter's Charter, then his Sitka on
-     Windows. Tables and controls are working matter and use the platform's own UI face, the one the
-     native buttons were drawn for. Sans runs smaller so its x-height matches the serif beside it. */
-  --read: Charter, "Bitstream Charter", "Charis SIL", "Sitka Text", Cambria, Georgia, serif;
-  --work: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --work-size: 0.89rem;
-}
-html { background: var(--bg); color: var(--fg); }
-html { font: 18px/1.5 var(--read); font-variant-numeric: lining-nums; }
-html, body { height: 100%; }
-body { margin: 0 auto; max-width: 88rem; padding: 0.85rem 2rem 0; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100dvh; overflow: hidden; box-sizing: border-box; }
-table { font-family: var(--work); font-size: var(--work-size); }
-
-/* One control. Buttons, menus and fields share a height, a border, a radius and a face;
-   the only difference is that things you type into are lighter than things you press. */
-button, select, input, textarea {
-  font: var(--work-size)/1.2 var(--work); color: var(--fg); box-sizing: border-box; margin: 0;
-  border: 1px solid var(--edge); border-radius: 3px;
-}
-button, select, input { height: 1.85rem; padding: 0 0.65rem; }
-textarea { padding: 0.5rem 0.7rem; line-height: 1.45; }
-input, textarea { background: var(--bg); }
-::placeholder { color: var(--quiet); opacity: 1; }
-button, select { background: var(--control); cursor: pointer; }
-button:hover, select:hover { background: var(--hover); border-color: var(--edge-hi); }
-input:hover, textarea:hover { border-color: var(--edge-hi); }
-button:active { background: var(--press); }
-:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-a, a:visited { color: var(--link); text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
-strong, .warn { color: var(--warn); }
-code { font: 0.88em ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-p { margin: 0 0 1rem; }
-
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--rule); }
-h1 { font: 700 0.95rem/1 var(--work); color: var(--fg); margin: 0; padding-right: 0.65rem; border-right: 1px solid var(--rule); flex-shrink: 0; }
-header p#status { font-family: var(--work); font-size: 0.84rem; color: var(--quiet); margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1 1 0%; min-width: 0; }
-header p#status a { color: inherit; text-decoration: none; }
-header p#status a:hover { text-decoration: underline; color: var(--fg); }
-header p#status .warn { color: var(--warn); font-weight: 600; }
-header form { display: flex; align-items: center; gap: 0.5rem; margin-left: auto; flex-shrink: 0; }
-header input { width: 12rem; }
-
-/* icons: one inline sprite, filled, drawn on a 16-unit grid, sized to the text beside them */
-.icon { width: 1em; height: 1em; vertical-align: -0.12em; fill: currentColor; }
-h2 .icon { width: 0.8em; height: 0.8em; margin-right: 0.35rem; vertical-align: -0.04em; }
-
-/* light and dark: two pressed-state icon buttons that share one border */
-#theme { display: inline-flex; border: 1px solid var(--edge); border-radius: 4px; overflow: hidden; }
-#theme button { border: 0; border-radius: 0; height: calc(1.85rem - 2px); width: 1.85rem; padding: 0; display: inline-grid; place-items: center; }
-#theme button + button { border-left: 1px solid var(--edge); }
-#theme button[aria-pressed="true"] { background: var(--tint); color: var(--link); }
-#theme .icon { width: 0.95rem; height: 0.95rem; }
-
-/* one tab per project, quiet pills without borders or faux-folder bottom cuts */
-nav { display: flex; align-items: center; gap: 0.2rem; overflow-x: auto; min-width: 0; flex: 0 1 auto; }
-nav button {
-  border: none; background: none; border-radius: 4px;
-  height: 1.85rem; padding: 0 0.65rem; margin: 0;
-  color: var(--quiet); font-size: 0.85rem; white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 0.35rem; flex-shrink: 0;
-}
-nav button:hover { background: var(--hover); color: var(--fg); }
-nav button[aria-selected="true"] { background: var(--control); color: var(--fg); font-weight: 600; }
-nav button.add { padding: 0 0.45rem; color: var(--quiet); }
-
-main { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); min-height: 0; }
-#list, #pane { overflow-y: auto; min-height: 0; padding-bottom: 4rem; }
-#list { padding-right: 2.5rem; }
-#pane { border-left: 1px solid var(--rule); padding: 1.1rem 0.25rem 4rem 2.5rem; }
-
-/* the list */
-section { margin-bottom: 2.25rem; }
-h2 { font-size: 1.45rem; font-weight: normal; font-style: italic; line-height: 1.2; margin: 0; }
-#list h2 { position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 1.1rem 0 0.5rem; }
-table { width: 100%; border-collapse: collapse; }
-th { font-weight: normal; text-align: left; border-bottom: 1px solid var(--rule); padding-bottom: 0.35rem; }
-th, td { padding: 0.28rem 1.25rem 0.28rem 0; vertical-align: baseline; white-space: nowrap; }
-th:first-child, td:first-child { padding-left: 0.4rem; }
-th:last-child, td:last-child { padding-right: 0.4rem; }
-.n { text-align: right; font-variant-numeric: lining-nums tabular-nums; }
-td.task { width: 100%; white-space: normal; }
-td.task a { text-decoration: none; }
-td.task a:hover, tr[aria-current] td.task a { text-decoration: underline; }
-td.task .why { display: block; font: italic 1rem/1.45 var(--read); margin-top: 0.1rem; }
-tbody tr { cursor: pointer; }
-tbody tr[aria-current] td { background: var(--tint); }
-
-/* the pane */
-#pane h2 { margin-bottom: 0.75rem; }
-#pane h3 { font-size: 1rem; font-weight: normal; font-style: italic; margin: 1.5rem 0 0.25rem; }
-#pane > * { max-width: 36rem; }
+:root { --sidebar-width: 13rem; }
+main { padding: var(--space-4) var(--space-8) var(--space-16); }
+main > * { max-width: 56rem; }
+#q { width: 14rem; margin: 0; }
+.icon { width: 1em; height: 1em; vertical-align: -0.125em; fill: currentColor; }
+.warn { color: var(--warning); }
 .body { white-space: pre-wrap; }
-#pane ol { margin: 0 0 1rem; padding-left: 1.3rem; }
-.actions, form.reply { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
-form.reply + .actions { margin-top: 1rem; padding-top: 0; border-top: none; }
-.actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem 1rem; }
-.actions p { flex: 1 1 100%; margin: 0.4rem 0 0; }
-form.add textarea, form.reply textarea, form.edit textarea { display: block; width: 100%; min-height: 7rem; resize: vertical; margin-bottom: 0.9rem; }
-form.add textarea { height: 42dvh; }
-form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5rem; }
-/* every labelled control in the pane: label above, control below, one row that wraps */
-#pane label { display: block; }
-#pane label > input, #pane label > select { display: block; margin-top: 0.15rem; }
-#pane p.field { margin: 0; }
-#pane p.field .project { display: block; margin-top: 0.15rem; line-height: 2rem; font-family: var(--work); font-size: var(--work-size); }
-#pane label.wait { flex: 1 1 8rem; min-width: 0; }             /* sits beside the other fields and takes the slack */
-#pane label.wait select { width: 100%; min-width: 0; text-overflow: ellipsis; }
-/* the way every dialog ends: the action on the right, the way out just left of it */
-.buttons { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.9rem; }
-.buttons button[type="submit"] { background: var(--link); border-color: var(--link); color: var(--bg); }
-.buttons button[type="submit"]:hover { filter: brightness(1.1); }
-
-@media (max-width: 820px) {
-  body { height: auto; overflow: visible; padding: 1rem 1rem 3rem; display: block; }
-  header { flex-wrap: wrap; gap: 0.6rem 1rem; }
-  header p#status { flex-basis: 100%; order: 3; }
-  #list, #pane { overflow: visible; padding: 0; border: 0; }
-  #pane { order: 2; border-top: 1px solid; padding-top: 1rem; }
-  body.reading #pane { order: -1; border-top: 0; border-bottom: 1px solid; margin-bottom: 1rem; padding-bottom: 1rem; }
-  #list h2 { position: static; }
-  .opt { display: none; }
-}
+tbody tr { cursor: pointer; }
+tbody tr[aria-current] { background-color: var(--accent); }
+aside nav .badge { margin-inline-start: auto; }
 </style>
 </head>
-<body>
+<body data-sidebar-layout>
 
 <!-- Phosphor Icons, Fill weight (MIT, phosphoricons.com), inlined so the page ships in the binary -->
 <svg style="display:none" aria-hidden="true">
@@ -166,34 +34,72 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
   <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 256 256"><path d="M235.54,150.21a104.84,104.84,0,0,1-37,52.91A104,104,0,0,1,32,120,103.09,103.09,0,0,1,52.88,57.48a104.84,104.84,0,0,1,52.91-37,8,8,0,0,1,10,10,88.08,88.08,0,0,0,109.8,109.8,8,8,0,0,1,10,10Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 256 256"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM40,72H216a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16ZM216,184H40a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Z"/></symbol>
 </svg>
 
-<header>
-  <h1>taskd</h1>
-  <nav id="tabs" aria-label="Projects"></nav>
-  <p id="status"></p>
-  <form id="tools">
-    <input type="search" id="q" aria-label="Filter tasks" placeholder="Filter">
-    <button type="button" id="new" hidden>New task</button>
-    <span id="theme" role="group" aria-label="Colour scheme">
-      <button type="button" data-theme="light" aria-label="Light" aria-pressed="false"><svg class="icon"><use href="#i-sun"/></svg></button>
-      <button type="button" data-theme="dark" aria-label="Dark" aria-pressed="false"><svg class="icon"><use href="#i-moon"/></svg></button>
-    </span>
-  </form>
-</header>
+<aside data-sidebar>
+  <header class="hstack justify-between">
+    <strong>taskd</strong>
+    <menu class="buttons" id="theme" aria-label="Colour scheme">
+      <li><button type="button" class="small outline" data-theme="light" aria-label="Light"><svg class="icon"><use href="#i-sun"/></svg></button></li>
+      <li><button type="button" class="small outline" data-theme="dark" aria-label="Dark"><svg class="icon"><use href="#i-moon"/></svg></button></li>
+    </menu>
+  </header>
+  <nav aria-label="Projects"><ul id="projects"></ul></nav>
+  <footer class="vstack">
+    <button type="button" id="new"><svg class="icon"><use href="#i-plus"/></svg> New task</button>
+    <button type="button" id="newproject" class="outline small">New project</button>
+  </footer>
+</aside>
+
 <main>
-  <div id="list"></div>
-  <div id="pane" aria-live="polite"></div>
+  <div data-sidebar-header>
+    <button type="button" data-sidebar-toggle aria-label="Projects"><svg class="icon"><use href="#i-list"/></svg></button>
+    <strong>taskd</strong>
+  </div>
+  <div id="home">
+    <div id="status"></div>
+    <div class="hstack justify-between mt-4">
+      <h1 id="title"></h1>
+      <input type="search" id="q" aria-label="Filter tasks" placeholder="Filter">
+    </div>
+    <div id="list"></div>
+  </div>
+  <article id="task" hidden></article>
 </main>
+
+<dialog id="add">
+  <form class="add">
+    <header><h3>New task</h3><p>in <span id="addproject"></span></p></header>
+    <div>
+      <label data-field>Task
+        <textarea name="body" required rows="10" data-draft="add" placeholder="The first line is the title.&#10;&#10;The rest is what the worker will read."></textarea>
+      </label>
+      <div class="hstack gap-4">
+        <label data-field>Priority
+          <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select>
+        </label>
+        <label data-field>Wait for <select name="after"></select></label>
+      </div>
+    </div>
+    <footer>
+      <button type="button" class="outline" data-close>Cancel</button>
+      <button type="submit">Add to the queue</button>
+    </footer>
+  </form>
+</dialog>
 
 <script>
 (() => {
   const MIN = 60e3;
   const NAME = /^[A-Za-z0-9._-]{1,64}$/;
   let tasks = [];
-  let sel = null;
-  let project = new URLSearchParams(location.search).get('p') || localStorage.getItem('project') || '';
-  let newProject = '';                     /* a tab opened with + before it has any task */
+  let sel = null;                          /* the task you opened, or null for the list */
+  let cur = null;                          /* the row j/k rests on */
+  let editing = false;                     /* the opened task's text is in a textarea */
+  let listScroll = 0;                      /* where the list was when you left it */
+  let project = localStorage.getItem('project') || '';
+  let newProject = '';                     /* a project made with the button before it has any task */
 
   /* ---------- helpers ---------- */
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -202,7 +108,6 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
   const get = id => tasks.find(t => t.id === +id);
   const waits = t => (t.after || []).map(get).filter(a => a && a.state !== 'done');
   const order = (a, b) => a.pri - b.pri || a.added - b.added;
-  const here = t => t.project === project;
   const ready = ts => ts.filter(t => t.state === 'queued' && !waits(t).length).sort(order);
   const projects = () => [...new Set([...tasks.map(t => t.project), newProject].filter(Boolean))].sort();
   const ICON = { stuck: 'alert', claimed: 'bolt', queued: 'clock', done: 'check' };
@@ -213,6 +118,10 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
     return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 90 ? '1 hour ago' : m < 24 * 60 ? Math.round(m / 60) + ' hours ago' : 'yesterday';
   };
   const until = (ts, warn) => `<span data-until="${ts}" data-warn="${warn}"></span>`;
+  const toast = msg => window.ot ? ot.toast(msg, '', { variant: 'danger', duration: 6000 }) : alert(msg);
+  const fail = err => toast((err && err.field ? err.field + ': ' : '') + (err && err.error ? err.error : 'Request failed'));
+  const json = (method, url, body) => fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const draft = key => sessionStorage.getItem('draft:' + key) || '';
 
   function mapTask(raw) {
     const nl = (raw.body || '').indexOf('\n');
@@ -222,10 +131,8 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
     return {
       id: raw.id,
       state: stateMap[raw.status] || raw.status,
-      status: raw.status,
       title,
       body: rest,
-      rawBody: raw.body || '',
       project: raw.project || '',
       pri: raw.priority,
       after: Array.isArray(raw.after) ? raw.after : [],
@@ -239,124 +146,135 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
     };
   }
 
-  /* ---------- left: every task ---------- */
-  const COLS = {
-    stuck:   ['<th>Task</th><th class="n">Attempts</th><th class="n opt">Added</th>', t => `<td class="n">${t.attempts}</td><td class="n opt">${ago(t.added)}</td>`],
-    claimed: ['<th>Task</th><th>Worker</th><th class="n">Lease</th>', t => `<td>${esc(t.worker)}</td><td class="n">${until(t.exp, 3)}</td>`],
-    queued:  ['<th></th><th>Task</th><th class="n">Priority</th>', t => `<td class="n">${t.pri}</td>`],
-    done:    ['<th>Task</th><th class="opt">Worker</th>', t => `<td class="opt">${esc(t.worker)}</td>`],
-  };
-
-  /* the one place the active project changes */
+  /* ---------- where you are: ?p= is the project, #id is the opened task ---------- */
   function setProject(p) {
     project = p;
     if (p !== newProject) newProject = '';
     localStorage.setItem('project', p);
   }
-  /* the one place the address bar is written: ?p= is the tab, #id is the picked task */
-  function syncURL() {
-    const u = new URL(location);
-    if (project) u.searchParams.set('p', project); else u.searchParams.delete('p');
-    u.hash = sel ? '#' + sel : '';
-    history.replaceState(null, '', u);
+  const href = (p, id) => `?p=${encodeURIComponent(p)}${id ? '#' + id : ''}`;
+  /* every move goes through the address bar, so the back button always works */
+  function go(p, id, push) {
+    if (id !== null && sel === null) listScroll = $('main').scrollTop;   /* leaving the list: remember where you were */
+    history[push ? 'pushState' : 'replaceState'](push ? { fromList: sel === null } : history.state, '', href(p, id));
+    route();
+  }
+  function route() {
+    const u = new URL(location), p = u.searchParams.get('p'), id = +u.hash.slice(1) || null;
+    if (p && p !== project) setProject(p);
+    const t = id && get(id);
+    if (t && t.project !== project) { setProject(t.project); history.replaceState(history.state, '', href(project, id)); }
+    if (id !== sel) { editing = false; if (id) cur = id; }
+    const wasTask = sel !== null;
+    sel = id;
+    render();
+    if (sel) { if (!wasTask) $('main').scrollTop = 0; if (t) fetchNotes(t); }
+    else if (wasTask) $('main').scrollTop = listScroll;
+    if (matchMedia('(max-width: 768px)').matches) document.body.removeAttribute('data-sidebar-open');
+  }
+  function back() {
+    if (history.state && history.state.fromList) history.back();
+    else go(project, null, false);
   }
 
-  let stuckBy = {};                        /* project -> stuck count, counted once per render for the tabs and the alarm */
-  function tabs() {
-    const all = projects();
-    $('#tabs').innerHTML = all.map(p => `<button type="button" role="tab" data-project="${esc(p)}" aria-selected="${p === project}">${stuckBy[p] ? `<span class="warn">${icon('alert')}</span> ` : ''}${esc(p)}</button>`).join('') +
-      `<button type="button" class="add" aria-label="New project" title="New project">${icon('plus')}</button>`;
+  /* ---------- the sidebar ---------- */
+  let stuckBy = {};
+  function sidebar() {
+    $('#projects').innerHTML = projects().map(p =>
+      `<li><a href="${href(p)}" data-project="${esc(p)}" ${p === project ? 'aria-current="page"' : ''}>${esc(p)}${stuckBy[p] ? `<span class="badge" data-variant="warning">${stuckBy[p]}</span>` : ''}</a></li>`).join('');
   }
 
+  /* ---------- the list ---------- */
+  const COLS = {
+    stuck:   ['<th>Task</th><th class="align-right">Attempts</th><th class="align-right">Added</th>', t => `<td class="align-right">${t.attempts}</td><td class="align-right">${ago(t.added)}</td>`],
+    claimed: ['<th>Task</th><th>Worker</th><th class="align-right">Lease</th>', t => `<td>${esc(t.worker)}</td><td class="align-right">${until(t.exp, 3)}</td>`],
+    queued:  ['<th></th><th>Task</th><th class="align-right">Priority</th>', t => `<td class="align-right">${t.pri}</td>`],
+    done:    ['<th>Task</th><th>Worker</th>', t => `<td>${esc(t.worker)}</td>`],
+  };
   function list() {
     const q = $('#q').value.trim().toLowerCase();
     const hit = t => !q || [String(t.id), t.title, t.body, t.worker, ...(t.thread || [])].some(x => x && String(x).toLowerCase().includes(q));
-    /* everything below the tabs is one project; the alarm at the top is not. One walk buckets it. */
     const sets = { stuck: [], claimed: [], queued: [], blocked: [], done: [] };
     for (const t of tasks) {
-      if (!here(t)) continue;
+      if (t.project !== project) continue;
       const bucket = t.state === 'queued' && waits(t).length ? 'blocked' : t.state;
-      if (sets[bucket]) sets[bucket].push(t);        /* a state this page does not know is not a reason to die */
+      if (sets[bucket]) sets[bucket].push(t);
     }
     sets.claimed.sort((a, b) => a.exp - b.exp);
     sets.done.sort((a, b) => b.added - a.added || b.id - a.id);
     const rdy = sets.queued.sort(order);
     sets.queued = [...rdy, ...sets.blocked.sort(order)];
     delete sets.blocked;
+    $('#title').textContent = project;
     $('#list').innerHTML = Object.entries(sets).map(([state, all]) => {
       const rows = all.filter(hit);
       if (!rows.length) return '';
-      return `<section id="${state}"><h2>${icon(ICON[state])}${state[0].toUpperCase() + state.slice(1)}</h2><table><thead><tr>${COLS[state][0]}</tr></thead><tbody>` +
+      return `<section id="${state}" class="mt-8"><h2>${icon(ICON[state])} ${state[0].toUpperCase() + state.slice(1)}</h2><div class="table"><table><thead><tr>${COLS[state][0]}</tr></thead><tbody>` +
         rows.map(t => {
           const w = state === 'queued' ? waits(t) : [];
-          const under = state === 'queued' && w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ') : '';
-          return `<tr data-id="${t.id}" ${t.id === sel ? 'aria-current="true"' : ''}>${state === 'queued' ? `<td class="n">${w.length ? '' : rdy.indexOf(t) + 1}</td>` : ''}` +
-          `<td class="task"><a href="#${t.id}">${esc(t.title)}</a>${under ? `<span class="why">${esc(under)}</span>` : ''}</td>${COLS[state][1](t)}</tr>`;
-        }).join('') +
-        `</tbody></table></section>`;
-    }).join('') || `<p style="padding-top:1.1rem">${q ? 'Nothing matches.' : 'Nothing in ' + esc(project) + ' yet.'}</p>`;
+          const under = w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ') : '';
+          return `<tr data-id="${t.id}" ${t.id === cur ? 'aria-current="true"' : ''}>${state === 'queued' ? `<td class="align-right">${w.length ? '' : rdy.indexOf(t) + 1}</td>` : ''}` +
+            `<td><a href="${href(project, t.id)}">${esc(t.title)}</a>${under ? `<br><small class="text-light">${esc(under)}</small>` : ''}</td>${COLS[state][1](t)}</tr>`;
+        }).join('') + `</tbody></table></div></section>`;
+    }).join('') || `<p class="text-light mt-4">${q ? 'Nothing matches.' : 'Nothing in ' + esc(project) + ' yet.'}</p>`;
 
-    /* the fire alarm: always every project, never just this tab */
+    /* the alarm counts every project, not just this one */
     const n = s => by(s).length, s = n('stuck'), is = k => k === 1 ? 'is' : 'are', b = tasks.filter(t => t.state === 'queued' && waits(t).length).length;
-    const where = Object.entries(stuckBy).sort().map(([p, k]) => `<a href="#stuck" class="warn" data-project="${esc(p)}">${k} in ${esc(p)}</a>`);
-    $('#status').innerHTML = (s ? `<span class="warn">${s} ${is(s)} stuck</span> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ` : '') +
-      `<a href="#claimed">${n('claimed')} ${is(n('claimed'))} claimed</a>, <a href="#queued">${n('queued')} queued</a>${b ? ` (${b} waiting on other tasks)` : ''}, <a href="#done">${n('done')} done</a>.`;
-    document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
-    tick();
+    const where = Object.entries(stuckBy).sort().map(([p, k]) => `<a href="${href(p)}#stuck" data-project="${esc(p)}">${k} in ${esc(p)}</a>`);
+    const counts = `<a href="#claimed">${n('claimed')} ${is(n('claimed'))} claimed</a>, <a href="#queued">${n('queued')} queued</a>${b ? ` (${b} waiting on other tasks)` : ''}, <a href="#done">${n('done')} done</a>.`;
+    $('#status').innerHTML = s
+      ? `<div role="alert" data-variant="warning"><p><strong>${s} ${is(s)} stuck</strong> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ${counts}</p></div>`
+      : `<p class="text-light">${counts}</p>`;
   }
 
-  /* ---------- right: the task you picked, or a blank one ---------- */
+  /* ---------- the opened task ---------- */
   /* only this project may be waited on: a dependency across repositories is a mistake, not a feature */
   const others = t => tasks.filter(x => x.id !== t.id && x.project === (t.project || project) && ['queued', 'claimed', 'stuck'].includes(x.state) && !(t.after || []).includes(x.id) && !(x.after || []).includes(t.id));
-  const waitFor = t => `<label class="wait">Wait for <select name="after"><option value="">nothing</option>${others(t).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('')}</select></label>`;
-  const buttons = (label, cancel = 'Cancel') => `<div class="buttons"><button type="button" data-act="cancel">${cancel}</button><button type="submit">${label}</button></div>`;
+  const waitOptions = t => `<option value="">nothing</option>${others(t).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('')}`;
+  const footer = (label, cancel = 'Cancel') => `<footer class="hstack justify-end"><button type="button" class="outline" data-act="cancel">${cancel}</button><button type="submit">${label}</button></footer>`;
 
-  function pane() {
-    const t = get(sel), el = $('#pane');
-    document.body.classList.toggle('reading', !!t);
-    $('#new').hidden = !t;
-    if (!t) {
-      const kept = $('form.add', el);
-      if (kept && kept.body.value) {              /* a half-written task follows you to the new tab; its "Wait for" pick does not,
-                                                     since that would be exactly the cross-repository link we refuse */
-        $('.project', kept).textContent = project;
-        $('label.wait', kept).outerHTML = waitFor({ after: [], id: 0 });
-        return;
-      }
-      el.dataset.key = '';
-      el.innerHTML = `<h2>New task</h2><form class="add">
-        <textarea name="body" required aria-label="Task" placeholder="The first line is the title.&#10;&#10;The rest is what the worker will read."></textarea>
-        <div class="row"><p class="field">Project <span class="project">${esc(project)}</span></p>
-          <label>Priority <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select></label>
-          ${waitFor({ after: [], id: 0 })}</div>${buttons('Add to the queue', 'Clear')}</form>`;
-      return;
-    }
-    const key = [t.id, t.state, (t.thread || []).length, t.pri, (t.after || []).length, (t.body || '').length].join();
-    if (el.dataset.key === key && $$('textarea', el).some(a => a.value)) return tick();
-    el.dataset.key = key;
-
+  /* the head is rewritten on every change; the forms only when the task, its state, or the edit mode
+     changes, so a live reload never rebuilds a control you are using */
+  function task() {
+    const t = get(sel), el = $('#task');
+    if (!t) { el.innerHTML = `<p><button type="button" class="ghost" data-back>&larr; Back</button></p><p>No task ${sel}.</p>`; el.dataset.key = ''; return; }
     const w = waits(t);
     const state = {
       stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
       claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
-      queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="#${a.id}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
+      queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="${href(t.project, a.id)}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
                               : `Number ${ready(tasks.filter(x => x.project === t.project)).indexOf(t) + 1} in the queue.`,
       done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
     }[t.state]();
     const editable = t.state === 'stuck' || t.state === 'queued';
-    const acts = {
-      stuck:   `<form class="reply"><textarea name="reply" required aria-label="Reply" placeholder="Answer the question, or say what should change. The next worker reads the whole thread."></textarea>
-                <div class="row">${waitFor(t)}</div>${buttons('Reply and requeue')}</form>
-                <div class="actions"><button data-act="drop">Drop</button></div>`,
-      claimed: `<div class="actions"><button data-act="revoke">Revoke</button><p>Revoking ends this attempt now. The task comes to you as stuck so you can say what should change.</p></div>`,
-      queued:  `<div class="actions"><label>Priority <select data-act="pri">${[1, 2, 3, 4, 5].map(p => `<option ${p === t.pri ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
-                ${waitFor(t).replace('name="after"', 'data-act="after"')}<button data-act="drop">Drop</button></div>`,
+    const text = editing ? '' : `<p class="body">${esc(t.body)}</p>` + (editable ? `<p><button type="button" class="outline small" data-act="edit">Edit the task text</button></p>` : '');
+    const forms = editing ? `<form class="edit"><label data-field>Task text<textarea name="text" rows="12" data-draft="edit:${t.id}">${esc(draft('edit:' + t.id) || t.body)}</textarea></label>${footer('Save')}</form>` : {
+      stuck:   `<form class="reply"><label data-field>Reply<textarea name="reply" required rows="6" data-draft="reply:${t.id}" placeholder="Answer the question, or say what should change. The next worker reads the whole thread.">${esc(draft('reply:' + t.id))}</textarea></label>
+                <label data-field>Wait for <select name="after">${waitOptions(t)}</select></label>${footer('Reply and requeue')}</form>
+                <p class="mt-8"><button type="button" class="outline small" data-variant="danger" data-act="drop">Drop</button></p>`,
+      claimed: `<p><button type="button" class="outline" data-variant="danger" data-act="revoke">Revoke</button></p><p class="text-light">Revoking ends this attempt now. The task comes to you as stuck so you can say what should change.</p>`,
+      queued:  `<div class="hstack gap-4"><label data-field>Priority <select data-act="pri">${[1, 2, 3, 4, 5].map(p => `<option ${p === t.pri ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
+                <label data-field>Wait for <select data-act="after">${waitOptions(t)}</select></label></div>
+                <p><button type="button" class="outline small" data-variant="danger" data-act="drop">Drop</button></p>`,
       done:    '',
     }[t.state];
-    el.innerHTML = `<h2>${esc(t.title)}</h2><p>${icon(ICON[t.state])} ${state}</p>${t.body ? `<p class="body">${esc(t.body)}</p>` : `<p class="body"></p>`}` +
-      (editable ? `<p><button data-act="edit">Edit the task text</button></p>` : '') +
-      (t.thread && t.thread.length ? `<h3>Thread</h3><ol>${t.thread.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : '') +
-      `<p>Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>${acts}`;
+    const key = [t.id, t.state, editing, t.pri, t.after.length].join();
+    if (el.dataset.key !== key) { el.innerHTML = `<div data-head></div><div data-forms>${forms}</div>`; el.dataset.key = key; }
+    $('[data-head]', el).innerHTML = `<p><button type="button" class="ghost" data-back>&larr; ${esc(t.project)}</button></p>
+      <h1>${esc(t.title)}</h1><p>${icon(ICON[t.state])} ${state}</p>${text}` +
+      (t.thread.length ? `<h3>Thread</h3><ol>${t.thread.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : '') +
+      `<p class="text-light">Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>`;
+  }
+
+  function render() {
+    stuckBy = {};
+    for (const t of tasks) if (t.state === 'stuck') stuckBy[t.project] = (stuckBy[t.project] || 0) + 1;
+    sidebar();
+    const s = by('stuck').length;
+    document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
+    $('#home').hidden = sel !== null;
+    $('#task').hidden = sel === null;
+    if (sel === null) list(); else task();
     tick();
   }
 
@@ -365,7 +283,7 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
     $$('[data-until]').forEach(el => {
       const ms = Math.max(0, el.dataset.until - now), s = Math.round(ms / 1000);
       const c = ms < 10 * MIN ? Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : Math.round(ms / MIN) + ' min';
-      el.innerHTML = ms < el.dataset.warn * MIN ? `<strong>${c}</strong>` : c;
+      el.innerHTML = ms < el.dataset.warn * MIN ? `<strong class="warn">${c}</strong>` : c;
     });
     for (const t of by('claimed')) {
       if (t.exp && now >= t.exp && !t.expired) {
@@ -373,29 +291,6 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
         scheduleReload();
         break;
       }
-    }
-  }
-
-  const render = () => {
-    stuckBy = {};
-    for (const t of tasks) if (t.state === 'stuck') stuckBy[t.project] = (stuckBy[t.project] || 0) + 1;
-    tabs(); list(); pane();
-  };
-
-  function select(id) {
-    id = id ? +id : null;
-    if (id && sel === id) return;
-    sel = id;
-    const picked = id && get(id);
-    if (picked && picked.project !== project) { setProject(picked.project); $('#q').value = ''; }   /* the pane and the list agree on the project */
-    syncURL();
-    $('#pane').innerHTML = '';
-    $('#pane').dataset.key = '';
-    render();
-    $('#pane').scrollTop = 0;
-    if (sel) {
-      const t = get(sel);
-      if (t) fetchNotes(t);
     }
   }
 
@@ -407,91 +302,76 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
       t.thread = (full.notes || []).map(n => `${n.author}: ${n.text}`);
       t.threadLoaded = true;
       if (full.version !== undefined) t.version = full.version;
-      if (sel === t.id) pane();
+      if (sel === t.id) render();
     } catch (_) {}
-  }
-
-  function showWarn(err) {
-    let p = $('#pane p.warn');
-    if (!p) {
-      p = document.createElement('p');
-      p.className = 'warn';
-      $('#pane').prepend(p);
-    }
-    p.textContent = (err && err.field ? err.field + ': ' : '') + (err && err.error ? err.error : 'Request failed');
-  }
-
-  function showWarnMsg(msg) {
-    let p = $('#pane p.warn');
-    if (!p) {
-      p = document.createElement('p');
-      p.className = 'warn';
-      $('#pane').prepend(p);
-    }
-    p.textContent = msg;
   }
 
   async function load() {
     try {
       const res = await fetch('/tasks?limit=1000');
       if (!res.ok) return;
-      const raw = await res.json();
-      tasks = raw.map(mapTask);
-      if (tasks.some(t => t.project === newProject)) newProject = '';   /* the + tab has a task now; the data carries it */
-      const all = projects(), was = project;
+      tasks = (await res.json()).map(mapTask);
+      if (tasks.some(t => t.project === newProject)) newProject = '';
+      const all = projects();
       if (!all.includes(project)) { setProject(all[0] || 'taskd'); if (!all.length) newProject = 'taskd'; }   /* a bookmark to a project that is gone, or a fresh database */
-      if (sel && get(sel) && get(sel).project !== project) setProject(get(sel).project);   /* a link to a task lands on its project */
-      if (project !== was) syncURL();
+      const t = sel && get(sel);
+      if (t && t.project !== project) setProject(t.project);        /* a link to a task lands on its project */
+      if (new URL(location).searchParams.get('p') !== project) history.replaceState(history.state, '', href(project, sel));
       render();
-      if (sel) {
-        const t = get(sel);
-        if (t && !t.threadLoaded) fetchNotes(t);
-      }
+      if (t) fetchNotes(t);                                          /* the thread may have grown */
     } catch (_) {}
   }
 
-  /* ---------- events ---------- */
-  $('#list').addEventListener('click', e => {
-    const tr = e.target.closest('tbody tr');
-    if (tr) { e.preventDefault(); select(tr.dataset.id); }
-  });
-  $('#status').addEventListener('click', e => {
-    const a = e.target.closest('a');
-    if (!a) return;
-    e.preventDefault();
-    if (a.dataset.project && a.dataset.project !== project) { setProject(a.dataset.project); sel = null; $('#q').value = ''; syncURL(); render(); }
-    $(a.getAttribute('href'))?.scrollIntoView({ block: 'start' });
-  });
-  $('#new').addEventListener('click', () => {
-    select(null);
-    $('form.add textarea')?.focus();
-  });
-  $('#q').addEventListener('input', list);
-  $('#tools').addEventListener('submit', e => e.preventDefault());
+  /* ---------- the new task dialog ---------- */
+  function openAdd() {
+    const f = $('#add form');
+    $('#addproject').textContent = project;
+    f.elements.after.innerHTML = waitOptions({ id: 0, after: [], project });
+    f.elements.body.value = draft('add');
+    $('#add').showModal();
+    f.elements.body.focus();
+  }
 
-  $('#tabs').addEventListener('click', e => {
-    const b = e.target.closest('button');
-    if (!b) return;
-    if (b.classList.contains('add')) {
-      const name = (prompt('New project name (letters, digits, . _ -)') || '').trim();
-      if (!name) return;
-      if (!NAME.test(name)) return alert('A project name is letters, digits, dots, dashes and underscores, up to 64 of them.');
-      newProject = name;
-      setProject(name);
-    } else {
-      setProject(b.dataset.project);               /* walking away from an empty + tab closes it */
+  /* ---------- events ---------- */
+  document.addEventListener('click', e => {
+    const a = e.target.closest('a[href]');
+    if (a && a.origin === location.origin && (a.search.startsWith('?p=') || a.hash)) {
+      e.preventDefault();
+      const p = new URLSearchParams(a.search).get('p') || project, id = +a.hash.slice(1) || null;
+      if (id) return go(p, id, true);
+      if (p !== project || sel !== null) go(p, null, true);
+      if (a.hash) $(a.hash)?.scrollIntoView({ block: 'start' });     /* #stuck, #queued: a section, not a task */
+      return;
     }
-    sel = null;
-    $('#q').value = '';
-    syncURL();
-    render();
+    const tr = e.target.closest('#list tbody tr');
+    if (tr) return go(project, +tr.dataset.id, true);
+    if (e.target.closest('[data-back]')) return back();
+    if (e.target.closest('[data-close]')) return $('#add').close();
+  });
+  addEventListener('popstate', route);
+
+  $('#q').addEventListener('input', list);
+  $('#new').addEventListener('click', openAdd);
+  $('#newproject').addEventListener('click', () => {
+    const name = (prompt('New project name (letters, digits, . _ -)') || '').trim();
+    if (!name) return;
+    if (!NAME.test(name)) return toast('A project name is letters, digits, dots, dashes and underscores, up to 64 of them.');
+    newProject = name;
+    go(name, null, true);
+  });
+
+  /* a draft lives in sessionStorage until it is sent or cleared */
+  document.addEventListener('input', e => {
+    const key = e.target.dataset && e.target.dataset.draft;
+    if (key) sessionStorage.setItem('draft:' + key, e.target.value);
   });
 
   /* light or dark: the choice is kept; with nothing chosen the page follows the system */
   const applyTheme = () => {
     const t = localStorage.getItem('theme') || '';
     document.documentElement.style.colorScheme = t || '';
-    $$('#theme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === (t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')))));
+    const on = t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+    $$('#theme button').forEach(b => { b.classList.toggle('outline', b.dataset.theme !== on); b.setAttribute('aria-pressed', String(b.dataset.theme === on)); });
   };
   $('#theme').addEventListener('click', e => {
     const b = e.target.closest('button[data-theme]');
@@ -502,199 +382,104 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
   applyTheme();
 
-  $('#pane').addEventListener('click', async e => {
-    const link = e.target.closest('a[href^="#"]');
-    if (link) { e.preventDefault(); return select(link.getAttribute('href').slice(1)); }
+  $('#task').addEventListener('click', async e => {
     const b = e.target.closest('button[data-act]');
     if (!b) return;
     const t = get(sel), act = b.dataset.act;
     if (act === 'cancel') {
       const f = b.closest('form');
-      if (f.matches('.add')) { f.reset(); $('#pane p.warn')?.remove(); return f.body.focus(); }
-      if (f.matches('.reply')) { f.reset(); return; }
-      $('#pane').dataset.key = '';               /* .edit: throw the draft away and show the text again */
-      return pane();
+      if (f.matches('.edit')) { sessionStorage.removeItem('draft:edit:' + t.id); editing = false; return render(); }
+      sessionStorage.removeItem('draft:reply:' + t.id);
+      f.elements.reply.value = '';
+      return;
     }
     if (!t) return;
+    if (act === 'edit') { editing = true; render(); return $('#task form.edit textarea').focus(); }
     if (act === 'drop') {
       if (!confirm(`Drop “${t.title}”? It leaves the queue.`)) return;
       const res = await fetch('/tasks/' + t.id, { method: 'DELETE' });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return showWarn(err);
-      }
-      select(null);
+      if (!res.ok) return fail(await res.json().catch(() => ({})));
+      go(project, null, false);
       return load();
     }
     if (act === 'revoke') {
       const why = prompt(`Why are you revoking ${t.worker}? This goes in the thread.`);
       if (why === null) return;
       if (why.trim()) {
-        const noteRes = await fetch('/tasks/' + t.id + '/notes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ author: 'you', text: why.trim() }),
-        });
-        if (!noteRes.ok) {
-          const err = await noteRes.json().catch(() => ({}));
-          return showWarn(err);
-        }
+        const res = await json('POST', '/tasks/' + t.id + '/notes', { author: 'you', text: why.trim() });
+        if (!res.ok) return fail(await res.json().catch(() => ({})));
       }
-      const buryRes = await fetch('/tasks/' + t.id + '/bury', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ worker: t.worker }),
-      });
-      if (!buryRes.ok) {
-        const err = await buryRes.json().catch(() => ({}));
-        return showWarn(err);
-      }
+      const res = await json('POST', '/tasks/' + t.id + '/bury', { worker: t.worker });
+      if (!res.ok) return fail(await res.json().catch(() => ({})));
       return load();
-    }
-    if (act === 'edit') {
-      const p = $('.body', $('#pane'));
-      const f = document.createElement('form');
-      f.className = 'edit';
-      f.innerHTML = `<textarea name="text" aria-label="Task text" required></textarea>${buttons('Save')}`;
-      f.text.value = t.body;
-      if (p) p.replaceWith(f);
-      b.parentElement.remove();
-      return f.text.focus();
     }
   });
 
-  $('#pane').addEventListener('change', async e => {
+  /* a PATCH carries the version we saw; 409 means someone else got there first */
+  async function patch(t, data) {
+    if (t.version != null) data.version = t.version;
+    const res = await json('PATCH', '/tasks/' + t.id, data);
+    if (res.status === 409) { toast('Changed elsewhere, reloading'); load(); return false; }
+    if (!res.ok) { fail(await res.json().catch(() => ({}))); return false; }
+    return true;
+  }
+
+  $('#task').addEventListener('change', async e => {
     const t = get(sel), a = e.target.dataset.act;
     if (!t || !a) return;
-    if (a === 'pri') {
-      const patchData = { priority: +e.target.value };
-      if (t.version != null) patchData.version = t.version;
-      const res = await fetch('/tasks/' + t.id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patchData),
-      });
-      if (res.status === 409) {
-        showWarnMsg('Changed elsewhere, reloading');
-        return load();
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return showWarn(err);
-      }
-      return load();
-    }
-    if (a === 'after' && e.target.value) {
-      const patchData = { after: [...t.after, +e.target.value] };
-      if (t.version != null) patchData.version = t.version;
-      const res = await fetch('/tasks/' + t.id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patchData),
-      });
-      if (res.status === 409) {
-        showWarnMsg('Changed elsewhere, reloading');
-        return load();
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return showWarn(err);
-      }
-      return load();
-    }
+    if (a === 'pri' && await patch(t, { priority: +e.target.value })) return load();
+    if (a === 'after' && e.target.value && await patch(t, { after: [...t.after, +e.target.value] })) return load();
   });
 
-  $('#pane').addEventListener('submit', async e => {
+  $('#task').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target, v = new FormData(f), t = get(sel);
     if (f.matches('.edit')) {
-      const newRest = v.get('text').trim();
-      const newBody = t.title ? (newRest ? t.title + '\n\n' + newRest : t.title) : newRest;
-      const patchData = { body: newBody };
-      if (t.version != null) patchData.version = t.version;
-      const res = await fetch('/tasks/' + t.id, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patchData),
-      });
-      if (res.status === 409) {
-        showWarnMsg('Changed elsewhere, reloading');
-        return load();
-      }
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        return showWarn(err);
-      }
-      $('#pane').dataset.key = '';
+      const rest = v.get('text').trim();
+      if (!await patch(t, { body: t.title ? (rest ? t.title + '\n\n' + rest : t.title) : rest })) return;
+      sessionStorage.removeItem('draft:edit:' + t.id);
+      editing = false;
       return load();
     }
-    if (f.matches('.reply')) {
-      const text = v.get('reply').trim();
-      const noteRes = await fetch('/tasks/' + t.id + '/notes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ author: 'you', text }),
-      });
-      if (!noteRes.ok) {
-        const err = await noteRes.json().catch(() => ({}));
-        return showWarn(err);
-      }
-      if (v.get('after')) {
-        const patchData = { after: [...t.after, +v.get('after')] };
-        if (t.version != null) patchData.version = t.version;
-        const patchRes = await fetch('/tasks/' + t.id, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(patchData),
-        });
-        if (patchRes.status === 409) {
-          showWarnMsg('Changed elsewhere, reloading');
-          return load();
-        }
-        if (!patchRes.ok) {
-          const err = await patchRes.json().catch(() => ({}));
-          return showWarn(err);
-        }
-      }
-      const kickRes = await fetch('/tasks/' + t.id + '/kick', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      if (!kickRes.ok) {
-        const err = await kickRes.json().catch(() => ({}));
-        return showWarn(err);
-      }
-      $('#pane').dataset.key = '';
-      return load();
-    }
-    const body = v.get('body').trim();
-    const priority = +v.get('pri');
-    const after = v.get('after') ? [+v.get('after')] : [];
-    const res = await fetch('/tasks', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, project, priority, after }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return showWarn(err);
-    }
+    const text = v.get('reply').trim();
+    const res = await json('POST', '/tasks/' + t.id + '/notes', { author: 'you', text });
+    if (!res.ok) return fail(await res.json().catch(() => ({})));
+    if (v.get('after') && !await patch(t, { after: [...t.after, +v.get('after')] })) return;
+    const kick = await json('POST', '/tasks/' + t.id + '/kick', {});
+    if (!kick.ok) return fail(await kick.json().catch(() => ({})));
+    sessionStorage.removeItem('draft:reply:' + t.id);
+    return load();
+  });
+
+  $('#add form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const f = e.target, v = new FormData(f);
+    const res = await json('POST', '/tasks', { body: v.get('body').trim(), project, priority: +v.get('pri'), after: v.get('after') ? [+v.get('after')] : [] });
+    if (!res.ok) return fail(await res.json().catch(() => ({})));
+    sessionStorage.removeItem('draft:add');
     f.reset();
-    await load();
+    $('#add').close();
+    load();
   });
 
   addEventListener('keydown', e => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement?.form) return document.activeElement.form.requestSubmit();
-    if (e.key === 'Escape') { typing ? document.activeElement?.blur() : select(null); return; }
+    if ($('#add').open) return;                                  /* the dialog owns its keys; Escape closes it */
+    if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else if (sel !== null) back(); return; }
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
-    if (e.key === 'n') { e.preventDefault(); $('#new').click(); }
+    if (e.key === '/') { e.preventDefault(); if (sel === null) $('#q').focus(); }
+    if (e.key === 'n') { e.preventDefault(); openAdd(); }
+    if (sel !== null) return;
     if (e.key === 'j' || e.key === 'k') {
-      const ids = $$('#list tbody tr').map(r => r.dataset.id), i = ids.indexOf(String(sel)), next = ids[e.key === 'j' ? Math.min(ids.length - 1, i + 1) : Math.max(0, i - 1)];
-      if (next) { select(+next); $(`tr[data-id="${next}"]`)?.scrollIntoView({ block: 'nearest' }); }
+      const ids = $$('#list tbody tr').map(r => +r.dataset.id), i = ids.indexOf(cur), next = ids[e.key === 'j' ? Math.min(ids.length - 1, i + 1) : Math.max(0, i - 1)];
+      if (next && next !== cur) {
+        $(`tr[data-id="${cur}"]`)?.removeAttribute('aria-current');
+        cur = next;
+        const row = $(`tr[data-id="${cur}"]`); row.setAttribute('aria-current', 'true'); row.scrollIntoView({ block: 'nearest' });
+      }
     }
+    if (e.key === 'Enter' && cur && !/BUTTON|A/.test(document.activeElement?.tagName) && $(`tr[data-id="${cur}"]`)) go(project, cur, true);
   });
 
   let reloadTimer;
@@ -714,7 +499,10 @@ form .row { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.5re
     }
   };
 
-  sel = location.hash.slice(1) ? +location.hash.slice(1) : null;
+  const u0 = new URL(location);
+  if (u0.searchParams.get('p')) setProject(u0.searchParams.get('p'));
+  sel = +u0.hash.slice(1) || null;
+  cur = sel;
   load();
   setInterval(tick, 1000);
 })();
