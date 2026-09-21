@@ -11,7 +11,8 @@ func printUsage(w io.Writer) {
 taskd is a lightweight task queue daemon backed by SQLite.
 
 Commands talk to a running daemon at TASKD_URL (default http://127.0.0.1:8080)
-as the worker named by TASKD_WORKER (default user.host) in TASKD_PROJECT:
+as the worker named by TASKD_WORKER (default user.host) in TASKD_PROJECT,
+sending TASKD_TOKEN when the daemon requires one:
   add [body]         create a task; body from stdin when piped or "-"
   claim [id]         claim the next task, or the one named; exit 3 when none
   done ID            finish a claimed task (-result JSON)
@@ -32,6 +33,7 @@ Options:
   -addr <addr>        listen address (e.g. :8080 to expose on all interfaces) (default: 127.0.0.1:8080)
   -backup <path>      backup destination path
   -cors-origin <url>  allowed CORS origin
+  -token <secret>     require this bearer token on every request
   -db <path>          database path (default: taskd.db)
   -lease <seconds>    lease duration in seconds (default: 300)
   -log-requests       log completed HTTP requests (default: true)
@@ -45,6 +47,7 @@ Environment variables:
   TASKD_LEASE         lease duration in seconds (default: 300)
   TASKD_MAX_CLAIMS    bury a task after this many claims (default: 0)
   TASKD_CORS_ORIGIN   allowed CORS origin
+  TASKD_TOKEN         require this bearer token on every request
   TASKD_LOG_REQUESTS  log completed HTTP requests (default: true)
 
 HTTP Endpoints:

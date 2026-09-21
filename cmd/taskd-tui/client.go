@@ -18,8 +18,9 @@ import (
 )
 
 type client struct {
-	base string
-	http *http.Client
+	base  string
+	token string
+	http  *http.Client
 
 	// mu guards cancelWalk, the stop switch of the list walk currently on
 	// the wire. Starting a walk cancels the one it supersedes, so a
@@ -29,16 +30,30 @@ type client struct {
 	cancelWalk context.CancelFunc
 }
 
-func newClient(base string) *client {
+func newClient(base, token string) *client {
 	return &client{
-		base: strings.TrimRight(base, "/"),
+		base:  strings.TrimRight(base, "/"),
+		token: token,
 		http: &http.Client{
 			Timeout: 3 * time.Second,
 		},
 	}
 }
 
-func parseError(resp *http.Response, method, path string) error {
+func (c *client) send(req *http.Request) (*http.Response, error) {
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	return c.http.Do(req)
+}
+
+func (c *client) parseError(resp *http.Response, method, path string) error {
+	if resp.StatusCode == http.StatusUnauthorized {
+		if c.token == "" {
+			return errors.New("unauthorized: the daemon requires TASKD_TOKEN")
+		}
+		return errors.New("unauthorized: the daemon rejected TASKD_TOKEN")
+	}
 	body, err := io.ReadAll(resp.Body)
 	if err == nil && len(body) > 0 {
 		var errResp struct {
@@ -144,7 +159,7 @@ func (c *client) list(sc listScope, etag string) (listResult, error) {
 		if page == 0 && pages == 1 && etag != "" {
 			req.Header.Set("If-None-Match", etag)
 		}
-		resp, err := c.http.Do(req)
+		resp, err := c.send(req)
 		if err != nil {
 			return partial(page, err)
 		}
@@ -153,7 +168,7 @@ func (c *client) list(sc listScope, etag string) (listResult, error) {
 			return listResult{etag: etag}, nil
 		}
 		if resp.StatusCode != http.StatusOK {
-			err = parseError(resp, http.MethodGet, relPath)
+			err = c.parseError(resp, http.MethodGet, relPath)
 			resp.Body.Close()
 			return partial(page, err)
 		}
@@ -209,14 +224,14 @@ func (c *client) getStats(project, worker string) (stats, error) {
 	if err != nil {
 		return stats{}, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return stats{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return stats{}, parseError(resp, http.MethodGet, relPath)
+		return stats{}, c.parseError(resp, http.MethodGet, relPath)
 	}
 	var s stats
 	if err := json.NewDecoder(resp.Body).Decode(&s); err != nil {
@@ -232,14 +247,14 @@ func (c *client) getProjects() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseError(resp, http.MethodGet, relPath)
+		return nil, c.parseError(resp, http.MethodGet, relPath)
 	}
 	var projects []string
 	if err := json.NewDecoder(resp.Body).Decode(&projects); err != nil {
@@ -255,14 +270,14 @@ func (c *client) getWorkers() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseError(resp, http.MethodGet, relPath)
+		return nil, c.parseError(resp, http.MethodGet, relPath)
 	}
 	var workers []string
 	if err := json.NewDecoder(resp.Body).Decode(&workers); err != nil {
@@ -278,13 +293,13 @@ func (c *client) getNotes(id int64) ([]taskNote, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, parseError(resp, http.MethodGet, relPath)
+		return nil, c.parseError(resp, http.MethodGet, relPath)
 	}
 	var res struct {
 		Notes []taskNote `json:"notes"`
@@ -321,7 +336,7 @@ func (c *client) do(method, path string, body any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return err
 	}
@@ -330,7 +345,7 @@ func (c *client) do(method, path string, body any) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
-	return parseError(resp, method, path)
+	return c.parseError(resp, method, path)
 }
 
 func pollCmd(c *client, sc listScope, etag string, seq uint64) tea.Cmd {

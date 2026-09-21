@@ -22,8 +22,11 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-func runServer(ctx context.Context, l net.Listener, db *store, lease int, corsOrigin string, logRequests bool) error {
+func runServer(ctx context.Context, l net.Listener, db *store, lease int, corsOrigin, token string, logRequests bool) error {
 	handler := newHandlerWithCORS(db, lease, corsOrigin)
+	if token != "" {
+		handler = requireToken(handler, token)
+	}
 	if logRequests {
 		handler = withRequestLogging(handler)
 	}
@@ -93,15 +96,15 @@ func run(stdout io.Writer, args []string) error {
 
 	logStartupDB(cfg.dbPath, cfg.lease, isNew)
 
-	if tcp, ok := l.Addr().(*net.TCPAddr); ok && tcp.IP.IsUnspecified() {
-		log.Print("warning: listening on all interfaces; taskd has no authentication")
+	if tcp, ok := l.Addr().(*net.TCPAddr); ok && tcp.IP.IsUnspecified() && cfg.token == "" {
+		log.Print("warning: listening on all interfaces without TASKD_TOKEN; anyone who can reach this port can read and change tasks")
 	}
 	log.Printf("listening on %s", l.Addr())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin, cfg.logRequests)
+	return runServer(ctx, l, db, cfg.lease, cfg.corsOrigin, cfg.token, cfg.logRequests)
 }
 
 func logStartupDB(dbPath string, lease int, isNew bool) {

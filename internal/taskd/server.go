@@ -121,7 +121,7 @@ func (s *server) handler() http.Handler {
 			w.Header().Set("Access-Control-Allow-Origin", s.cors)
 			if r.Method == http.MethodOptions {
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, If-None-Match, Authorization")
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}

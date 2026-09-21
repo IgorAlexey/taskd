@@ -17,6 +17,7 @@ type config struct {
 	maxClaims   int
 	backupPath  string
 	corsOrigin  string
+	token       string
 	version     bool
 	logRequests bool
 }
@@ -66,6 +67,7 @@ func newFlagSet(cfg *config) *flag.FlagSet {
 	fs.IntVar(&cfg.maxClaims, "max-claims", cfg.maxClaims, "bury a task after this many claims (0 = unlimited)")
 	fs.StringVar(&cfg.backupPath, "backup", "", "backup destination path")
 	fs.StringVar(&cfg.corsOrigin, "cors-origin", cfg.corsOrigin, "allowed CORS origin")
+	fs.StringVar(&cfg.token, "token", cfg.token, "require this bearer token on every request")
 	fs.BoolVar(&cfg.logRequests, "log-requests", cfg.logRequests, "log completed HTTP requests")
 	fs.BoolVar(&cfg.version, "v", false, "print version and exit")
 	fs.BoolVar(&cfg.version, "version", false, "print version and exit")
@@ -110,6 +112,9 @@ func parseFlags(args []string) (config, error) {
 	}
 	if v := os.Getenv("TASKD_CORS_ORIGIN"); v != "" {
 		cfg.corsOrigin = v
+	}
+	if v := os.Getenv("TASKD_TOKEN"); v != "" {
+		cfg.token = v
 	}
 	if v := os.Getenv("TASKD_LOG_REQUESTS"); v != "" {
 		b, err := strconv.ParseBool(v)

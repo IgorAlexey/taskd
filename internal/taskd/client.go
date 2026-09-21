@@ -40,6 +40,7 @@ var synopsis = map[string]string{
 
 type client struct {
 	url    string
+	token  string
 	worker string
 	stdin  io.Reader
 	stdout io.Writer
@@ -47,7 +48,7 @@ type client struct {
 }
 
 func runClient(stdout, stderr io.Writer, stdin io.Reader, args []string) int {
-	c := &client{stdin: stdin, stdout: stdout, stderr: stderr}
+	c := &client{stdin: stdin, stdout: stdout, stderr: stderr, token: os.Getenv("TASKD_TOKEN")}
 	cmd, rest := args[0], args[1:]
 	if cmd == "help" {
 		if len(rest) == 0 || rest[0] == "serve" || rest[0] == "help" {
@@ -377,6 +378,9 @@ func (c *client) print(method, path string, req any, quiet bool) error {
 	if body != nil {
 		hr.Header.Set("Content-Type", "application/json")
 	}
+	if c.token != "" {
+		hr.Header.Set("Authorization", "Bearer "+c.token)
+	}
 	timeout := 30 * time.Second
 	if m, ok := req.(map[string]any); ok {
 		if w, ok := m["wait"].(float64); ok {
@@ -401,6 +405,12 @@ func (c *client) print(method, path string, req any, quiet bool) error {
 			return errNoTask
 		}
 		return nil
+	}
+	if res.StatusCode == http.StatusUnauthorized {
+		if c.token == "" {
+			return errors.New("unauthorized: the daemon requires TASKD_TOKEN")
+		}
+		return errors.New("unauthorized: the daemon rejected TASKD_TOKEN")
 	}
 	if res.StatusCode >= 300 {
 		var e struct {
