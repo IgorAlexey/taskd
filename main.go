@@ -1329,6 +1329,23 @@ func blockedProjects(q queryer, doneID int64) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	return scanProjects(rows)
+}
+
+// blockedProjectsBy names the other projects with a task waiting on any
+// task of the given project.
+func blockedProjectsBy(q queryer, project string) ([]string, error) {
+	rows, err := q.Query(`SELECT DISTINCT t.project FROM task_deps d
+JOIN tasks t ON t.id = d.task_id
+JOIN tasks dep ON dep.id = d.depends_on_id
+WHERE dep.project = ? AND t.project != ?`, project, project)
+	if err != nil {
+		return nil, err
+	}
+	return scanProjects(rows)
+}
+
+func scanProjects(rows *sql.Rows) ([]string, error) {
 	defer rows.Close()
 	var projs []string
 	for rows.Next() {
@@ -2838,6 +2855,54 @@ FROM json_each(?) j JOIN notes n ON n.id = (SELECT MAX(id) FROM notes WHERE task
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(projects)
 	}
+	// A project is the tasks that name it; deleting one deletes them all,
+	// unless a worker still holds one, since that worker would report to
+	// a task that no longer exists.
+	deleteProjectHandler := func(w http.ResponseWriter, r *http.Request) {
+		project := r.PathValue("project")
+		if msg, ok := checkProject(project); !ok {
+			writeError(w, http.StatusBadRequest, msg)
+			return
+		}
+		tx, err := db.rw.Begin()
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		defer tx.Rollback()
+		var total, leased int
+		err = tx.QueryRow("SELECT COUNT(*), COUNT(CASE WHEN status = 'leased' AND lease_expires >= ? THEN 1 END) FROM tasks WHERE project = ?", time.Now().Unix(), project).Scan(&total, &leased)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if total == 0 {
+			writeError(w, http.StatusNotFound, "project not found")
+			return
+		}
+		if leased > 0 {
+			writeError(w, http.StatusConflict, "project has a claimed task")
+			return
+		}
+		projs, err := blockedProjectsBy(tx, project)
+		if err != nil {
+			internalError(w, err)
+			return
+		}
+		if _, err := tx.Exec("DELETE FROM tasks WHERE project = ?", project); err != nil {
+			internalError(w, err)
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			internalError(w, err)
+			return
+		}
+		db.events.publish()
+		for _, p := range projs {
+			db.notifyPending(p)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
 	workersHandler := func(w http.ResponseWriter, r *http.Request) {
 		q := requestQuery(r)
 		project, ok := validateProjectFilter(w, q)
@@ -3305,6 +3370,9 @@ RETURNING status, project`,
 	handleMethods(mux, "/projects", map[string]route{
 		http.MethodGet: {handler: projectsHandler},
 	})
+	handleMethods(mux, "/projects/{project}", map[string]route{
+		http.MethodDelete: {handler: deleteProjectHandler},
+	})
 	handleMethods(mux, "/workers", map[string]route{
 		http.MethodGet: {handler: workersHandler, params: []string{"project", "status"}},
 	})
@@ -3424,6 +3492,7 @@ HTTP Endpoints:
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   POST   /tasks/kick         bulk-unbury tasks (optional project, limit)
   GET    /projects           list active projects
+  DELETE /projects/{name}    delete a project and every task in it (409 while one is claimed)
   GET    /workers            list active workers
          ?project=           exact match; project=* matches all projects
          ?status=            filter by task status (pending, leased, done, buried)
