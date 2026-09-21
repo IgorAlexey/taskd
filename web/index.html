@@ -3,24 +3,166 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>taskd</title>
 <!--
-  Oat UI (knadh/oat, MIT) does the styling; this file adds a handful of rules Oat has no opinion on.
-  Left: one link per project. Right: the project's tasks, or the one task you opened.
+  One column and no second pane. Every task is a row in the order you need them, and the row you
+  pick unfolds where it sits. A blank task waits at the top of the column. The rail on the left is
+  only for getting around: which project, which part of its queue.
+
+  Oat UI (knadh/oat, MIT) styles the semantic HTML and brings the toast and dialog behaviour.
+  Everything Oat does sits in CSS @layers, so the unlayered rules below always win.
 -->
 <link rel="stylesheet" href="/ui/oat.min.css">
 <script src="/ui/oat.min.js" defer></script>
 <style>
-:root { --sidebar-width: 13rem; }
-main { padding: var(--space-4) var(--space-8) var(--space-16); }
-main > * { max-width: 56rem; }
-#q { width: 14rem; margin: 0; }
-.icon { width: 1em; height: 1em; vertical-align: -0.125em; fill: currentColor; }
-.warn { color: var(--warning); }
-.body { white-space: pre-wrap; }
-tbody tr { cursor: pointer; }
-tbody tr[aria-current] { background-color: var(--accent); }
-aside nav .badge { margin-inline-start: auto; }
+:root {
+  color-scheme: light dark;
+  /* the taskd palette: a near-black canvas, warm amber for what is ours, one colour per state */
+  --bg:         light-dark(#f8fafc, #14161b);
+  --surface:    light-dark(#ffffff, #1c2027);
+  --raised:     light-dark(#f1f5f9, #252b35);
+  --border:     light-dark(#94a3b8, #4a5568);
+  --rule:       color-mix(in srgb, var(--border) 45%, transparent);
+  --fg:         light-dark(#0f172a, #e8ecf1);
+  --quiet:      light-dark(#475569, #8b949e);
+  --amber:      light-dark(#b45309, #e5a54b);
+  --amber-hi:   light-dark(#92400e, #f0b869);
+  --pending:    light-dark(#b45309, #f0a638);
+  --leased:     light-dark(#1d4ed8, #60a5fa);
+  --done:       light-dark(#15803d, #3fb950);
+  --danger:     light-dark(#b91c1c, #f87171);
+  --buried:     light-dark(#6d28d9, #a78bfa);
+  --work: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --work-size: 0.875rem;
+
+  /* Oat's tokens, pointed at the palette above */
+  --background: var(--bg);          --foreground: var(--fg);
+  --card: var(--surface);           --card-foreground: var(--fg);
+  --primary: var(--amber);          --primary-foreground: var(--bg);
+  --secondary: var(--raised);       --secondary-foreground: var(--fg);
+  --muted: var(--surface);          --muted-foreground: var(--quiet);
+  --faint: var(--surface);          --accent: var(--raised);
+  --danger-foreground: var(--bg);   --success: var(--done);   --warning: var(--pending);
+  --input: var(--border);           --ring: var(--amber);
+  --radius-small: 3px; --radius-medium: 4px; --radius-large: 6px;
+  --font-sans: var(--work);
+  --text-7: var(--work-size);
+  --sidebar-width: 13.5rem;
+}
+html { font-variant-numeric: lining-nums; }
+.warn, strong { color: var(--danger); font-weight: 600; }
+a { text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
+.icon-svg { width: 1em; height: 1em; fill: currentColor; flex: none; vertical-align: -0.12em; }
+.n { font-variant-numeric: lining-nums tabular-nums; }
+.stuck .icon-svg, a[href="#stuck"] .icon-svg { color: var(--buried); }
+.claimed .icon-svg, a[href="#claimed"] .icon-svg { color: var(--leased); }
+.queued .icon-svg, a[href="#queued"] .icon-svg { color: var(--pending); }
+.done .icon-svg, a[href="#done"] .icon-svg { color: var(--done); }
+
+/* ---------- top: the name and the light switch ---------- */
+nav[data-topnav] { gap: 0.75rem; padding: 0.55rem 1.25rem; box-shadow: none; }
+nav[data-topnav] h1 { font: 600 1.05rem/1.2 var(--work); margin: 0; }
+#theme { margin: 0 0 0 auto; }
+#theme button { color: var(--quiet); width: 2.1rem; height: 1.9rem; }
+#theme button[aria-pressed="true"] { background: var(--raised); color: var(--amber); }
+
+/* ---------- left: getting around ---------- */
+aside[data-sidebar] { box-shadow: none; background: var(--surface); }
+aside[data-sidebar] > nav { padding: 1rem 0.6rem; }
+aside[data-sidebar] h2 { font: 600 0.75rem/1.2 var(--work); letter-spacing: 0; text-transform: uppercase; color: var(--quiet); margin: 1.5rem 0 0.4rem 0.65rem; }
+aside[data-sidebar] h2:first-child { margin-top: 0.2rem; }
+aside[data-sidebar] nav a { align-items: center; padding: 0.3rem 0.65rem; text-decoration: none; }
+aside[data-sidebar] nav a[aria-current] { background: color-mix(in srgb, var(--amber) 16%, transparent); color: var(--amber); }
+aside[data-sidebar] nav a[aria-disabled="true"] { color: var(--quiet); opacity: 0.6; pointer-events: none; }
+aside[data-sidebar] .count { margin-left: auto; color: var(--quiet); }
+aside[data-sidebar] .badge { margin-left: auto; padding: 0 0.5rem; }
+#add-project { margin: 0.35rem 0 0 0.1rem; color: var(--quiet); }
+
+/* ---------- the column ---------- */
+main { padding: 1.25rem 2.5rem 6rem; scroll-padding-top: 3rem; }
+.ledger { max-width: 58rem; }
+#status { margin-bottom: 1.25rem; }
+#status p { margin: 0; }
+#status a { color: inherit; }
+
+/* one row: a blank task and the filter. Writing in the blank drops a panel over the list instead of
+   pushing it down, so nothing moves under the pointer when you leave it. A draft stays in the line. */
+.top { display: flex; gap: 1rem; margin-bottom: 1.25rem; }
+#q { width: 13rem; margin: 0; flex: none; }
+form.add { position: relative; z-index: 3; flex: 1; min-width: 0; height: 2.45rem; }
+form.add .drop { position: absolute; inset: 0 0 auto 0; }
+form.add textarea { display: block; margin: 0; min-height: 2.45rem; height: 2.45rem; resize: none; overflow: hidden; white-space: nowrap; padding: 0.55rem 0.75rem; font: 1rem/1.35 var(--work); }
+form.add .more { display: none; }
+form.add.open .drop { margin: calc(-0.75rem - 1px); padding: 0.75rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-large); box-shadow: var(--shadow-large); }
+form.add.open textarea { height: 12rem; resize: vertical; overflow: auto; white-space: pre-wrap; }
+form.add.open .more { display: flex; }
+.fields { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.25rem; margin-top: 0.75rem; }
+.fields label, .fields .field { font-size: var(--work-size); font-weight: normal; color: var(--quiet); margin: 0; }
+.fields .field b { display: block; font-weight: normal; color: var(--fg); margin-top: 0.25rem; line-height: 2.15rem; }
+.fields select { display: block; width: auto; min-width: 5.5rem; }
+.fields label.wait { flex: 1 1 10rem; min-width: 0; }
+.fields label.wait select { width: 100%; text-overflow: ellipsis; }
+.fields .end { display: flex; gap: 0.6rem; margin-left: auto; }
+
+/* one section per state; the heading carries the column labels so rows need none */
+section { margin-bottom: 2.25rem; }
+.head { position: sticky; top: -1.25rem; z-index: 2; display: flex; align-items: baseline; background: var(--bg); padding: 1rem 0.4rem 0.4rem; border-bottom: 1px solid var(--border); font: var(--work-size)/1.2 var(--work); color: var(--quiet); }
+.head h2 { flex: 1; font: 600 1.1rem/1.2 var(--work); color: var(--fg); margin: 0; }
+.head h2 small { font: var(--work-size)/1 var(--work); font-weight: normal; color: var(--quiet); margin-left: 0.5rem; }
+.c-n { flex: none; width: 5rem; text-align: right; }
+.c-d { flex: none; width: 7.5rem; text-align: right; }
+.c-w { flex: none; width: 15rem; padding-left: 1.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* a row is Oat's accordion with the box taken off, so the list reads as a ledger */
+.task { border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; overflow: visible; }
+.task + .task { margin-top: 0; }
+.task > summary { align-items: baseline; justify-content: flex-start; gap: 0; padding: 0.4rem 0.4rem; border-bottom: 0; font: var(--work-size)/1.4 var(--work); font-weight: normal; user-select: text; }
+.task > summary::after { display: none; }
+.task > summary:focus-visible { outline-offset: -2px; }
+.lead { flex: none; width: 2rem; color: var(--quiet); }
+.t { flex: 1; min-width: 0; }
+.t a { color: var(--fg); text-decoration: none; }
+.t a:hover { text-decoration: underline; color: var(--amber-hi); }
+.why { display: block; font-size: var(--work-size); line-height: 1.4; color: var(--quiet); margin-top: 0.1rem; max-width: 40rem; }
+.task > summary > :is(.c-n, .c-d, .c-w) { color: var(--quiet); }
+
+/* the picked row unfolds in place */
+.task[open] { background: var(--surface); box-shadow: inset 2px 0 0 var(--amber); }
+.task[open] > summary { padding-top: 1rem; }
+.task[open] > summary:hover { background: none; }
+.task[open] .t a { font: 600 1.2rem/1.25 var(--work); }
+.task[open] .why { display: none; }
+.task > .sheet { margin: 0; padding: 0.4rem 1.5rem 1.5rem 2.4rem; animation: none; }
+.task.fresh > .sheet { animation: fade-in-up 0.25s both; }
+.sheet > * { max-width: 40rem; }
+.sheet p { margin: 0 0 1rem; }
+.sheet .body { white-space: pre-wrap; }
+.sheet .body:empty { display: none; }
+.sheet h3 { font: 600 var(--work-size)/1.3 var(--work); color: var(--quiet); margin: 1.5rem 0 0.5rem; }
+.thread { list-style: none; padding: 0; margin: 0 0 1rem; }
+.thread li { margin: 0 0 0.75rem; white-space: pre-wrap; }
+.thread b { display: block; font: var(--work-size)/1.3 var(--work); color: var(--amber); }
+.sheet .facts { color: var(--quiet); }
+.sheet textarea { display: block; min-height: 7rem; margin: 0; font: 1rem/1.45 var(--work); }
+.sheet form { margin-top: 1.25rem; }
+.actions { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem 1.25rem; margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.actions p { flex: 1 1 100%; margin: 0; color: var(--quiet); }
+.more-done { margin-top: 0.6rem; }
+.empty { padding-top: 1.1rem; }
+
+dialog label { font-weight: normal; color: var(--quiet); }
+dialog [data-hint] { display: block; margin-top: 0.35rem; font-size: 0.8rem; }
+
+@media (max-width: 768px) {
+  main { padding: 1rem 1rem 5rem; }
+  .head { top: -1rem; }
+  .top { flex-wrap: wrap; } #q { flex: 1 1 100%; width: auto; }
+  .opt { display: none; }
+  .c-w { width: 9rem; }
+  .task > .sheet { padding: 0.4rem 1rem 1.25rem 1rem; }
+  .fields .end { margin-left: 0; flex: 1 1 100%; justify-content: flex-end; }
+}
 </style>
 </head>
 <body data-sidebar-layout>
@@ -34,94 +176,100 @@ aside nav .badge { margin-inline-start: auto; }
   <symbol id="i-sun" viewBox="0 0 256 256"><path d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm8,24a64,64,0,1,0,64,64A64.07,64.07,0,0,0,128,64ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
   <symbol id="i-moon" viewBox="0 0 256 256"><path d="M235.54,150.21a104.84,104.84,0,0,1-37,52.91A104,104,0,0,1,32,120,103.09,103.09,0,0,1,52.88,57.48a104.84,104.84,0,0,1,52.91-37,8,8,0,0,1,10,10,88.08,88.08,0,0,0,109.8,109.8,8,8,0,0,1,10,10Z"/></symbol>
   <symbol id="i-plus" viewBox="0 0 256 256"><path d="M228,128a12,12,0,0,1-12,12H140v76a12,12,0,0,1-24,0V140H40a12,12,0,0,1,0-24h76V40a12,12,0,0,1,24,0v76h76A12,12,0,0,1,228,128Z"/></symbol>
-  <symbol id="i-list" viewBox="0 0 256 256"><path d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM40,72H216a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16ZM216,184H40a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 256 256"><path d="M40,52H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Zm0,64H216a12,12,0,0,1,0,24H40a12,12,0,0,1,0-24Z"/></symbol>
 </svg>
 
+<nav data-topnav>
+  <button type="button" data-sidebar-toggle class="ghost" aria-label="Projects"><svg class="icon-svg"><use href="#i-list"/></svg></button>
+  <h1>taskd</h1>
+  <menu class="buttons" id="theme" aria-label="Colour scheme">
+    <li><button type="button" class="outline icon small" data-theme="light" aria-label="Light"><svg class="icon-svg"><use href="#i-sun"/></svg></button></li>
+    <li><button type="button" class="outline icon small" data-theme="dark" aria-label="Dark"><svg class="icon-svg"><use href="#i-moon"/></svg></button></li>
+  </menu>
+</nav>
+
 <aside data-sidebar>
-  <header class="hstack justify-between">
-    <strong>taskd</strong>
-    <menu class="buttons" id="theme" aria-label="Colour scheme">
-      <li><button type="button" class="small outline" data-theme="light" aria-label="Light"><svg class="icon"><use href="#i-sun"/></svg></button></li>
-      <li><button type="button" class="small outline" data-theme="dark" aria-label="Dark"><svg class="icon"><use href="#i-moon"/></svg></button></li>
-    </menu>
-  </header>
-  <nav aria-label="Projects"><ul id="projects"></ul></nav>
-  <footer class="vstack">
-    <button type="button" id="new"><svg class="icon"><use href="#i-plus"/></svg> New task</button>
-    <button type="button" id="newproject" class="outline small">New project</button>
-  </footer>
+  <nav aria-label="Projects and states">
+    <h2>Projects</h2>
+    <ul id="projects"></ul>
+    <button type="button" class="ghost small" id="add-project"><svg class="icon-svg"><use href="#i-plus"/></svg> New project</button>
+    <h2 id="in">In this project</h2>
+    <ul id="states"></ul>
+  </nav>
 </aside>
 
-<main>
-  <div data-sidebar-header>
-    <button type="button" data-sidebar-toggle aria-label="Projects"><svg class="icon"><use href="#i-list"/></svg></button>
-    <strong>taskd</strong>
-  </div>
-  <div id="home">
-    <div id="status"></div>
-    <div class="hstack justify-between mt-4">
-      <h1 id="title"></h1>
+<main id="main">
+  <div class="ledger">
+    <div id="status" aria-live="polite"></div>
+    <div class="top">
+      <form class="add"><div class="drop">
+        <textarea name="body" required aria-label="New task" placeholder="Write a new task. The first line is the title; the rest is what the worker will read."></textarea>
+        <div class="fields more">
+          <p class="field">Project <b class="project"></b></p>
+          <label>Priority <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select></label>
+          <label class="wait">Wait for <select name="after"></select></label>
+          <span class="end"><button type="button" class="outline" data-act="clear">Clear</button><button type="submit">Add to the queue</button></span>
+        </div>
+      </div></form>
       <input type="search" id="q" aria-label="Filter tasks" placeholder="Filter">
     </div>
     <div id="list"></div>
   </div>
-  <article id="task" hidden></article>
 </main>
 
-<dialog id="add">
-  <form class="add">
-    <header><h3>New task</h3><p>in <span id="addproject"></span></p></header>
-    <div>
-      <label data-field>Task
-        <textarea name="body" required rows="10" data-draft="add" placeholder="The first line is the title.&#10;&#10;The rest is what the worker will read."></textarea>
-      </label>
-      <div class="hstack gap-4">
-        <label data-field>Priority
-          <select name="pri"><option value="1">1, first</option><option>2</option><option selected>3</option><option>4</option><option value="5">5, last</option></select>
-        </label>
-        <label data-field>Wait for <select name="after"></select></label>
-      </div>
-    </div>
-    <footer>
-      <button type="button" class="outline" data-close>Cancel</button>
-      <button type="submit">Add to the queue</button>
-    </footer>
+<!-- the one dialog: it asks a question, sometimes wants a line or a paragraph back -->
+<dialog id="ask" closedby="any">
+  <form method="dialog">
+    <header><h3></h3><p></p></header>
+    <div><label><span></span><input name="line" autocomplete="off"><textarea name="para" rows="4"></textarea><small data-hint></small></label></div>
+    <footer><button type="button" class="outline" data-cancel>Cancel</button><button type="submit" value="ok"></button></footer>
   </form>
 </dialog>
 
 <script>
 (() => {
+  const api = (path, opts) => fetch(path, opts);
   const MIN = 60e3;
-  const NAME = /^[A-Za-z0-9._-]{1,64}$/;
+  const NAME = '[A-Za-z0-9._\\-]{1,64}';
+  const DONE_CAP = 30;                     /* done is an archive: show the latest, offer the rest */
   let tasks = [];
-  let sel = null;                          /* the task you opened, or null for the list */
-  let cur = null;                          /* the row j/k rests on */
-  let editing = false;                     /* the opened task's text is in a textarea */
-  let listScroll = 0;                      /* where the list was when you left it */
-  let project = localStorage.getItem('project') || '';
-  let newProject = '';                     /* a project made with the button before it has any task */
+  let sel = null;                          /* the open row */
+  let editing = null;                      /* the task whose text is being edited */
+  let fresh = null;                        /* the row the person just opened, animated once */
+  let allDone = false;
+  let first = true;
+  const threads = new Map();               /* whole threads, by task id, for the rows that were opened */
+  let project = new URLSearchParams(location.search).get('p') || store('project') || '';
+  let newProject = '';                     /* a project opened with + before it has any task */
 
   /* ---------- helpers ---------- */
   const $ = (s, r = document) => r.querySelector(s), $$ = (s, r = document) => [...r.querySelectorAll(s)];
   const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function store(k, v) { try { return v === undefined ? localStorage.getItem(k) : localStorage.setItem(k, v); } catch (_) { return null; } }
   const by = s => tasks.filter(t => t.state === s);
   const get = id => tasks.find(t => t.id === +id);
   const waits = t => (t.after || []).map(get).filter(a => a && a.state !== 'done');
   const order = (a, b) => a.pri - b.pri || a.added - b.added;
+  const here = t => t.project === project;
   const ready = ts => ts.filter(t => t.state === 'queued' && !waits(t).length).sort(order);
   const projects = () => [...new Set([...tasks.map(t => t.project), newProject].filter(Boolean))].sort();
   const ICON = { stuck: 'alert', claimed: 'bolt', queued: 'clock', done: 'check' };
-  const icon = n => `<svg class="icon" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+  const icon = n => `<svg class="icon-svg" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+  const cap = s => s[0].toUpperCase() + s.slice(1);
+  const short = w => w.length > 30 ? '…' + w.slice(-28) : w;
+  const clip = (s, n = 180) => s.length > n ? s.slice(0, n).trimEnd() + '…' : s;
   const ago = ts => {
     if (!ts) return '';
     const m = (Date.now() - ts) / MIN;
-    return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 90 ? '1 hour ago' : m < 24 * 60 ? Math.round(m / 60) + ' hours ago' : 'yesterday';
+    return m < 1 ? 'just now' : m < 60 ? Math.round(m) + ' min ago' : m < 90 ? '1 hour ago' : m < 24 * 60 ? Math.round(m / 60) + ' hours ago' : m < 48 * 60 ? 'yesterday' : Math.round(m / 1440) + ' days ago';
   };
   const until = (ts, warn) => `<span data-until="${ts}" data-warn="${warn}"></span>`;
-  const toast = msg => window.ot ? ot.toast(msg, '', { variant: 'danger', duration: 6000 }) : alert(msg);
-  const fail = err => toast((err && err.field ? err.field + ': ' : '') + (err && err.error ? err.error : 'Request failed'));
-  const json = (method, url, body) => fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const draft = key => sessionStorage.getItem('draft:' + key) || '';
+  const fail = async res => ot.toast(await res.json().then(e => (e.field ? e.field + ': ' : '') + (e.error || 'Request failed'), () => 'Request failed'), 'Not saved', { variant: 'danger', placement: 'bottom-center', duration: 8000 });
+  const stale = () => ot.toast('Someone else changed this task. Here is the current version.', 'Reloaded', { variant: 'warning', placement: 'bottom-center' });
+  /* half-written replies and edits outlive a re-render and a reload of the page */
+  const draft = k => { try { return sessionStorage.getItem('draft:' + k) || ''; } catch (_) { return ''; } };
+  const setDraft = (k, v) => { try { v ? sessionStorage.setItem('draft:' + k, v) : sessionStorage.removeItem('draft:' + k); } catch (_) {} };
+
 
   function mapTask(raw) {
     const nl = (raw.body || '').indexOf('\n');
@@ -129,153 +277,196 @@ aside nav .badge { margin-inline-start: auto; }
     const rest = nl === -1 ? '' : raw.body.slice(nl + 1).replace(/^\n+/, '');
     const stateMap = { buried: 'stuck', leased: 'claimed', pending: 'queued', done: 'done' };
     return {
-      id: raw.id,
-      state: stateMap[raw.status] || raw.status,
-      title,
-      body: rest,
-      project: raw.project || '',
-      pri: raw.priority,
-      after: Array.isArray(raw.after) ? raw.after : [],
-      attempts: raw.claim_count || 0,
-      worker: raw.worker || '',
-      exp: (raw.lease_expires || 0) * 1000,
-      added: (raw.created_at || 0) * 1000,
-      version: raw.version,
-      thread: [],
-      threadLoaded: false,
+      id: raw.id, state: stateMap[raw.status] || raw.status, status: raw.status,
+      title, body: rest, rawBody: raw.body || '', project: raw.project || '',
+      pri: raw.priority, after: Array.isArray(raw.after) ? raw.after : [],
+      attempts: raw.claim_count || 0, worker: raw.worker || '',
+      exp: (raw.lease_expires || 0) * 1000, added: (raw.created_at || 0) * 1000,
+      version: raw.version, thread: threads.get(raw.id) || (raw.last_note ? [{ author: raw.last_note.author, text: raw.last_note.text }] : []),
     };
   }
 
-  /* ---------- where you are: ?p= is the project, #id is the opened task ---------- */
+  /* the one place the active project changes */
   function setProject(p) {
     project = p;
     if (p !== newProject) newProject = '';
-    localStorage.setItem('project', p);
+    allDone = false;
+    store('project', p);
   }
-  const href = (p, id) => `?p=${encodeURIComponent(p)}${id ? '#' + id : ''}`;
-  /* every move goes through the address bar, so the back button always works */
-  function go(p, id, push) {
-    if (id !== null && sel === null) listScroll = $('main').scrollTop;   /* leaving the list: remember where you were */
-    history[push ? 'pushState' : 'replaceState'](push ? { fromList: sel === null } : history.state, '', href(p, id));
-    route();
+  /* the address: ?p= is the project, &t= the open task. Opening a row is a step, so Back retraces
+     the rows you opened; closing one, or anything else, rewrites the entry you are on. */
+  const href = (p, id) => '?p=' + encodeURIComponent(p) + (id ? '&t=' + id : '');
+  function syncURL(push = false) {
+    try { history[push ? 'pushState' : 'replaceState'](null, '', href(project, sel)); } catch (_) {}
   }
-  function route() {
-    const u = new URL(location), p = u.searchParams.get('p'), id = +u.hash.slice(1) || null;
-    if (p && p !== project) setProject(p);
-    const t = id && get(id);
-    if (t && t.project !== project) { setProject(t.project); history.replaceState(history.state, '', href(project, id)); }
-    if (id !== sel) { editing = false; if (id) cur = id; }
-    const wasTask = sel !== null;
-    sel = id;
-    render();
-    if (sel) { if (!wasTask) $('main').scrollTop = 0; if (t) fetchNotes(t); }
-    else if (wasTask) $('main').scrollTop = listScroll;
-    if (matchMedia('(max-width: 768px)').matches) document.body.removeAttribute('data-sidebar-open');
-  }
-  function back() {
-    if (history.state && history.state.fromList) history.back();
-    else go(project, null, false);
-  }
+  addEventListener('popstate', () => {
+    const u = new URLSearchParams(location.search), p = u.get('p');
+    if (p && p !== project) { setProject(p); $('#q').value = ''; }
+    show(+u.get('t') || null);
+  });
 
-  /* ---------- the sidebar ---------- */
+  /* ---------- the rail: which project, which part of its queue ---------- */
   let stuckBy = {};
-  function sidebar() {
-    $('#projects').innerHTML = projects().map(p =>
-      `<li><a href="${href(p)}" data-project="${esc(p)}" ${p === project ? 'aria-current="page"' : ''}>${esc(p)}${stuckBy[p] ? `<span class="badge" data-variant="warning">${stuckBy[p]}</span>` : ''}</a></li>`).join('');
+  function rail(sets) {
+    $('#projects').innerHTML = projects().map(p => {
+      const q = tasks.filter(t => t.project === p && t.state === 'queued').length;
+      return `<li><a href="${href(p)}" data-project="${esc(p)}" ${p === project ? 'aria-current="page"' : ''}>${esc(p)}` +
+        (stuckBy[p] ? `<span class="badge n" data-variant="danger" aria-label="${stuckBy[p]} stuck">${icon('alert')}${stuckBy[p]}</span>` : `<span class="count n" aria-label="${q} queued">${q || ''}</span>`) + `</a></li>`;
+    }).join('');
+    $('#in').textContent = 'In ' + project;
+    $('#states').innerHTML = Object.entries(sets).map(([s, all]) =>
+      `<li><a href="#${s}" ${all.length ? '' : 'aria-disabled="true" tabindex="-1"'}>${icon(ICON[s])}${cap(s)}<span class="count n">${all.length}</span></a></li>`).join('');
   }
 
-  /* ---------- the list ---------- */
-  const COLS = {
-    stuck:   ['<th>Task</th><th class="align-right">Attempts</th><th class="align-right">Added</th>', t => `<td class="align-right">${t.attempts}</td><td class="align-right">${ago(t.added)}</td>`],
-    claimed: ['<th>Task</th><th>Worker</th><th class="align-right">Lease</th>', t => `<td>${esc(t.worker)}</td><td class="align-right">${until(t.exp, 3)}</td>`],
-    queued:  ['<th></th><th>Task</th><th class="align-right">Priority</th>', t => `<td class="align-right">${t.pri}</td>`],
-    done:    ['<th>Task</th><th>Worker</th>', t => `<td>${esc(t.worker)}</td>`],
+  /* ---------- the column: every task, and the open one unfolded where it sits ---------- */
+  const HEAD = {
+    stuck:   [['Attempts', 'c-n'], ['Added', 'c-d opt']],
+    claimed: [['Worker', 'c-w opt'], ['Lease', 'c-n']],
+    queued:  [['Priority', 'c-n']],
+    done:    [['Worker', 'c-w opt']],
   };
-  function list() {
+  const META = {
+    stuck:   t => [t.attempts, ago(t.added)],
+    claimed: t => [esc(short(t.worker)), until(t.exp, 3)],
+    queued:  t => [t.pri],
+    done:    t => [esc(short(t.worker))],
+  };
+
+  /* only this project may be waited on: a dependency across repositories is a mistake, not a feature */
+  const others = t => tasks.filter(x => x.id !== t.id && x.project === (t.project || project) && ['queued', 'claimed', 'stuck'].includes(x.state) && !(t.after || []).includes(x.id) && !(x.after || []).includes(t.id));
+  const waitOpts = t => `<option value="">nothing</option>${others(t).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('')}`;
+  const waitFor = (t, attr) => `<label class="wait">Wait for <select ${attr}>${waitOpts(t)}</select></label>`;
+
+  function sheet(t) {
+    const w = waits(t);
+    const state = {
+      stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
+      claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
+      queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="${href(a.project, a.id)}" data-task="${a.id}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
+                              : `Number ${ready(tasks.filter(x => x.project === t.project)).indexOf(t) + 1} in the queue.`,
+      done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
+    }[t.state]();
+    const editable = t.state === 'stuck' || t.state === 'queued';
+    const pris = [...new Set([1, 2, 3, 4, 5, t.pri])].sort((a, b) => a - b);
+    const acts = {
+      stuck:   `<form class="reply"><textarea name="reply" required aria-label="Reply" placeholder="Answer the question, or say what should change. The next worker reads the whole thread.">${esc(draft(t.id + ':reply'))}</textarea>
+                <div class="fields">${waitFor(t, 'name="after"')}<span class="end"><button type="button" class="outline" data-variant="danger" data-act="drop">Drop</button><button type="submit">Reply and requeue</button></span></div></form>`,
+      claimed: `<div class="actions"><button type="button" class="outline" data-variant="danger" data-act="revoke">Revoke</button><p>Revoking ends this attempt now. The task comes to you as stuck so you can say what should change.</p></div>`,
+      queued:  `<div class="actions fields"><label>Priority <select data-act="pri">${pris.map(p => `<option ${p === t.pri ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
+                ${waitFor(t, 'data-act="after"')}<span class="end"><button type="button" class="outline" data-variant="danger" data-act="drop">Drop</button></span></div>`,
+      done:    '',
+    }[t.state];
+    const edit = editing === t.id
+      ? `<form class="edit"><textarea name="text" aria-label="Task text" required>${esc(draft(t.id + ':text') || t.body)}</textarea>
+         <div class="fields"><span class="end"><button type="button" class="outline" data-act="cancel">Cancel</button><button type="submit">Save</button></span></div></form>`
+      : '';
+    const text = edit ? '' : `<p class="body">${esc(t.body)}</p>` + (editable ? `<p><button type="button" class="outline small" data-act="edit">Edit the task text</button></p>` : '');
+    const heads = [`<p>${state}</p>${text}`,
+      (t.thread.length ? `<h3>Thread</h3><ol class="thread">${t.thread.map(n => `<li><b>${esc(n.author)}</b>${esc(n.text)}</li>`).join('')}</ol>` : '') +
+      `<p class="facts">Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>`];
+    /* the forms depend on this much; while it holds, an update rewrites the heads and leaves the forms alone */
+    return { key: [t.state, edit !== '', t.pri, t.after.length].join(), heads, html: `<div class="sheet"><div data-head>${heads[0]}</div>${edit}<div data-head>${heads[1]}</div>${acts}</div>` };
+  }
+
+  /* one row. The node is kept across renders; only what changed is written. */
+  function row(el, { t, state, rdy }) {
+    const w = state === 'queued' ? waits(t) : [];
+    const last = t.thread[t.thread.length - 1];
+    const why = w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ')
+              : state === 'stuck' && last ? last.author + ': ' + clip(last.text) : '';
+    const lead = state === 'queued' ? (w.length ? '' : rdy.indexOf(t) + 1) : icon(ICON[state]);
+    const open = t.id === sel;
+    el.className = `task ${state}${open && fresh === t.id ? ' fresh' : ''}`;
+    el.dataset.id = t.id;
+    let sum = $(':scope > summary', el);
+    if (!sum) { sum = document.createElement('summary'); el.append(sum); }
+    sum.innerHTML = `<span class="lead n">${lead}</span><span class="t"><a href="${href(t.project, t.id)}" tabindex="-1">${esc(t.title)}</a>${why ? `<span class="why">${esc(why)}</span>` : ''}</span>` +
+      META[state](t).map((v, i) => `<span class="${HEAD[state][i][1]} n">${v}</span>`).join('');
+    const had = $(':scope > .sheet', el);
+    if (!open) { el.open = false; had?.remove(); el.dataset.key = ''; return; }
+    const { key, heads, html } = sheet(t);
+    el.open = true;
+    if (had && el.dataset.key === key) $$('[data-head]', had).forEach((h, i) => { h.innerHTML = heads[i]; });
+    else { had?.remove(); el.insertAdjacentHTML('beforeend', html); el.dataset.key = key; }
+  }
+
+  /* keyed reconciliation: a child that is no longer wanted goes first, one that is still wanted is
+     updated in place, a new one is made, and order is fixed with the fewest moves */
+  function reconcile(parent, items, make, update) {
+    const live = new Map([...parent.children].map(c => [c.dataset.k, c])), wanted = new Set(items.map(it => it.k));
+    for (const [k, el] of live) if (!wanted.has(k)) { el.remove(); live.delete(k); }
+    items.forEach((it, i) => {
+      let node = live.get(it.k);
+      if (!node) { node = make(it); node.dataset.k = it.k; }
+      update(node, it);
+      if (parent.children[i] !== node) parent.insertBefore(node, parent.children[i] || null);
+    });
+  }
+  const part = {
+    make: it => document.createElement(it.t ? 'details' : it.tag),
+    update: (el, it) => it.t ? row(el, it) : (el.innerHTML = it.html, el.className = it.cls || ''),
+  };
+
+  function list(sets, rdy) {
     const q = $('#q').value.trim().toLowerCase();
-    const hit = t => !q || [String(t.id), t.title, t.body, t.worker, ...(t.thread || [])].some(x => x && String(x).toLowerCase().includes(q));
+    const hit = t => !q || [String(t.id), t.title, t.body, t.worker, ...t.thread.map(n => n.text)].some(x => x && String(x).toLowerCase().includes(q));
+    const sections = [];
+    for (const [state, all] of Object.entries(sets)) {
+      let rows = all.filter(hit);
+      if (!rows.length) continue;
+      const total = rows.length;
+      if (state === 'done' && !q && !allDone) rows = rows.slice(0, DONE_CAP);
+      sections.push({ k: state, items: [
+        { k: 'head', tag: 'header', cls: 'head', html: `<h2>${cap(state)}${rows.length < total ? `<small>latest ${rows.length} of ${total}</small>` : ''}</h2>${HEAD[state].map(([l, c]) => `<span class="${c}">${l}</span>`).join('')}` },
+        ...rows.map(t => ({ k: String(t.id), t, state, rdy })),
+        ...(rows.length < total ? [{ k: 'more', tag: 'p', cls: 'more-done', html: `<button type="button" class="ghost small" data-act="all-done">Show all ${total} done</button>` }] : []),
+      ] });
+    }
+    if (!sections.length) sections.push({ k: 'empty', tag: 'p', cls: 'empty', html: q ? 'Nothing matches “' + esc(q) + '”.' : 'Nothing in ' + esc(project) + ' yet. Write its first task above.' });
+    reconcile($('#list'), sections,
+      it => { const el = document.createElement(it.items ? 'section' : it.tag); if (it.items) el.id = it.k; return el; },
+      (el, it) => it.items ? reconcile(el, it.items, part.make, part.update) : part.update(el, it));
+    fresh = null;
+  }
+
+
+  /* the fire alarm: always every project, never just this one */
+  function alarm() {
+    const n = s => by(s).length, s = n('stuck'), is = k => k === 1 ? 'is' : 'are', b = tasks.filter(t => t.state === 'queued' && waits(t).length).length;
+    const where = Object.entries(stuckBy).sort().map(([p, k]) => `<a href="#stuck" class="warn" data-project="${esc(p)}">${k} in ${esc(p)}</a>`);
+    const counts = `${n('claimed')} ${is(n('claimed'))} claimed, ${n('queued')} queued${b ? ` (${b} waiting on other tasks)` : ''}, ${n('done')} done.`;
+    $('#status').innerHTML = s
+      ? `<div role="alert" data-variant="warning"><p><strong>${s} ${is(s)} stuck</strong> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ${counts}</p></div>`
+      : `<p class="text-light">${counts}</p>`;
+    document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
+  }
+
+  function composer() {
+    const f = $('form.add'), a = f.after, was = a.value;
+    $('.project', f).textContent = project;
+    a.innerHTML = waitOpts({ after: [], id: 0 });
+    if ([...a.options].some(o => o.value === was)) a.value = was;     /* a pick from another project does not follow you: that is the link we refuse */
+  }
+
+  function render() {
+    stuckBy = {};
+    for (const t of tasks) if (t.state === 'stuck') stuckBy[t.project] = (stuckBy[t.project] || 0) + 1;
+    /* everything below the alarm is one project. One walk buckets it. */
     const sets = { stuck: [], claimed: [], queued: [], blocked: [], done: [] };
     for (const t of tasks) {
-      if (t.project !== project) continue;
+      if (!here(t)) continue;
       const bucket = t.state === 'queued' && waits(t).length ? 'blocked' : t.state;
-      if (sets[bucket]) sets[bucket].push(t);
+      if (sets[bucket]) sets[bucket].push(t);        /* a state this page does not know is not a reason to die */
     }
     sets.claimed.sort((a, b) => a.exp - b.exp);
     sets.done.sort((a, b) => b.added - a.added || b.id - a.id);
     const rdy = sets.queued.sort(order);
     sets.queued = [...rdy, ...sets.blocked.sort(order)];
     delete sets.blocked;
-    $('#title').textContent = project;
-    $('#list').innerHTML = Object.entries(sets).map(([state, all]) => {
-      const rows = all.filter(hit);
-      if (!rows.length) return '';
-      return `<section id="${state}" class="mt-8"><h2>${icon(ICON[state])} ${state[0].toUpperCase() + state.slice(1)}</h2><div class="table"><table><thead><tr>${COLS[state][0]}</tr></thead><tbody>` +
-        rows.map(t => {
-          const w = state === 'queued' ? waits(t) : [];
-          const under = w.length ? 'Not claimable until this is done: ' + w.map(a => a.title).join('; ') : '';
-          return `<tr data-id="${t.id}" ${t.id === cur ? 'aria-current="true"' : ''}>${state === 'queued' ? `<td class="align-right">${w.length ? '' : rdy.indexOf(t) + 1}</td>` : ''}` +
-            `<td><a href="${href(project, t.id)}">${esc(t.title)}</a>${under ? `<br><small class="text-light">${esc(under)}</small>` : ''}</td>${COLS[state][1](t)}</tr>`;
-        }).join('') + `</tbody></table></div></section>`;
-    }).join('') || `<p class="text-light mt-4">${q ? 'Nothing matches.' : 'Nothing in ' + esc(project) + ' yet.'}</p>`;
-
-    /* the alarm counts every project, not just this one */
-    const n = s => by(s).length, s = n('stuck'), is = k => k === 1 ? 'is' : 'are', b = tasks.filter(t => t.state === 'queued' && waits(t).length).length;
-    const where = Object.entries(stuckBy).sort().map(([p, k]) => `<a href="${href(p)}#stuck" data-project="${esc(p)}">${k} in ${esc(p)}</a>`);
-    const counts = `<a href="#claimed">${n('claimed')} ${is(n('claimed'))} claimed</a>, <a href="#queued">${n('queued')} queued</a>${b ? ` (${b} waiting on other tasks)` : ''}, <a href="#done">${n('done')} done</a>.`;
-    $('#status').innerHTML = s
-      ? `<div role="alert" data-variant="warning"><p><strong>${s} ${is(s)} stuck</strong> (${where.join(', ')}) and ${s === 1 ? 'needs' : 'need'} an answer from you. ${counts}</p></div>`
-      : `<p class="text-light">${counts}</p>`;
-  }
-
-  /* ---------- the opened task ---------- */
-  /* only this project may be waited on: a dependency across repositories is a mistake, not a feature */
-  const others = t => tasks.filter(x => x.id !== t.id && x.project === (t.project || project) && ['queued', 'claimed', 'stuck'].includes(x.state) && !(t.after || []).includes(x.id) && !(x.after || []).includes(t.id));
-  const waitOptions = t => `<option value="">nothing</option>${others(t).map(x => `<option value="${x.id}">${esc(x.title)}</option>`).join('')}`;
-  const footer = (label, cancel = 'Cancel') => `<footer class="hstack justify-end"><button type="button" class="outline" data-act="cancel">${cancel}</button><button type="submit">${label}</button></footer>`;
-
-  /* the head is rewritten on every change; the forms only when the task, its state, or the edit mode
-     changes, so a live reload never rebuilds a control you are using */
-  function task() {
-    const t = get(sel), el = $('#task');
-    if (!t) { el.innerHTML = `<p><button type="button" class="ghost" data-back>&larr; Back</button></p><p>No task ${sel}.</p>`; el.dataset.key = ''; return; }
-    const w = waits(t);
-    const state = {
-      stuck:   () => `Stuck after ${t.attempts === 1 ? 'one attempt' : t.attempts + ' attempts'}. It will not be claimed again until you reply.`,
-      claimed: () => `Claimed by ${esc(t.worker || 'unknown')}, attempt ${t.attempts}. The lease expires in ${until(t.exp, 3)}.`,
-      queued:  () => w.length ? `Not claimable until ${w.map(a => `<a href="${href(t.project, a.id)}">${esc(a.title)}</a>`).join(' and ')} ${w.length === 1 ? 'has' : 'have'} landed.`
-                              : `Number ${ready(tasks.filter(x => x.project === t.project)).indexOf(t) + 1} in the queue.`,
-      done:    () => t.worker ? `Done. ${esc(t.worker)}, attempt ${t.attempts}.` : `Done. Attempt ${t.attempts}.`,
-    }[t.state]();
-    const editable = t.state === 'stuck' || t.state === 'queued';
-    const text = editing ? '' : `<p class="body">${esc(t.body)}</p>` + (editable ? `<p><button type="button" class="outline small" data-act="edit">Edit the task text</button></p>` : '');
-    const forms = editing ? `<form class="edit"><label data-field>Task text<textarea name="text" rows="12" data-draft="edit:${t.id}">${esc(draft('edit:' + t.id) || t.body)}</textarea></label>${footer('Save')}</form>` : {
-      stuck:   `<form class="reply"><label data-field>Reply<textarea name="reply" required rows="6" data-draft="reply:${t.id}" placeholder="Answer the question, or say what should change. The next worker reads the whole thread.">${esc(draft('reply:' + t.id))}</textarea></label>
-                <label data-field>Wait for <select name="after">${waitOptions(t)}</select></label>${footer('Reply and requeue')}</form>
-                <p class="mt-8"><button type="button" class="outline small" data-variant="danger" data-act="drop">Drop</button></p>`,
-      claimed: `<p><button type="button" class="outline" data-variant="danger" data-act="revoke">Revoke</button></p><p class="text-light">Revoking ends this attempt now. The task comes to you as stuck so you can say what should change.</p>`,
-      queued:  `<div class="hstack gap-4"><label data-field>Priority <select data-act="pri">${[1, 2, 3, 4, 5].map(p => `<option ${p === t.pri ? 'selected' : ''}>${p}</option>`).join('')}</select></label>
-                <label data-field>Wait for <select data-act="after">${waitOptions(t)}</select></label></div>
-                <p><button type="button" class="outline small" data-variant="danger" data-act="drop">Drop</button></p>`,
-      done:    '',
-    }[t.state];
-    const key = [t.id, t.state, editing, t.pri, t.after.length].join();
-    if (el.dataset.key !== key) { el.innerHTML = `<div data-head></div><div data-forms>${forms}</div>`; el.dataset.key = key; }
-    $('[data-head]', el).innerHTML = `<p><button type="button" class="ghost" data-back>&larr; ${esc(t.project)}</button></p>
-      <h1>${esc(t.title)}</h1><p>${icon(ICON[t.state])} ${state}</p>${text}` +
-      (t.thread.length ? `<h3>Thread</h3><ol>${t.thread.map(l => `<li>${esc(l)}</li>`).join('')}</ol>` : '') +
-      `<p class="text-light">Task <code>${t.id}</code> in ${esc(t.project)}, priority ${t.pri}, added ${ago(t.added)}.</p>`;
-  }
-
-  function render() {
-    stuckBy = {};
-    for (const t of tasks) if (t.state === 'stuck') stuckBy[t.project] = (stuckBy[t.project] || 0) + 1;
-    sidebar();
-    const s = by('stuck').length;
-    document.title = (s ? `(${s} stuck) ` : '') + 'taskd';
-    $('#home').hidden = sel !== null;
-    $('#task').hidden = sel === null;
-    if (sel === null) list(); else task();
-    tick();
+    if (sets.done.findIndex(t => t.id === sel) >= DONE_CAP) allDone = true;     /* a link to an old task still opens it */
+    const cursor = document.activeElement?.matches?.('#list summary') && document.activeElement.parentElement.dataset.id;   /* where j and k were */
+    rail(sets); list(sets, rdy); alarm(); composer(); tick();
+    if (cursor && !document.activeElement?.matches?.('summary')) $(`details[data-id="${cursor}"] > summary`)?.focus({ preventScroll: true });
   }
 
   function tick() {
@@ -283,203 +474,257 @@ aside nav .badge { margin-inline-start: auto; }
     $$('[data-until]').forEach(el => {
       const ms = Math.max(0, el.dataset.until - now), s = Math.round(ms / 1000);
       const c = ms < 10 * MIN ? Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0') : Math.round(ms / MIN) + ' min';
-      el.innerHTML = ms < el.dataset.warn * MIN ? `<strong class="warn">${c}</strong>` : c;
+      el.innerHTML = ms < el.dataset.warn * MIN ? `<strong>${c}</strong>` : c;
     });
     for (const t of by('claimed')) {
-      if (t.exp && now >= t.exp && !t.expired) {
-        t.expired = true;
-        scheduleReload();
-        break;
-      }
+      if (t.exp && now >= t.exp && !t.expired) { t.expired = true; scheduleReload(); break; }
     }
   }
 
-  async function fetchNotes(t) {
+  function show(id) {
+    sel = fresh = id;
+    editing = null;
+    const picked = id && get(id);
+    if (picked && picked.project !== project) { setProject(picked.project); $('#q').value = ''; }   /* the open task and the list agree on the project */
+    render();
+    if (picked) fetchThread(picked.id);
+  }
+  function select(id, scroll = true) {
+    id = id ? +id : null;
+    if (id === sel) return;
+    show(id);
+    syncURL(id !== null);
+    if (id && scroll) $(`details[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /* the list carries each task's last note; the open row shows the whole thread, one request */
+  async function fetchThread(id) {
     try {
-      const res = await fetch('/tasks/' + t.id);
+      const res = await api('/tasks/' + id);
       if (!res.ok) return;
-      const full = await res.json();
-      t.thread = (full.notes || []).map(n => `${n.author}: ${n.text}`);
-      t.threadLoaded = true;
+      const full = await res.json(), notes = (full.notes || []).map(n => ({ author: n.author, text: n.text }));
+      const same = JSON.stringify(notes) === JSON.stringify(threads.get(id) || []);
+      threads.set(id, notes);
+      const t = get(id);
+      if (!t) return;
+      t.thread = notes;
       if (full.version !== undefined) t.version = full.version;
-      if (sel === t.id) render();
+      if (!same) render();
     } catch (_) {}
   }
 
   async function load() {
+    let raw;
     try {
-      const res = await fetch('/tasks?limit=1000');
-      if (!res.ok) return;
-      tasks = (await res.json()).map(mapTask);
-      if (tasks.some(t => t.project === newProject)) newProject = '';
-      const all = projects();
-      if (!all.includes(project)) { setProject(all[0] || 'taskd'); if (!all.length) newProject = 'taskd'; }   /* a bookmark to a project that is gone, or a fresh database */
-      const t = sel && get(sel);
-      if (t && t.project !== project) setProject(t.project);        /* a link to a task lands on its project */
-      if (new URL(location).searchParams.get('p') !== project) history.replaceState(history.state, '', href(project, sel));
-      render();
-      if (t) fetchNotes(t);                                          /* the thread may have grown */
-    } catch (_) {}
+      const res = await api('/tasks?limit=1000');
+      if (!res.ok) throw 0;
+      raw = await res.json();
+    } catch (_) { return; }
+    tasks = raw.map(mapTask);
+    if (tasks.some(t => t.project === newProject)) newProject = '';   /* the + project has a task now; the data carries it */
+    const all = projects(), was = project;
+    if (!all.includes(project)) { setProject(all[0] || 'taskd'); if (!all.length) newProject = 'taskd'; }   /* a bookmark to a project that is gone, or a fresh database */
+    if (sel && get(sel) && get(sel).project !== project) setProject(get(sel).project);   /* a link to a task lands on its project */
+    if (first && !sel) sel = tasks.find(t => t.state === 'stuck' && here(t))?.id || null;   /* you arrive, the thing that needs you is already open */
+    if (project !== was || first) syncURL();
+    first = false;
+    render();
+    if (sel) fetchThread(sel);
   }
 
-  /* ---------- the new task dialog ---------- */
-  function openAdd() {
-    const f = $('#add form');
-    $('#addproject').textContent = project;
-    f.elements.after.innerHTML = waitOptions({ id: 0, after: [], project });
-    f.elements.body.value = draft('add');
-    $('#add').showModal();
-    f.elements.body.focus();
+  /* ---------- the dialog: replaces prompt, confirm and alert ---------- */
+  function ask({ title, text = '', ok, danger = false, line, para }) {
+    const d = $('#ask'), f = $('form', d), field = line || para;
+    $('h3', d).textContent = title;
+    $('header p', d).textContent = text;
+    $('header p', d).hidden = !text;
+    $('form > div', d).hidden = !field;
+    f.line.hidden = !line; f.line.disabled = !line; f.para.hidden = !para; f.para.disabled = !para;
+    f.reset();
+    if (field) {
+      $('label span', d).textContent = field.label;
+      $('[data-hint]', d).textContent = field.hint || '';
+      const el = line ? f.line : f.para;
+      el.required = !!field.required;
+      el.placeholder = field.placeholder || '';
+      if (line) field.pattern ? f.line.setAttribute('pattern', field.pattern) : f.line.removeAttribute('pattern');
+    }
+    const go = $('button[type="submit"]', d);
+    go.textContent = ok;
+    danger ? go.setAttribute('data-variant', 'danger') : go.removeAttribute('data-variant');
+    d.returnValue = '';
+    d.showModal();
+    return new Promise(done => d.addEventListener('close', () => done(d.returnValue !== 'ok' ? null : line ? f.line.value.trim() : para ? f.para.value.trim() : true), { once: true }));
   }
+  $('#ask [data-cancel]').addEventListener('click', () => $('#ask').close('cancel'));
 
   /* ---------- events ---------- */
-  document.addEventListener('click', e => {
-    const a = e.target.closest('a[href]');
-    if (a && a.origin === location.origin && (a.search.startsWith('?p=') || a.hash)) {
-      e.preventDefault();
-      const p = new URLSearchParams(a.search).get('p') || project, id = +a.hash.slice(1) || null;
-      if (id) return go(p, id, true);
-      if (p !== project || sel !== null) go(p, null, true);
-      if (a.hash) $(a.hash)?.scrollIntoView({ block: 'start' });     /* #stuck, #queued: a section, not a task */
-      return;
-    }
-    const tr = e.target.closest('#list tbody tr');
-    if (tr) return go(project, +tr.dataset.id, true);
-    if (e.target.closest('[data-back]')) return back();
-    if (e.target.closest('[data-close]')) return $('#add').close();
-  });
-  addEventListener('popstate', route);
-
-  $('#q').addEventListener('input', list);
-  $('#new').addEventListener('click', openAdd);
-  $('#newproject').addEventListener('click', () => {
-    const name = (prompt('New project name (letters, digits, . _ -)') || '').trim();
-    if (!name) return;
-    if (!NAME.test(name)) return toast('A project name is letters, digits, dots, dashes and underscores, up to 64 of them.');
-    newProject = name;
-    go(name, null, true);
-  });
-
-  /* a draft lives in sessionStorage until it is sent or cleared */
-  document.addEventListener('input', e => {
-    const key = e.target.dataset && e.target.dataset.draft;
-    if (key) sessionStorage.setItem('draft:' + key, e.target.value);
-  });
-
-  /* light or dark: the choice is kept; with nothing chosen the page follows the system */
-  const applyTheme = () => {
-    const t = localStorage.getItem('theme') || '';
-    document.documentElement.style.colorScheme = t || '';
-    const on = t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-    $$('#theme button').forEach(b => { b.classList.toggle('outline', b.dataset.theme !== on); b.setAttribute('aria-pressed', String(b.dataset.theme === on)); });
+  const patch = async (t, data) => {
+    if (t.version != null) data.if_version = t.version;
+    const res = await api('/tasks/' + t.id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+    if (res.status === 409) { stale(); await load(); return false; }
+    if (!res.ok) { fail(res); return false; }
+    return true;
   };
-  $('#theme').addEventListener('click', e => {
-    const b = e.target.closest('button[data-theme]');
-    if (!b) return;
-    localStorage.setItem('theme', b.dataset.theme);
-    applyTheme();
-  });
-  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
-  applyTheme();
+  const post = (path, data) => api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
 
-  $('#task').addEventListener('click', async e => {
+  $('#list').addEventListener('click', async e => {
+    const sum = e.target.closest('summary');
+    if (sum) {
+      if (e.target.closest('a') && (e.metaKey || e.ctrlKey || e.shiftKey)) return;   /* a row is still a link you can open elsewhere */
+      e.preventDefault();
+      if (e.detail && !getSelection().isCollapsed) return;   /* dragging over a title to copy it is not a click */
+      const id = +sum.parentElement.dataset.id;
+      return select(id === sel ? null : id);
+    }
+    const link = e.target.closest('.sheet a[data-task]');
+    if (link) { e.preventDefault(); return select(link.dataset.task); }
     const b = e.target.closest('button[data-act]');
     if (!b) return;
-    const t = get(sel), act = b.dataset.act;
-    if (act === 'cancel') {
-      const f = b.closest('form');
-      if (f.matches('.edit')) { sessionStorage.removeItem('draft:edit:' + t.id); editing = false; return render(); }
-      sessionStorage.removeItem('draft:reply:' + t.id);
-      f.elements.reply.value = '';
-      return;
-    }
+    const act = b.dataset.act, t = get(sel);
+    if (act === 'all-done') { allDone = true; return render(); }
     if (!t) return;
-    if (act === 'edit') { editing = true; render(); return $('#task form.edit textarea').focus(); }
+    if (act === 'edit') { editing = t.id; render(); return $('form.edit textarea')?.focus(); }
+    if (act === 'cancel') { editing = null; setDraft(t.id + ':text', ''); return render(); }
     if (act === 'drop') {
-      if (!confirm(`Drop “${t.title}”? It leaves the queue.`)) return;
-      const res = await fetch('/tasks/' + t.id, { method: 'DELETE' });
-      if (!res.ok) return fail(await res.json().catch(() => ({})));
-      go(project, null, false);
+      if (!await ask({ title: 'Drop this task?', text: `“${t.title}” leaves the queue for good.`, ok: 'Drop', danger: true })) return;
+      const res = await api('/tasks/' + t.id, { method: 'DELETE' });
+      if (!res.ok) return fail(res);
+      select(null);
+      ot.toast(t.title, 'Dropped', { placement: 'bottom-center' });
       return load();
     }
     if (act === 'revoke') {
-      const why = prompt(`Why are you revoking ${t.worker}? This goes in the thread.`);
+      const why = await ask({ title: 'Revoke this attempt?', text: `${t.worker || 'The worker'} stops now and the task comes to you as stuck.`, ok: 'Revoke', danger: true,
+        para: { label: 'Why? This goes in the thread.', placeholder: 'Optional, but the next worker reads it.' } });
       if (why === null) return;
-      if (why.trim()) {
-        const res = await json('POST', '/tasks/' + t.id + '/notes', { author: 'you', text: why.trim() });
-        if (!res.ok) return fail(await res.json().catch(() => ({})));
-      }
-      const res = await json('POST', '/tasks/' + t.id + '/bury', { worker: t.worker });
-      if (!res.ok) return fail(await res.json().catch(() => ({})));
+      if (why) { const r = await post('/tasks/' + t.id + '/notes', { author: 'you', text: why }); if (!r.ok) return fail(r); }
+      const r = await post('/tasks/' + t.id + '/bury', { worker: t.worker });
+      if (!r.ok) return fail(r);
       return load();
     }
   });
 
-  /* a PATCH carries the version we saw; 409 means someone else got there first */
-  async function patch(t, data) {
-    if (t.version != null) data.if_version = t.version;
-    const res = await json('PATCH', '/tasks/' + t.id, data);
-    if (res.status === 409) { toast('Changed elsewhere, reloading'); load(); return false; }
-    if (!res.ok) { fail(await res.json().catch(() => ({}))); return false; }
-    return true;
-  }
+  $('#list').addEventListener('input', e => {
+    if (e.target.matches('textarea[name]') && sel) setDraft(sel + ':' + e.target.name, e.target.value);
+  });
 
-  $('#task').addEventListener('change', async e => {
+  $('#list').addEventListener('change', async e => {
     const t = get(sel), a = e.target.dataset.act;
     if (!t || !a) return;
     if (a === 'pri' && await patch(t, { priority: +e.target.value })) return load();
     if (a === 'after' && e.target.value && await patch(t, { after: [...t.after, +e.target.value] })) return load();
   });
 
-  $('#task').addEventListener('submit', async e => {
+  $('#list').addEventListener('submit', async e => {
     e.preventDefault();
     const f = e.target, v = new FormData(f), t = get(sel);
+    if (!t) return;
     if (f.matches('.edit')) {
       const rest = v.get('text').trim();
       if (!await patch(t, { body: t.title ? (rest ? t.title + '\n\n' + rest : t.title) : rest })) return;
-      sessionStorage.removeItem('draft:edit:' + t.id);
-      editing = false;
+      editing = null; setDraft(t.id + ':text', '');
       return load();
     }
-    const text = v.get('reply').trim();
-    const res = await json('POST', '/tasks/' + t.id + '/notes', { author: 'you', text });
-    if (!res.ok) return fail(await res.json().catch(() => ({})));
-    if (v.get('after') && !await patch(t, { after: [...t.after, +v.get('after')] })) return;
-    const kick = await json('POST', '/tasks/' + t.id + '/kick', {});
-    if (!kick.ok) return fail(await kick.json().catch(() => ({})));
-    sessionStorage.removeItem('draft:reply:' + t.id);
-    return load();
+    if (f.matches('.reply')) {
+      const note = await post('/tasks/' + t.id + '/notes', { author: 'you', text: v.get('reply').trim() });
+      if (!note.ok) return fail(note);
+      setDraft(t.id + ':reply', '');
+      if (v.get('after') && !await patch(t, { after: [...t.after, +v.get('after')] })) return;
+      const kick = await post('/tasks/' + t.id + '/kick', {});
+      if (!kick.ok) return fail(kick);
+      ot.toast(t.title, 'Replied and requeued', { variant: 'success', placement: 'bottom-center' });
+      return load();
+    }
   });
 
-  $('#add form').addEventListener('submit', async e => {
-    e.preventDefault();
-    const f = e.target, v = new FormData(f);
-    const res = await json('POST', '/tasks', { body: v.get('body').trim(), project, priority: +v.get('pri'), after: v.get('after') ? [+v.get('after')] : [] });
-    if (!res.ok) return fail(await res.json().catch(() => ({})));
-    sessionStorage.removeItem('draft:add');
-    f.reset();
-    $('#add').close();
-    load();
+  /* the blank task at the top of the column */
+  const add = $('form.add');
+  const shut = () => { add.classList.remove('open'); add.body.scrollTop = 0; if (add.contains(document.activeElement)) document.activeElement.blur(); };
+  add.addEventListener('focusin', () => add.classList.add('open'));
+  addEventListener('pointerdown', e => { if (!add.contains(e.target)) add.classList.remove('open'); });
+  addEventListener('focusin', e => { if (!add.contains(e.target)) add.classList.remove('open'); });
+  add.addEventListener('click', e => {
+    if (!e.target.closest('[data-act="clear"]')) return;
+    add.reset(); shut();
   });
+  add.addEventListener('submit', async e => {
+    e.preventDefault();
+    const v = new FormData(add), body = v.get('body').trim();
+    const res = await post('/tasks', { body, project, priority: +v.get('pri'), after: v.get('after') ? [+v.get('after')] : [] });
+    if (!res.ok) return fail(res);
+    add.reset(); shut();
+    ot.toast(body.split('\n')[0], 'Added to the queue', { variant: 'success', placement: 'bottom-center' });
+    await load();
+  });
+
+  function go(p, open) {
+    setProject(p);
+    sel = open || null; editing = null;
+    $('#q').value = '';
+    document.body.removeAttribute('data-sidebar-open');
+    syncURL();
+    render();
+    if (sel) fetchThread(sel);
+  }
+  $('#projects').addEventListener('click', e => {
+    const a = e.target.closest('a[data-project]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    go(a.dataset.project);                         /* walking away from an empty + project closes it */
+    $('#main').scrollTop = 0;
+  });
+  $('#add-project').addEventListener('click', async () => {
+    const name = await ask({ title: 'New project', ok: 'Open it', line: { label: 'Name', required: true, pattern: NAME, placeholder: 'taskd-web', hint: 'Letters, digits, dots, dashes and underscores, up to 64. It exists once it has a task.' } });
+    if (!name) return;
+    newProject = name;
+    go(name);
+    add.body.focus();
+  });
+  const jump = href => { document.body.removeAttribute('data-sidebar-open'); $(href)?.scrollIntoView({ block: 'start' }); };
+  $('#states').addEventListener('click', e => {
+    const a = e.target.closest('a');
+    if (a) { e.preventDefault(); jump(a.getAttribute('href')); }
+  });
+  $('#status').addEventListener('click', e => {
+    const a = e.target.closest('a[data-project]');
+    if (!a) return;
+    e.preventDefault();
+    const p = a.dataset.project, s = tasks.find(t => t.state === 'stuck' && t.project === p);   /* the alarm takes you to the thing that is on fire */
+    if (p !== project) go(p, s?.id); else if (s) select(s.id, false);
+    jump('#stuck');
+  });
+  $('#q').addEventListener('input', render);
+
+  /* light or dark: the choice is kept; with nothing chosen the page follows the system */
+  const applyTheme = () => {
+    const t = store('theme') || '';
+    document.documentElement.style.colorScheme = t || '';
+    $$('#theme button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === (t || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')))));
+  };
+  $('#theme').addEventListener('click', e => {
+    const b = e.target.closest('button[data-theme]');
+    if (!b) return;
+    store('theme', b.dataset.theme);
+    applyTheme();
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+  applyTheme();
 
   addEventListener('keydown', e => {
-    const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName);
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && document.activeElement?.form) return document.activeElement.form.requestSubmit();
-    if ($('#add').open) return;                                  /* the dialog owns its keys; Escape closes it */
-    if (e.key === 'Escape') { if (typing) document.activeElement.blur(); else if (sel !== null) back(); return; }
+    const el = document.activeElement, typing = /INPUT|TEXTAREA|SELECT/.test(el?.tagName);
+    if ($('#ask').open) return;
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && el?.form) return el.form.requestSubmit();
+    if (e.key === 'Escape') { add.contains(el) ? shut() : typing ? el.blur() : select(null); return; }
     if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (e.key === '/') { e.preventDefault(); if (sel === null) $('#q').focus(); }
-    if (e.key === 'n') { e.preventDefault(); openAdd(); }
-    if (sel !== null) return;
+    if (e.key === '/') { e.preventDefault(); $('#q').focus(); }
+    if (e.key === 'n') { e.preventDefault(); $('#main').scrollTop = 0; add.body.focus(); }
     if (e.key === 'j' || e.key === 'k') {
-      const ids = $$('#list tbody tr').map(r => +r.dataset.id), i = ids.indexOf(cur), next = ids[e.key === 'j' ? Math.min(ids.length - 1, i + 1) : Math.max(0, i - 1)];
-      if (next && next !== cur) {
-        $(`tr[data-id="${cur}"]`)?.removeAttribute('aria-current');
-        cur = next;
-        const row = $(`tr[data-id="${cur}"]`); row.setAttribute('aria-current', 'true'); row.scrollIntoView({ block: 'nearest' });
-      }
+      /* j and k move a cursor, enter opens: rows unfolding under a moving cursor would make the list jump */
+      const rows = $$('#list summary'), at = el?.matches?.('summary') ? el : $(`details[data-id="${sel}"] > summary`), i = rows.indexOf(at);
+      const next = rows[e.key === 'j' ? Math.min(rows.length - 1, i + 1) : Math.max(0, i - 1)];
+      if (next) { next.focus({ preventScroll: true, focusVisible: true }); next.scrollIntoView({ block: 'nearest' }); }
     }
-    if (e.key === 'Enter' && cur && !/BUTTON|A/.test(document.activeElement?.tagName) && $(`tr[data-id="${cur}"]`)) go(project, cur, true);
   });
 
   let reloadTimer;
@@ -488,21 +733,15 @@ aside nav .badge { margin-inline-start: auto; }
     reloadTimer = setTimeout(load, 100 + Math.random() * 400);
   }
 
-  let hadError = false;
-  const es = new EventSource('/api/events');
-  es.addEventListener('change', scheduleReload);
-  es.onerror = () => { hadError = true; };
-  es.onopen = () => {
-    if (hadError) {
-      hadError = false;
-      scheduleReload();
-    }
-  };
+  let hadError = false, es;
+  try {
+    es = new EventSource('/api/events');
+    es.addEventListener('change', scheduleReload);
+    es.onerror = () => { hadError = true; };
+    es.onopen = () => { if (hadError) { hadError = false; scheduleReload(); } };
+  } catch (_) {}
 
-  const u0 = new URL(location);
-  if (u0.searchParams.get('p')) setProject(u0.searchParams.get('p'));
-  sel = +u0.hash.slice(1) || null;
-  cur = sel;
+  sel = +new URLSearchParams(location.search).get('t') || null;
   load();
   setInterval(tick, 1000);
 })();

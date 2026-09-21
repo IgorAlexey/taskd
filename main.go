@@ -1207,6 +1207,7 @@ type taskItem struct {
 	ClaimCount   int             `json:"claim_count"`
 	CreatedAt    int64           `json:"created_at"`
 	After        []int64         `json:"after"`
+	LastNote     *taskNote       `json:"last_note,omitempty"`
 
 	summaryPrefix string
 }
@@ -2580,6 +2581,41 @@ WHERE id=? AND status!='done' AND NOT (status='leased' AND lease_expires >= unix
 				}
 			}
 			if err := depRows.Err(); err != nil {
+				internalError(w, err)
+				return
+			}
+		}
+
+		// The last note rides along with each row so a list can show what
+		// a worker last said without a request per task. The ids travel as
+		// one JSON array, so a page of any size stays one bound variable.
+		if requestedFields == nil && len(tasks) > 0 {
+			taskIndex := make(map[int64]int, len(tasks))
+			ids := make([]int64, len(tasks))
+			for i := range tasks {
+				taskIndex[tasks[i].ID] = i
+				ids[i] = tasks[i].ID
+			}
+			idJSON, _ := json.Marshal(ids)
+			noteRows, err := db.ro.Query(`SELECT n.task_id, n.id, n.created_at, n.author, n.text
+FROM json_each(?) j JOIN notes n ON n.id = (SELECT MAX(id) FROM notes WHERE task_id = j.value)`, string(idJSON))
+			if err != nil {
+				internalError(w, err)
+				return
+			}
+			defer noteRows.Close()
+			for noteRows.Next() {
+				var tid int64
+				var n taskNote
+				if err := noteRows.Scan(&tid, &n.ID, &n.CreatedAt, &n.Author, &n.Text); err != nil {
+					internalError(w, err)
+					return
+				}
+				if idx, ok := taskIndex[tid]; ok {
+					tasks[idx].LastNote = &n
+				}
+			}
+			if err := noteRows.Err(); err != nil {
 				internalError(w, err)
 				return
 			}

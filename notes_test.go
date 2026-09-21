@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -212,7 +211,7 @@ func TestNotes_CascadeOnTaskDelete(t *testing.T) {
 	}
 }
 
-func TestNotes_ListByteIdentical(t *testing.T) {
+func TestNotes_ListCarriesLastNote(t *testing.T) {
 	db, err := openDB(filepath.Join(t.TempDir(), "t.db"), 0)
 	if err != nil {
 		t.Fatalf("openDB failed: %v", err)
@@ -226,42 +225,38 @@ func TestNotes_ListByteIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create task failed: %v", err)
 	}
-	var createdListCheck map[string]int64
-	json.NewDecoder(createRes.Body).Decode(&createdListCheck)
+	var created map[string]int64
+	json.NewDecoder(createRes.Body).Decode(&created)
 	createRes.Body.Close()
-	taskListCheckPath := fmt.Sprintf("/tasks/%d", createdListCheck["id"])
+	notesPath := fmt.Sprintf("/tasks/%d/notes", created["id"])
 
-	listResBefore, err := http.Get(srv.URL + "/tasks?project=p1")
-	if err != nil {
-		t.Fatalf("get tasks before failed: %v", err)
-	}
-	beforeBytes, err := io.ReadAll(listResBefore.Body)
-	listResBefore.Body.Close()
-	if err != nil {
-		t.Fatalf("read before failed: %v", err)
-	}
-
-	noteRes, err := http.Post(srv.URL+taskListCheckPath+"/notes", "application/json", bytes.NewBufferString(`{"author":"alice","text":"new note"}`))
-	if err != nil {
-		t.Fatalf("post note failed: %v", err)
-	}
-	noteRes.Body.Close()
-	if noteRes.StatusCode != http.StatusCreated {
-		t.Fatalf("expected 201, got %d", noteRes.StatusCode)
+	list := func() []map[string]any {
+		res, err := http.Get(srv.URL + "/tasks?project=p1")
+		if err != nil {
+			t.Fatalf("get tasks failed: %v", err)
+		}
+		defer res.Body.Close()
+		var items []map[string]any
+		json.NewDecoder(res.Body).Decode(&items)
+		return items
 	}
 
-	listResAfter, err := http.Get(srv.URL + "/tasks?project=p1")
-	if err != nil {
-		t.Fatalf("get tasks after failed: %v", err)
+	if _, has := list()[0]["last_note"]; has {
+		t.Fatalf("expected no last_note before any note")
 	}
-	afterBytes, err := io.ReadAll(listResAfter.Body)
-	listResAfter.Body.Close()
-	if err != nil {
-		t.Fatalf("read after failed: %v", err)
+	for _, text := range []string{"first", "second"} {
+		res, err := http.Post(srv.URL+notesPath, "application/json", bytes.NewBufferString(`{"author":"alice","text":"`+text+`"}`))
+		if err != nil {
+			t.Fatalf("post note failed: %v", err)
+		}
+		res.Body.Close()
+		if res.StatusCode != http.StatusCreated {
+			t.Fatalf("expected 201, got %d", res.StatusCode)
+		}
 	}
-
-	if !bytes.Equal(beforeBytes, afterBytes) {
-		t.Fatalf("expected GET /tasks output to be byte-identical:\nbefore: %s\nafter:  %s", string(beforeBytes), string(afterBytes))
+	last, _ := list()[0]["last_note"].(map[string]any)
+	if last["author"] != "alice" || last["text"] != "second" {
+		t.Fatalf("expected last_note alice/second, got %v", last)
 	}
 }
 
