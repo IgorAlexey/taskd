@@ -257,9 +257,23 @@ func (s *server) touchIDHandler(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	s.db.events.publish()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(env)
+}
+
+func (s *server) touchWorkerHandler(w http.ResponseWriter, r *http.Request) {
+	worker, ok := decodeWorker(w, r)
+	if !ok {
+		return
+	}
+	res, err := s.db.rw.Exec("UPDATE tasks SET lease_expires = unixepoch() + ? WHERE status='leased' AND worker=? AND lease_expires >= unixepoch()", s.lease, worker)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	n, _ := res.RowsAffected()
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int64{"touched": n})
 }
 
 func (s *server) releaseIDHandler(w http.ResponseWriter, r *http.Request) {

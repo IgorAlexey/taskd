@@ -86,6 +86,12 @@ func TestCLI(t *testing.T) {
 	if out := want(0, "touch", "1"); !strings.Contains(out, `"lease_expires"`) {
 		t.Fatalf("touch printed %q", out)
 	}
+	if out := want(0, "touch"); out != "{\"touched\":4}\n" {
+		t.Fatalf("touch without an id printed %q", out)
+	}
+	if out := want(0, "touch", "-worker", "w2"); out != "{\"touched\":0}\n" {
+		t.Fatalf("touch by a worker holding nothing printed %q", out)
+	}
 	want(0, "note", "1", "found it")
 	if out := want(0, "show", "1"); !strings.Contains(out, `"text":"found it"`) || !strings.Contains(out, `"author":"w1"`) {
 		t.Fatalf("show printed %q", out)

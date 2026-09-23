@@ -29,7 +29,7 @@ var synopsis = map[string]string{
 	"claim":   "[id]",
 	"done":    "ID",
 	"close":   "ID",
-	"touch":   "ID",
+	"touch":   "[ID]",
 	"release": "ID",
 	"bury":    "ID",
 	"kick":    "ID",
@@ -99,7 +99,15 @@ func runClient(stdout, stderr io.Writer, stdin io.Reader, args []string) int {
 		run = func(args []string) error { return c.done(args, *result) }
 	case "close", "kick":
 		run = func(args []string) error { return c.act(cmd, args, map[string]any{}) }
-	case "touch", "release":
+	case "touch":
+		worker()
+		run = func(args []string) error {
+			if len(args) == 0 {
+				return c.print("POST", "/tasks/touch", map[string]any{"worker": c.worker}, false)
+			}
+			return c.act(cmd, args, map[string]any{"worker": c.worker})
+		}
+	case "release":
 		worker()
 		run = func(args []string) error { return c.act(cmd, args, map[string]any{"worker": c.worker}) }
 	case "bury":

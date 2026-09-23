@@ -67,6 +67,9 @@ func (s *server) handler() http.Handler {
 	handleMethods(mux, "/tasks/{id}/close", map[string]route{
 		http.MethodPost: {handler: s.closeIDHandler},
 	})
+	handleMethods(mux, "/tasks/touch", map[string]route{
+		http.MethodPost: {handler: s.touchWorkerHandler},
+	})
 	handleMethods(mux, "/tasks/{id}/touch", map[string]route{
 		http.MethodPost: {handler: s.touchIDHandler},
 	})
