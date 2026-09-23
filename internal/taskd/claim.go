@@ -297,6 +297,42 @@ func (s *server) releaseIDHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *server) releaseWorkerHandler(w http.ResponseWriter, r *http.Request) {
+	worker, ok := decodeWorker(w, r)
+	if !ok {
+		return
+	}
+	rows, err := s.db.rw.Query("UPDATE tasks SET status='pending', worker=NULL, lease_expires=NULL, claim_count=max(claim_count-1, 0), version = version + 1 WHERE status='leased' AND worker=? RETURNING project", worker)
+	if err != nil {
+		internalError(w, err)
+		return
+	}
+	defer rows.Close()
+	projects := map[string]bool{}
+	var n int64
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			internalError(w, err)
+			return
+		}
+		projects[p] = true
+		n++
+	}
+	if err := rows.Err(); err != nil {
+		internalError(w, err)
+		return
+	}
+	if n > 0 {
+		s.db.events.publish()
+	}
+	for p := range projects {
+		s.db.notifyPending(p)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int64{"released": n})
+}
+
 func (s *server) buryIDHandler(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Worker     string          `json:"worker"`

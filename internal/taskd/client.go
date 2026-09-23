@@ -30,7 +30,7 @@ var synopsis = map[string]string{
 	"done":    "ID",
 	"close":   "ID",
 	"touch":   "[ID]",
-	"release": "ID",
+	"release": "[ID]",
 	"bury":    "ID",
 	"kick":    "ID",
 	"note":    "ID [text]",
@@ -109,7 +109,12 @@ func runClient(stdout, stderr io.Writer, stdin io.Reader, args []string) int {
 		}
 	case "release":
 		worker()
-		run = func(args []string) error { return c.act(cmd, args, map[string]any{"worker": c.worker}) }
+		run = func(args []string) error {
+			if len(args) == 0 {
+				return c.print("POST", "/tasks/release", map[string]any{"worker": c.worker}, false)
+			}
+			return c.act(cmd, args, map[string]any{"worker": c.worker})
+		}
 	case "bury":
 		worker()
 		priority()

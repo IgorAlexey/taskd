@@ -18,7 +18,7 @@ sending TASKD_TOKEN when the daemon requires one:
   done ID            finish a claimed task (-result JSON)
   close ID           finish a task without a result
   touch [ID]         extend the lease on a claimed task, or on all of them
-  release ID         put a claimed task back in the queue
+  release [ID]       put a claimed task back in the queue, or all of them
   bury ID            park a task that cannot proceed
   kick ID            return a parked task to the queue
   note ID [text]     append a note; text from stdin when absent
@@ -89,6 +89,7 @@ HTTP Endpoints:
   POST   /tasks/purge        bulk-delete completed tasks (optional ?project=)
   POST   /tasks/kick         bulk-unbury tasks (optional project, limit)
   POST   /tasks/touch        extend every live lease of a worker (requires worker)
+  POST   /tasks/release      release every lease of a worker (requires worker)
   GET    /projects           list projects
   POST   /projects           create a project (requires name; 409 if it exists)
   PATCH  /projects/{name}    rename a project (requires name; 409 if the name is in use)

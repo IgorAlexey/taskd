@@ -103,6 +103,15 @@ func TestCLI(t *testing.T) {
 		t.Fatalf("done again: exit %d, stdout %q, stderr %q", code, out, errs)
 	}
 	want(0, "release", "2")
+	if out := want(0, "release", "-worker", "w2"); out != "{\"released\":0}\n" {
+		t.Fatalf("release by a worker holding nothing printed %q", out)
+	}
+	if out := want(0, "release"); out != "{\"released\":2}\n" {
+		t.Fatalf("release without an id printed %q", out)
+	}
+	if out := want(0, "claim", "-q"); out != "2\n" {
+		t.Fatalf("claim after release printed %q", out)
+	}
 	var list []struct {
 		Primitives json.RawMessage `json:"primitives"`
 	}
